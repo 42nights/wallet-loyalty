@@ -211,3 +211,48 @@ $$;
 
 -- Housekeeping: sweep stale rate-limit buckets (run via pg_cron, or occasionally).
 --   delete from rate_limits where window_start < now() - interval '1 day';
+
+-- ---------------------------------------------------------------------------
+-- merchant_stats — owner dashboard metrics, all derived from the ledger so the
+-- numbers reconcile by construction. Returns a single jsonb object.
+-- ---------------------------------------------------------------------------
+create or replace function merchant_stats(p_merchant uuid)
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'members',
+      (select count(*) from passes where merchant_id = p_merchant),
+    'active_members',
+      (select count(distinct serial) from transactions
+        where merchant_id = p_merchant
+          and created_at > now() - interval '30 days'),
+    'points_issued',
+      (select coalesce(sum(delta), 0) from transactions
+        where merchant_id = p_merchant and delta > 0),
+    'points_redeemed',
+      (select coalesce(-sum(delta), 0) from transactions
+        where merchant_id = p_merchant and delta < 0),
+    'top_redemptions',
+      (select coalesce(jsonb_agg(row_to_json(r)), '[]'::jsonb) from (
+        select reason, count(*)::int as count, (-sum(delta))::int as points
+          from transactions
+         where merchant_id = p_merchant and delta < 0 and reason like 'redeem:%'
+         group by reason
+         order by count(*) desc
+         limit 10
+      ) r),
+    'repeat_rate',
+      (select case when base.cnt = 0 then 0
+                   else round(rep.cnt::numeric / base.cnt, 3) end
+         from
+           (select count(*) as cnt from (
+              select serial from transactions
+               where merchant_id = p_merchant and reason like 'earn:%'
+               group by serial
+            ) s) base,
+           (select count(*) as cnt from (
+              select serial from transactions
+               where merchant_id = p_merchant and reason like 'earn:%'
+               group by serial having count(*) >= 2
+            ) s) rep)
+  );
+$$;
