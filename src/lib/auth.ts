@@ -8,7 +8,13 @@ const SECRET = new TextEncoder().encode(
 );
 const COOKIE = "staff_session";
 
-export type Staff = { id: string; username: string; merchantId: string | null };
+export type Role = "owner" | "cashier";
+export type Staff = {
+  id: string;
+  username: string;
+  merchantId: string | null;
+  role: Role;
+};
 
 export async function verifyLogin(
   username: string,
@@ -16,13 +22,18 @@ export async function verifyLogin(
 ): Promise<Staff | null> {
   const { data, error } = await db
     .from("staff")
-    .select("id, username, merchant_id, password_hash")
+    .select("id, username, merchant_id, password_hash, role")
     .eq("username", username)
     .single();
   if (error || !data) return null;
   const ok = await bcrypt.compare(password, data.password_hash);
   if (!ok) return null;
-  return { id: data.id, username: data.username, merchantId: data.merchant_id };
+  return {
+    id: data.id,
+    username: data.username,
+    merchantId: data.merchant_id,
+    role: (data.role as Role) ?? "cashier",
+  };
 }
 
 export async function createSession(staff: Staff): Promise<void> {
@@ -49,6 +60,7 @@ export async function getStaff(): Promise<Staff | null> {
       id: payload.id as string,
       username: payload.username as string,
       merchantId: (payload.merchantId as string) ?? null,
+      role: (payload.role as Role) ?? "cashier",
     };
   } catch {
     return null;

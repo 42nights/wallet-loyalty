@@ -19,14 +19,11 @@ export const REDEMPTIONS: Action[] = [
   { id: "extra_sauce", label: "Extra Sauce", points: -100, kind: "redeem" },
 ];
 
-// How customers EARN points. You only gave me redemptions, so I added a basic
-// earn flow — otherwise balances never go up and there's nothing to redeem.
-// Swap this for "points per dollar spent" or whatever your model is.
-export const EARN_PRESETS: Action[] = [
-  { id: "earn_visit", label: "+ Visit", points: 200, kind: "earn" },
-];
-
-export const ALL_ACTIONS: Action[] = [...REDEMPTIONS, ...EARN_PRESETS];
+// Earning is points-per-dollar with a per-merchant `earn_rate` (merchants
+// table). The /scan bill-amount input applies round(earn_rate * amount)
+// server-side (see /api/merchant/redeem). There are no fixed earn presets —
+// only the redeem buttons above are fixed.
+export const ALL_ACTIONS: Action[] = [...REDEMPTIONS];
 
 export function findAction(id: string): Action | undefined {
   return ALL_ACTIONS.find((a) => a.id === id);

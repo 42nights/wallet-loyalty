@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { REDEMPTIONS, EARN_PRESETS } from "@/lib/config";
+import { REDEMPTIONS } from "@/lib/config";
 
 type Customer = { serial: string; name: string | null; points: number };
 
@@ -11,10 +11,24 @@ export default function ScanPage() {
   const [toast, setToast] = useState<{ kind: "ok" | "bad"; msg: string } | null>(null);
   const [flash, setFlash] = useState(false);
   const [manual, setManual] = useState("");
-  const [custom, setCustom] = useState("");
+  const [bill, setBill] = useState("");
+  const [earnRate, setEarnRate] = useState(1);
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
+
+  // load this merchant's earn rate (for the bill → points preview)
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/merchant/me");
+      if (res.status === 401) return router.push("/login");
+      if (res.ok) {
+        const me = await res.json();
+        if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // start camera scanner when no customer is loaded
   useEffect(() => {
@@ -102,7 +116,7 @@ export default function ScanPage() {
   function reset() {
     setCustomer(null);
     setToast(null);
-    setCustom("");
+    setBill("");
   }
 
   // ---- scan view ----
@@ -149,24 +163,23 @@ export default function ScanPage() {
           ))}
         </div>
 
-        <div className="label" style={{ marginTop: 6 }}>Earn</div>
-        <div className="grid2">
-          {EARN_PRESETS.map((a) => (
-            <button key={a.id} className="redeem-btn earn" disabled={busy}
-              onClick={() => apply({ actionId: a.id }, `+${a.points} pts`)}>
-              <div className="rl">{a.label}</div>
-              <div className="rp">+{a.points} pts</div>
-            </button>
-          ))}
-          <div className="row">
-            <input value={custom} onChange={(e) => setCustom(e.target.value)}
-              inputMode="numeric" placeholder="custom +" />
-            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy}
-              onClick={() => custom && apply({ customPoints: Math.abs(parseInt(custom, 10)) }, `+${Math.abs(parseInt(custom, 10))} pts`)}>
-              Add
-            </button>
-          </div>
+        <div className="label" style={{ marginTop: 6 }}>Earn — enter the bill amount</div>
+        <div className="row">
+          <input value={bill} onChange={(e) => setBill(e.target.value)}
+            inputMode="decimal" placeholder="bill amount" />
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy}
+            onClick={() => {
+              const amt = parseFloat(bill);
+              if (amt > 0) apply({ amount: amt }, `+${Math.round(earnRate * amt)} pts`);
+            }}>
+            Add
+          </button>
         </div>
+        {parseFloat(bill) > 0 && (
+          <div className="label">
+            = {Math.round(earnRate * parseFloat(bill))} pts ({earnRate}× rate)
+          </div>
+        )}
 
         <button className="btn btn-primary" onClick={reset}>Scan next customer</button>
       </div>

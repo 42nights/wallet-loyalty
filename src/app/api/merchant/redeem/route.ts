@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { findAction } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
+import { db } from "@/lib/supabase";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) — needs Node
 
-// POST /api/merchant/redeem  body: { serial, actionId, customPoints? }
+// POST /api/merchant/redeem  body: { serial, actionId } | { serial, amount }
 // Header: Idempotency-Key (required) — a per-tap UUID so a retry can't double-apply.
-// actionId matches an entry in config.ts. customPoints lets you override
-// (e.g. a freeform earn amount); positive = earn, negative = redeem.
+//   actionId → one of the fixed redeem buttons in config.ts (negative delta).
+//   amount   → a bill total; earns round(merchant.earn_rate * amount) points.
 export async function POST(req: NextRequest) {
   const staff = await getStaff();
   if (!staff) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -19,15 +20,26 @@ export async function POST(req: NextRequest) {
   if (!idempotencyKey)
     return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
 
-  const { serial, actionId, customPoints } = await req.json().catch(() => ({}));
+  const { serial, actionId, amount } = await req.json().catch(() => ({}));
   if (!serial) return NextResponse.json({ error: "No serial" }, { status: 400 });
 
   let delta: number;
   let reason: string;
 
-  if (typeof customPoints === "number") {
-    delta = customPoints;
-    reason = customPoints >= 0 ? "earn:custom" : "redeem:custom";
+  if (amount !== undefined) {
+    // points-per-dollar earn: delta computed server-side from the merchant rate
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0)
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+    const { data: merchant } = await db
+      .from("merchants")
+      .select("earn_rate")
+      .eq("id", staff.merchantId)
+      .single();
+    if (!merchant)
+      return NextResponse.json({ error: "No merchant" }, { status: 403 });
+    delta = Math.round(Number(merchant.earn_rate) * amt);
+    reason = "earn:purchase";
   } else {
     const action = findAction(actionId);
     if (!action)
