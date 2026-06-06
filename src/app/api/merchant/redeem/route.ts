@@ -3,6 +3,7 @@ import { getStaff } from "@/lib/auth";
 import { findAction } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
 import { db } from "@/lib/supabase";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) — needs Node
 
@@ -19,6 +20,10 @@ export async function POST(req: NextRequest) {
   const idempotencyKey = req.headers.get("idempotency-key");
   if (!idempotencyKey)
     return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
+
+  const allowed = await rateLimit(`redeem:${staff.id}`, 120, 60);
+  if (!allowed)
+    return NextResponse.json({ error: "Slow down" }, { status: 429 });
 
   const { serial, actionId, amount } = await req.json().catch(() => ({}));
   if (!serial) return NextResponse.json({ error: "No serial" }, { status: 400 });

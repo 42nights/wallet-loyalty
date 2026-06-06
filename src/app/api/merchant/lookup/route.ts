@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,10 @@ export async function POST(req: NextRequest) {
   if (!staff) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!staff.merchantId)
     return NextResponse.json({ error: "No merchant" }, { status: 403 });
+
+  const allowed = await rateLimit(`lookup:${staff.id}`, 120, 60);
+  if (!allowed)
+    return NextResponse.json({ error: "Slow down" }, { status: 429 });
 
   const { serial } = await req.json().catch(() => ({}));
   if (!serial) return NextResponse.json({ error: "No serial" }, { status: 400 });
