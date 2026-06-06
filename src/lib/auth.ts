@@ -1,0 +1,65 @@
+import { SignJWT, jwtVerify } from "jose";
+import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
+import { db } from "./supabase";
+
+const SECRET = new TextEncoder().encode(
+  process.env.SESSION_SECRET || "dev-only-change-me"
+);
+const COOKIE = "staff_session";
+
+export type Staff = { id: string; username: string; merchantId: string | null };
+
+export async function verifyLogin(
+  username: string,
+  password: string
+): Promise<Staff | null> {
+  const { data, error } = await db
+    .from("staff")
+    .select("id, username, merchant_id, password_hash")
+    .eq("username", username)
+    .single();
+  if (error || !data) return null;
+  const ok = await bcrypt.compare(password, data.password_hash);
+  if (!ok) return null;
+  return { id: data.id, username: data.username, merchantId: data.merchant_id };
+}
+
+export async function createSession(staff: Staff): Promise<void> {
+  const token = await new SignJWT({ ...staff })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("12h")
+    .setIssuedAt()
+    .sign(SECRET);
+  (await cookies()).set(COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 12,
+  });
+}
+
+export async function getStaff(): Promise<Staff | null> {
+  const token = (await cookies()).get(COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, SECRET);
+    return {
+      id: payload.id as string,
+      username: payload.username as string,
+      merchantId: (payload.merchantId as string) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function destroySession(): Promise<void> {
+  (await cookies()).delete(COOKIE);
+}
+
+// helper to hash a password when seeding staff (see README / seed script)
+export async function hashPassword(pw: string): Promise<string> {
+  return bcrypt.hash(pw, 12);
+}

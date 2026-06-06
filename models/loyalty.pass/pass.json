@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "passTypeIdentifier": "pass.com.42nights.loyalty",
+  "teamIdentifier": "REPLACE_TEAM_ID",
+  "organizationName": "42nights",
+  "description": "Loyalty Card",
+  "logoText": "",
+  "backgroundColor": "rgb(255,255,255)",
+  "foregroundColor": "rgb(20,20,20)",
+  "labelColor": "rgb(120,120,120)",
+  "sharingProhibited": true,
+  "storeCard": {}
+}
