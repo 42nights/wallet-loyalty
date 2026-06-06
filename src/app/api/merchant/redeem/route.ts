@@ -3,6 +3,8 @@ import { getStaff } from "@/lib/auth";
 import { findAction } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
 
+export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) — needs Node
+
 // POST /api/merchant/redeem  body: { serial, actionId, customPoints? }
 // actionId matches an entry in config.ts. customPoints lets you override
 // (e.g. a freeform earn amount); positive = earn, negative = redeem.

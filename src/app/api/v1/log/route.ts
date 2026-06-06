@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
 // POST /api/v1/log  — Apple posts {"logs": [...]} here when devices hit errors.
 // Useful for debugging "why isn't my pass updating".
 export async function POST(req: NextRequest) {

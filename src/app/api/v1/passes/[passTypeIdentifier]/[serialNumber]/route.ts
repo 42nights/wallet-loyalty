@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { wallet } from "@/lib/wallet";
 
+export const runtime = "nodejs"; // signs a pass — passkit needs Node, not edge
+
 // GET /api/v1/passes/{passTypeId}/{serial}
 // Auth: "Authorization: ApplePass {token}". Returns the freshly signed pass.
 
@@ -24,12 +26,10 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (token !== pass.auth_token)
     return new NextResponse("Unauthorized", { status: 401 });
 
-  // If-Modified-Since support → 304 when nothing changed
-  const ims = req.headers.get("if-modified-since");
-  if (ims && new Date(pass.updated_at) <= new Date(ims)) {
-    return new NextResponse(null, { status: 304 });
-  }
-
+  // NOTE: deliberately no If-Modified-Since/304 handling. updated_at and a
+  // Last-Modified header are only second-resolution, so two taps in the same
+  // second would yield a 304 and leave a STALE balance on the card. The pass is
+  // tiny — always re-sign and return 200.
   const { buffer, contentType } = await wallet.buildPass({
     serial: pass.serial,
     merchantId: pass.merchant_id,

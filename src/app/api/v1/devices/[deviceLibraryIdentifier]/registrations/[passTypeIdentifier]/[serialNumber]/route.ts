@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 
+export const runtime = "nodejs";
+
 // Apple calls these on the path built from the pass's webServiceURL:
 //   POST   /api/v1/devices/{deviceLibId}/registrations/{passTypeId}/{serial}
 //   DELETE /api/v1/devices/{deviceLibId}/registrations/{passTypeId}/{serial}

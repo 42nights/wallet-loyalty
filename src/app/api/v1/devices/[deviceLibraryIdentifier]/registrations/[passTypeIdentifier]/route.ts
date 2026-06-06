@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 
+export const runtime = "nodejs";
+
 // GET /api/v1/devices/{deviceLibId}/registrations/{passTypeId}?passesUpdatedSince=TAG
 // Returns serials updated since the tag. Tag here = ISO timestamp.
 

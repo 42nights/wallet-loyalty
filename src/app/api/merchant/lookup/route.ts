@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 
+export const runtime = "nodejs";
+
 // POST /api/merchant/lookup  body: { serial }
 export async function POST(req: NextRequest) {
   const staff = await getStaff();

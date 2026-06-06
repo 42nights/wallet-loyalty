@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyLogin, createSession } from "@/lib/auth";
 
+export const runtime = "nodejs"; // bcrypt hashing — keep off edge
+
 // POST /api/merchant/login  body: { username, password }
 export async function POST(req: NextRequest) {
   const { username, password } = await req.json().catch(() => ({}));

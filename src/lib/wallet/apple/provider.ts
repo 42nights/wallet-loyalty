@@ -36,6 +36,15 @@ export const appleProvider: WalletProvider = {
       )
     );
 
-    if (tokens.length) await pushMany(tokens);
+    if (!tokens.length) return;
+
+    const results = await pushMany(tokens);
+
+    // 410 Gone → the device unregistered the pass; prune it. Deleting the device
+    // cascades to its registrations (FK on delete cascade).
+    const dead = results.filter((r) => r.status === 410).map((r) => r.token);
+    if (dead.length) {
+      await db.from("devices").delete().in("push_token", dead);
+    }
   },
 };
