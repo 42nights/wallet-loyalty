@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "upload-assets": "tsx scripts/upload-assets.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

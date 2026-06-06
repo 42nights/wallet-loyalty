@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, randomBytes } from "node:crypto";
 import { db } from "@/lib/supabase";
-import { buildPass } from "@/lib/pass";
+import { wallet } from "@/lib/wallet";
 
 // POST /api/enroll  body: { name, phone, merchantId? }
 // Creates the card row and returns the .pkpass (Safari shows "Add to Wallet").
@@ -22,12 +22,17 @@ export async function POST(req: NextRequest) {
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const buffer = await buildPass({ serial, authToken, points: 0 });
+  const { buffer, contentType } = await wallet.buildPass({
+    serial,
+    merchantId: merchantId ?? null,
+    points: 0,
+    authToken,
+  });
 
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
-      "Content-Type": "application/vnd.apple.pkpass",
+      "Content-Type": contentType,
       "Content-Disposition": `attachment; filename="loyalty-${serial}.pkpass"`,
     },
   });

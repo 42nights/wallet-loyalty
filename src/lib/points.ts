@@ -1,5 +1,5 @@
 import { db } from "./supabase";
-import { pushMany } from "./apns";
+import { wallet } from "./wallet";
 
 export type ApplyResult =
   | { ok: true; newBalance: number }
@@ -44,18 +44,8 @@ export async function applyTransaction(
 
   if (upErr) return { ok: false, error: "Update failed" };
 
-  // notify all registered devices for this card
-  const { data: regs } = await db
-    .from("registrations")
-    .select("devices(push_token)")
-    .eq("serial", serial);
-
-  const tokens =
-    (regs ?? [])
-      .map((r: any) => r.devices?.push_token)
-      .filter(Boolean) as string[];
-
-  if (tokens.length) await pushMany(tokens);
+  // notify all registered devices for this card → Wallet re-fetches
+  await wallet.notify([serial]);
 
   return { ok: true, newBalance };
 }
