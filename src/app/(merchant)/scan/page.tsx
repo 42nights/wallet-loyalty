@@ -12,6 +12,7 @@ export default function ScanPage() {
   const [flash, setFlash] = useState(false);
   const [manual, setManual] = useState("");
   const [custom, setCustom] = useState("");
+  const [busy, setBusy] = useState(false);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
 
@@ -71,22 +72,31 @@ export default function ScanPage() {
   }
 
   async function apply(body: object, okMsg: string) {
-    if (!customer) return;
-    const res = await fetch("/api/merchant/redeem", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serial: customer.serial, ...body }),
-    });
-    if (res.status === 401) return router.push("/login");
-    const data = await res.json();
-    if (!res.ok) {
-      setToast({ kind: "bad", msg: data.error || "Failed" });
-      return;
+    if (!customer || busy) return; // busy guard: no double-tap
+    setBusy(true);
+    try {
+      const res = await fetch("/api/merchant/redeem", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // one key per tap → a retry of THIS request can't double-apply
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ serial: customer.serial, ...body }),
+      });
+      if (res.status === 401) return router.push("/login");
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ kind: "bad", msg: data.error || "Failed" });
+        return;
+      }
+      setCustomer({ ...customer, points: data.newBalance });
+      setFlash(true);
+      setTimeout(() => setFlash(false), 400);
+      setToast({ kind: "ok", msg: okMsg });
+    } finally {
+      setBusy(false);
     }
-    setCustomer({ ...customer, points: data.newBalance });
-    setFlash(true);
-    setTimeout(() => setFlash(false), 400);
-    setToast({ kind: "ok", msg: okMsg });
   }
 
   function reset() {
@@ -131,7 +141,7 @@ export default function ScanPage() {
         <div className="label" style={{ marginTop: 6 }}>Redeem</div>
         <div className="grid2">
           {REDEMPTIONS.map((a) => (
-            <button key={a.id} className="redeem-btn"
+            <button key={a.id} className="redeem-btn" disabled={busy}
               onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
               <div className="rl">{a.label}</div>
               <div className="rp">{a.points} pts</div>
@@ -142,7 +152,7 @@ export default function ScanPage() {
         <div className="label" style={{ marginTop: 6 }}>Earn</div>
         <div className="grid2">
           {EARN_PRESETS.map((a) => (
-            <button key={a.id} className="redeem-btn earn"
+            <button key={a.id} className="redeem-btn earn" disabled={busy}
               onClick={() => apply({ actionId: a.id }, `+${a.points} pts`)}>
               <div className="rl">{a.label}</div>
               <div className="rp">+{a.points} pts</div>
@@ -151,7 +161,7 @@ export default function ScanPage() {
           <div className="row">
             <input value={custom} onChange={(e) => setCustom(e.target.value)}
               inputMode="numeric" placeholder="custom +" />
-            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }}
+            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy}
               onClick={() => custom && apply({ customPoints: Math.abs(parseInt(custom, 10)) }, `+${Math.abs(parseInt(custom, 10))} pts`)}>
               Add
             </button>
