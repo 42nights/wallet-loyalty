@@ -1,6 +1,7 @@
 // Create one merchant + an owner + a cashier.
 //   npm run seed -- "<Merchant Name>" <slug> <earnRate> <ownerUser> <ownerPw> [cashierUser] [cashierPw]
 //   e.g. npm run seed -- "Corgi Cafe" corgi 1.0 owner ownerpw cashier cashierpw
+import "dotenv/config"; // load .env for this standalone script (Next does its own)
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 

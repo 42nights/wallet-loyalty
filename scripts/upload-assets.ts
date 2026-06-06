@@ -3,6 +3,7 @@
 //   npm run upload-assets -- <merchant_id> <local_dir>
 // <local_dir> should contain any of: icon.png icon@2x.png icon@3x.png
 //   logo.png logo@2x.png strip.png strip@2x.png strip@3x.png
+import "dotenv/config"; // load .env for this standalone script (Next does its own)
 import { createClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";

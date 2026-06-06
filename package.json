@@ -23,6 +23,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
+    "dotenv": "^17.4.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   }
