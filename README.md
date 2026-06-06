@@ -1,9 +1,17 @@
-# 42nights — Apple Wallet Loyalty (scaffold)
+# 42nights — Apple Wallet Loyalty
 
 [![Repo](https://img.shields.io/badge/GitHub-42nights%2Fwallet--loyalty-181717?logo=github)](https://github.com/42nights/wallet-loyalty)
 
-A working skeleton for digital loyalty cards that live in **Apple Wallet** with
-**live points updates**. No customer app. QR-based earn/redeem at the counter.
+A **multi-tenant** product for branded digital loyalty cards that live in **Apple
+Wallet** with **live points updates**. Customers add a card from a per-merchant
+link; staff earn/redeem via QR scan at the counter; owners get a dashboard. Sold
+per-merchant. No customer app.
+
+The full build (BUILD_PLAN §12, phases **P1–P10**) is implemented: per-merchant
+branding, atomic + idempotent + tenant-safe points, owner/cashier roles, an owner
+dashboard, and hardening. **What's left is wiring** — Apple certs, a Supabase
+project + storage bucket, per-merchant artwork, and the real-device test. The
+end-to-end checklist is **[RUNBOOK.md](RUNBOOK.md)**.
 
 > NFC tap is deliberately **not** wired in — it needs Apple's VAS entitlement +
 > certified reader hardware. The identify step here (QR scan → serial) is the
@@ -14,19 +22,25 @@ A working skeleton for digital loyalty cards that live in **Apple Wallet** with
 
 ```
 src/lib/
-  config.ts      ← your 4 redeem buttons + earn presets (edit this)
-  pass.ts        ← signs the .pkpass (passkit-generator)
-  apns.ts        ← empty push so Wallet re-fetches a changed pass
-  points.ts      ← the ledger: apply a delta, update balance, push
-  auth.ts        ← staff username/password → JWT cookie
-  supabase.ts    ← server db client
-src/app/api/v1/...   ← Apple's pass web service (register / serials / latest / log)
-src/app/api/enroll   ← create a card, return the .pkpass
-src/app/api/merchant ← login / lookup / redeem
-src/app/(merchant)/  ← login + scan terminal (camera QR + buttons)
-src/app/enroll       ← customer sign-up page
-supabase/schema.sql  ← the tables
-models/loyalty.pass  ← pass template + placeholder icon/logo (swap the art)
+  config.ts            ← the 4 fixed redeem buttons (earn = points-per-dollar via merchant.earn_rate)
+  points.ts            ← balance changes via the atomic apply_points() RPC (ledger = source of truth)
+  auth.ts              ← staff login → JWT cookie; owner/cashier roles, requireOwner()
+  ratelimit.ts         ← Postgres-backed rate limiter (login / lookup / redeem)
+  passDefaults.ts      ← bundled default pass art (base64 — no runtime disk read)
+  supabase.ts          ← server db client (service role)
+  wallet/              ← provider-agnostic seam (Apple today; Google Wallet later)
+    types.ts           ← WalletProvider interface
+    apple/pass.ts      ← builds the .pkpass from in-memory per-merchant buffers
+    apple/apns.ts      ← empty push + 410 dead-token pruning
+    apple/provider.ts  ← buildPass + notify
+src/app/api/v1/...     ← Apple's pass web service (register / serials / latest / log)
+src/app/api/enroll     ← create or re-issue a card, return the .pkpass
+src/app/api/merchant   ← login / me / lookup / redeem / staff
+src/app/(merchant)/    ← scan terminal · owner dashboard · staff management
+src/app/enroll/[slug]  ← per-merchant customer sign-up
+supabase/schema.sql    ← tables + apply_points / rate_limit_hit / merchant_stats
+scripts/               ← seed.ts (merchant + owner + cashier) · upload-assets.ts
+models/loyalty.pass    ← reference art (also the source of the bundled defaults)
 ```
 
 ## The mental model
@@ -69,13 +83,14 @@ base64 -i wwdr.pem     | pbcopy   # → APPLE_WWDR_PEM
 ```bash
 cp .env.example .env        # fill everything in
 npm install
-npm run seed -- "Corgi Cafe" cashier hunter2   # creates a staff login
+npm run seed -- "Corgi Cafe" corgi 1.0 owner ownerpw cashier cashierpw   # merchant + owner + cashier
 npm run dev
 ```
 
 ## Try it
-- **Enroll a customer:** open `/enroll` (in Safari on iPhone) → adds the card to Wallet.
-- **Counter:** open `/scan` → log in (`cashier` / `hunter2`) → scan the customer's QR (or paste the serial) → tap a redeem/earn button → watch the card update in Wallet.
+- **Enroll a customer:** open `/enroll/<slug>` (e.g. `/enroll/corgi`) in Safari on iPhone → adds the branded card to Wallet.
+- **Counter:** open `/scan` → log in → scan the customer's QR (or paste the serial) → tap a redeem button or enter a bill amount to earn → watch the card update in Wallet.
+- **Owner:** `/dashboard` (metrics) and `/staff` (manage cashiers) — owner role only.
 
 > Local dev can't push to Wallet over `http`. For real device updates, deploy
 > behind **https** (Vercel works) and set `PUBLIC_BASE_URL` to that domain — the
@@ -91,16 +106,17 @@ export const REDEMPTIONS = [
   { id: "extra_sauce",    label: "Extra Sauce",   points: -100,  kind: "redeem" },
 ];
 ```
-I added a basic **earn** flow (`+ Visit` + a custom amount) since you only gave
-redemptions — change it to points-per-dollar or whatever your model is.
+The 4 redeem buttons above are fixed. **Earning is points-per-dollar**: each
+merchant has an `earn_rate`, and the `/scan` bill-amount input applies
+`round(earn_rate × amount)` server-side.
 
-## Hardening before you ship to 50 venues
-- **Anti-replay:** the QR currently encodes the raw serial. Encode a short-lived
-  signed token instead so a screenshot can't farm points.
-- **Multi-tenant:** scope passes/staff by `merchant_id` everywhere (rows exist;
-  the lookup/redeem routes should filter by the logged-in staff's merchant).
-- **Rate-limit** the merchant routes; rotate `SESSION_SECRET`.
-- **`apns-push-type`**: currently `background`. If updates lag, test `alert`.
+## Hardening — status
+- ✅ **Multi-tenant:** every merchant route is scoped by the logged-in staff's `merchant_id`; `apply_points()` enforces it in SQL too. See the IDOR audit in [RUNBOOK.md](RUNBOOK.md).
+- ✅ **Rate-limit:** login / lookup / redeem are throttled via a Postgres limiter.
+- ✅ **Idempotency:** redeem requires an `Idempotency-Key`, so a double-tap or retry can't double-apply.
+- **Anti-replay (optional):** the QR encodes the raw serial. Since earn/redeem are staff-initiated this is fine; only encode a short-lived signed token if you ever allow customer self-scan.
+- **`apns-push-type`:** currently `background`. If updates lag, test `alert`.
+- Rotate `SESSION_SECRET` for production.
 
 ## NFC later (the tap)
 When you want tap instead of scan:
