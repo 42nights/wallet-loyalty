@@ -1,5 +1,7 @@
 # 42nights — Apple Wallet Loyalty (scaffold)
 
+[![Repo](https://img.shields.io/badge/GitHub-42nights%2Fwallet--loyalty-181717?logo=github)](https://github.com/42nights/wallet-loyalty)
+
 A working skeleton for digital loyalty cards that live in **Apple Wallet** with
 **live points updates**. No customer app. QR-based earn/redeem at the counter.
 
