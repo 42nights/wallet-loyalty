@@ -1,7 +1,13 @@
 "use client";
 import { useState } from "react";
 
-export default function EnrollPage() {
+export default function EnrollForm({
+  slug,
+  merchantName,
+}: {
+  slug: string;
+  merchantName: string;
+}) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -11,7 +17,7 @@ export default function EnrollPage() {
     const res = await fetch("/api/enroll", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone }),
+      body: JSON.stringify({ name, phone, slug }),
     });
     setBusy(false);
     if (!res.ok) return alert("Something went wrong");
@@ -23,7 +29,9 @@ export default function EnrollPage() {
 
   return (
     <div className="wrap">
-      <div className="brand"><span className="dot" /> 42nights <small>join</small></div>
+      <div className="brand">
+        <span className="dot" /> {merchantName} <small>join</small>
+      </div>
       <div className="card stack">
         <div className="label">Get your loyalty card in Apple Wallet</div>
         <div>
@@ -32,7 +40,11 @@ export default function EnrollPage() {
         </div>
         <div>
           <div className="label">Phone</div>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" />
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+          />
         </div>
         <button className="btn btn-primary" disabled={busy} onClick={join}>
           {busy ? "…" : "Add to Apple Wallet"}
