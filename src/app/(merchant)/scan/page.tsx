@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { REDEMPTIONS } from "@/lib/config";
 
 type Customer = { serial: string; name: string | null; points: number };
@@ -13,6 +14,7 @@ export default function ScanPage() {
   const [manual, setManual] = useState("");
   const [bill, setBill] = useState("");
   const [earnRate, setEarnRate] = useState(1);
+  const [role, setRole] = useState<string>("cashier");
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
@@ -25,6 +27,7 @@ export default function ScanPage() {
       if (res.ok) {
         const me = await res.json();
         if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
+        if (me.role) setRole(me.role);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,6 +127,12 @@ export default function ScanPage() {
     return (
       <div className="wrap">
         <div className="brand"><span className="dot" /> 42nights <small>scan</small></div>
+        {role === "owner" && (
+          <div className="row" style={{ gap: 12, marginBottom: 12 }}>
+            <Link className="btn btn-ghost" href="/dashboard">Dashboard</Link>
+            <Link className="btn btn-ghost" href="/staff">Staff</Link>
+          </div>
+        )}
         <div className="card stack">
           <div className="label">Scan the customer's Wallet QR</div>
           <div id="reader" />

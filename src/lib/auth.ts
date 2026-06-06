@@ -71,6 +71,16 @@ export async function destroySession(): Promise<void> {
   (await cookies()).delete(COOKIE);
 }
 
+// An owner with a known merchant. Narrowing merchantId to string here means
+// owner-only routes don't have to re-check it.
+export type OwnerStaff = Staff & { role: "owner"; merchantId: string };
+
+export async function requireOwner(): Promise<OwnerStaff | null> {
+  const staff = await getStaff();
+  if (!staff || staff.role !== "owner" || !staff.merchantId) return null;
+  return { ...staff, role: "owner", merchantId: staff.merchantId };
+}
+
 // helper to hash a password when seeding staff (see README / seed script)
 export async function hashPassword(pw: string): Promise<string> {
   return bcrypt.hash(pw, 12);
