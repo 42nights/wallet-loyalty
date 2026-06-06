@@ -1,23 +1,54 @@
 -- 42nights loyalty — schema
--- Run in the Supabase SQL editor (or psql).
+-- Run in the Supabase SQL editor (or psql). Safe to re-run: tables use
+-- "create ... if not exists" and new columns use "add column if not exists",
+-- so this doubles as the migration for an already-created database.
 
 create extension if not exists "pgcrypto";
+
+-- ---------------------------------------------------------------------------
+-- Tables
+-- ---------------------------------------------------------------------------
 
 create table if not exists merchants (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  pass_type_id text,            -- optional per-merchant override; default from env
-  logo_url text,
+  slug text unique,                              -- public enroll path: /enroll/{slug}
+  pass_type_id text,                             -- optional per-merchant override; default from env
+  earn_rate numeric not null default 1,          -- points per 1 unit of currency spent
+  logo_url text,                                 -- legacy/optional; branding art lives in storage
+  bg_color text,                                 -- pass backgroundColor, "rgb(r,g,b)"
+  fg_color text,                                 -- pass foregroundColor
+  label_color text,                              -- pass labelColor
+  assets_updated_at timestamptz,                 -- bumps when art changes → busts the buffer cache
   created_at timestamptz default now()
 );
+-- idempotent column adds for an existing database:
+alter table merchants add column if not exists slug text;
+alter table merchants add column if not exists earn_rate numeric not null default 1;
+alter table merchants add column if not exists bg_color text;
+alter table merchants add column if not exists fg_color text;
+alter table merchants add column if not exists label_color text;
+alter table merchants add column if not exists assets_updated_at timestamptz;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'merchants_slug_key') then
+    alter table merchants add constraint merchants_slug_key unique (slug);
+  end if;
+end $$;
 
 create table if not exists staff (
   id uuid primary key default gen_random_uuid(),
   merchant_id uuid references merchants(id) on delete cascade,
   username text unique not null,
-  password_hash text not null,  -- bcrypt
+  password_hash text not null,                   -- bcrypt
+  role text not null default 'cashier' check (role in ('owner','cashier')),
   created_at timestamptz default now()
 );
+alter table staff add column if not exists role text not null default 'cashier';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'staff_role_check') then
+    alter table staff add constraint staff_role_check check (role in ('owner','cashier'));
+  end if;
+end $$;
 
 create table if not exists passes (
   serial text primary key,                       -- uuid, also the QR payload
@@ -30,6 +61,11 @@ create table if not exists passes (
   updated_at timestamptz default now()
 );
 create index if not exists passes_updated_idx on passes (updated_at);
+-- one card per phone per merchant (enroll dedupe). Partial: passes without a
+-- phone are not constrained.
+create unique index if not exists passes_phone_uidx
+  on passes (merchant_id, customer_phone)
+  where customer_phone is not null;
 
 -- a device = one iPhone that has added one or more passes
 create table if not exists devices (
@@ -49,9 +85,129 @@ create index if not exists registrations_serial_idx on registrations (serial);
 create table if not exists transactions (
   id bigint generated always as identity primary key,
   serial text references passes(serial) on delete cascade,
-  delta int not null,             -- negative = redeem, positive = earn
-  reason text,                    -- e.g. "redeem:drinks", "earn:visit"
+  merchant_id uuid references merchants(id),      -- denormalised for tenant-scoped idempotency
+  delta int not null,                             -- negative = redeem, positive = earn
+  reason text,                                    -- e.g. "redeem:drinks", "earn:purchase"
   staff_id uuid references staff(id) on delete set null,
+  idempotency_key text,                           -- client-supplied per-tap key (nullable)
   created_at timestamptz default now()
 );
+alter table transactions add column if not exists merchant_id uuid references merchants(id);
+alter table transactions add column if not exists idempotency_key text;
 create index if not exists transactions_serial_idx on transactions (serial);
+-- enforce idempotency only when a key is supplied; scope to merchant so one
+-- tenant can never collide with / probe another's keys.
+create unique index if not exists transactions_idempo_uidx
+  on transactions (merchant_id, idempotency_key)
+  where idempotency_key is not null;
+
+-- fixed-window rate limiter buckets (login/lookup/redeem). Works across
+-- serverless instances because the counter lives in one shared Postgres.
+create table if not exists rate_limits (
+  bucket text primary key,                        -- e.g. 'login:1.2.3.4:alice' or 'redeem:<staff_id>'
+  count int not null default 0,
+  window_start timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- apply_points — the ONLY way a balance changes.
+-- Atomic (single guarded UPDATE), tenant-safe (merchant_id predicate is the DB
+-- backstop against IDOR), and idempotent (a replayed idempotency_key is a no-op
+-- that returns the current balance). Returns a structured row so the caller
+-- never has to parse exception message text.
+--   status: 'applied' | 'replay' | 'insufficient' | 'not_found'
+-- ---------------------------------------------------------------------------
+create or replace function apply_points(
+  p_serial    text,
+  p_delta     int,
+  p_reason    text,
+  p_staff     uuid,
+  p_merchant  uuid,
+  p_idempo    text default null
+) returns table (status text, balance int)
+language plpgsql
+as $$
+declare
+  v_points int;
+  v_txn_id bigint;
+begin
+  -- (1) Replay short-circuit: this key already produced a txn → no-op, return current balance.
+  if p_idempo is not null then
+    if exists (select 1 from transactions
+                where merchant_id = p_merchant and idempotency_key = p_idempo) then
+      select pa.points into v_points
+        from passes pa where pa.serial = p_serial and pa.merchant_id = p_merchant;
+      return query select 'replay'::text, v_points;
+      return;
+    end if;
+  end if;
+
+  -- (2) Atomic, tenant-scoped, guarded balance update. Single statement.
+  update passes
+     set points = points + p_delta,
+         updated_at = now()
+   where serial = p_serial
+     and merchant_id = p_merchant
+     and points + p_delta >= 0
+  returning points into v_points;
+
+  -- (3) Disambiguate a non-update: missing/wrong-tenant card vs. insufficient points.
+  if not found then
+    if exists (select 1 from passes where serial = p_serial and merchant_id = p_merchant) then
+      select pa.points into v_points
+        from passes pa where pa.serial = p_serial and pa.merchant_id = p_merchant;
+      return query select 'insufficient'::text, v_points;
+    else
+      return query select 'not_found'::text, null::int;
+    end if;
+    return;
+  end if;
+
+  -- (4) Ledger insert. ON CONFLICT closes the concurrent same-key race: the
+  --     loser gets 0 rows back and must unwind its own balance bump (safe — it
+  --     runs in the same implicit transaction as this call's +p_delta).
+  insert into transactions (serial, merchant_id, delta, reason, staff_id, idempotency_key)
+       values (p_serial, p_merchant, p_delta, p_reason, p_staff, p_idempo)
+  on conflict (merchant_id, idempotency_key) where idempotency_key is not null
+  do nothing
+  returning id into v_txn_id;
+
+  if p_idempo is not null and v_txn_id is null then
+    update passes set points = points - p_delta
+      where serial = p_serial and merchant_id = p_merchant
+      returning points into v_points;
+    return query select 'replay'::text, v_points;
+    return;
+  end if;
+
+  return query select 'applied'::text, v_points;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- rate_limit_hit — atomic fixed-window counter. Returns true if the call is
+-- ALLOWED, false if the bucket is over p_limit within the current window.
+-- ---------------------------------------------------------------------------
+create or replace function rate_limit_hit(
+  p_bucket text, p_limit int, p_window_secs int
+) returns boolean
+language plpgsql
+as $$
+declare v_count int;
+begin
+  insert into rate_limits (bucket, count, window_start)
+       values (p_bucket, 1, now())
+  on conflict (bucket) do update
+     set count = case
+           when rate_limits.window_start < now() - make_interval(secs => p_window_secs)
+           then 1 else rate_limits.count + 1 end,
+         window_start = case
+           when rate_limits.window_start < now() - make_interval(secs => p_window_secs)
+           then now() else rate_limits.window_start end
+  returning count into v_count;
+  return v_count <= p_limit;
+end;
+$$;
+
+-- Housekeeping: sweep stale rate-limit buckets (run via pg_cron, or occasionally).
+--   delete from rate_limits where window_start < now() - interval '1 day';
