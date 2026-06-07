@@ -7,3 +7,4 @@ tsconfig.tsbuildinfo
 *.p12
 *.cer
 .DS_Store
+.vercel
