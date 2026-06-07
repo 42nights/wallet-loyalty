@@ -8,3 +8,4 @@ tsconfig.tsbuildinfo
 *.cer
 .DS_Store
 .vercel
+supabase/.temp
