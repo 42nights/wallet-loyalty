@@ -3,10 +3,20 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { db } from "./supabase";
 
-const SECRET = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "dev-only-change-me"
-);
 const COOKIE = "staff_session";
+
+// Resolved lazily (not at import) so `next build` doesn't need the env, but a
+// missing secret in production is a hard error — never sign/verify with a known
+// constant in prod (that would let anyone forge a session).
+function secretKey(): Uint8Array {
+  const s = process.env.SESSION_SECRET;
+  if (!s) {
+    if (process.env.NODE_ENV === "production")
+      throw new Error("SESSION_SECRET is not set");
+    return new TextEncoder().encode("dev-only-insecure-secret");
+  }
+  return new TextEncoder().encode(s);
+}
 
 export type Role = "owner" | "cashier";
 export type Staff = {
@@ -41,7 +51,7 @@ export async function createSession(staff: Staff): Promise<void> {
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("12h")
     .setIssuedAt()
-    .sign(SECRET);
+    .sign(secretKey());
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -55,7 +65,7 @@ export async function getStaff(): Promise<Staff | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, SECRET);
+    const { payload } = await jwtVerify(token, secretKey());
     return {
       id: payload.id as string,
       username: payload.username as string,

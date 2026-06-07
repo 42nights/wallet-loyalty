@@ -20,7 +20,13 @@ export default function EnrollForm({
       body: JSON.stringify({ name, phone, slug }),
     });
     setBusy(false);
-    if (!res.ok) return alert("Something went wrong");
+    if (!res.ok) {
+      const msg = await res
+        .json()
+        .then((d) => d.error)
+        .catch(() => null);
+      return alert(msg || "Something went wrong");
+    }
     // download / open the .pkpass → Safari on iOS shows "Add to Wallet"
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

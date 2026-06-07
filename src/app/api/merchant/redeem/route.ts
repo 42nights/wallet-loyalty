@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   if (amount !== undefined) {
     // points-per-dollar earn: delta computed server-side from the merchant rate
     const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0)
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000)
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     const { data: merchant } = await db
       .from("merchants")
@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
     reason = `${action.kind}:${action.id}`;
   }
 
-  if (!Number.isInteger(delta) || delta === 0)
+  // Bound delta well within int4 to avoid overflow / fat-finger over-credit.
+  if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1_000_000)
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
 
   const result = await applyTransaction(
