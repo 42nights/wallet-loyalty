@@ -30,7 +30,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     .delete()
     .eq("id", id)
     .eq("merchant_id", owner.merchantId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("staff update failed:", error.message);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }
@@ -59,7 +62,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .update({ password_hash })
     .eq("id", id)
     .eq("merchant_id", owner.merchantId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("staff update failed:", error.message);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }

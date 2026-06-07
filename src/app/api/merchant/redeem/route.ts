@@ -81,5 +81,6 @@ export async function POST(req: NextRequest) {
   if (result.status === "not_found")
     return NextResponse.json({ error: "Card not found" }, { status: 404 });
 
-  return NextResponse.json({ error: result.error }, { status: 500 });
+  console.error("redeem failed:", result.error);
+  return NextResponse.json({ error: "Could not apply points" }, { status: 500 });
 }

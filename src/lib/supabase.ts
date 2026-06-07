@@ -1,14 +1,28 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Server-only client (service role). NEVER import this into a client component.
-// Fallbacks keep createClient from throwing at build time — Next's
-// "collect page data" step imports this module without real env. Real values
-// are present at runtime (Vercel env / local .env), so the live client is used.
-const url = process.env.SUPABASE_URL || "https://placeholder.supabase.co";
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder-service-key";
+//
+// Built lazily: importing this module never constructs the client, so `next
+// build` (which imports route modules to collect page data) works without env.
+// But any actual DB use requires real env or throws loudly — no silent
+// placeholder that would make queries fail quietly in production.
+let _client: SupabaseClient | undefined;
+function client(): SupabaseClient {
+  if (_client) return _client;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key)
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
+  _client = createClient(url, key, { auth: { persistSession: false } });
+  return _client;
+}
 
-export const db = createClient(url, serviceKey, {
-  auth: { persistSession: false },
+export const db = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const c = client();
+    const value = c[prop as keyof SupabaseClient];
+    return typeof value === "function" ? value.bind(c) : value;
+  },
 });
 
 export type PassRow = {

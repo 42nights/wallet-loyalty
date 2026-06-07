@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { wallet } from "@/lib/wallet";
+import { safeEqual } from "@/lib/safeEqual";
 
 export const runtime = "nodejs"; // signs a pass — passkit needs Node, not edge
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const header = req.headers.get("authorization") || "";
   const token = header.replace(/^ApplePass\s+/i, "");
-  if (token !== pass.auth_token)
+  if (!token || !safeEqual(token, pass.auth_token))
     return new NextResponse("Unauthorized", { status: 401 });
 
   // NOTE: deliberately no If-Modified-Since/304 handling. updated_at and a

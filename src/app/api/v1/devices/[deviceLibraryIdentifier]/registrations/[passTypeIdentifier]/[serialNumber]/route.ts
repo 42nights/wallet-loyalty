@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
+import { safeEqual } from "@/lib/safeEqual";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ async function authOk(req: NextRequest, serial: string): Promise<boolean> {
     .select("auth_token")
     .eq("serial", serial)
     .single();
-  return !!data && data.auth_token === token;
+  return !!data && safeEqual(token, data.auth_token);
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
