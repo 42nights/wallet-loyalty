@@ -94,28 +94,24 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     if (buf) buffers[name] = buf;
   }
 
+  // Identity + branding MUST go through props — passkit-generator writes the
+  // final pass.json from props, not from a pass.json buffer (a buffer's
+  // top-level identity fields are dropped). Without passTypeIdentifier /
+  // teamIdentifier the pass is invalid and Apple refuses to add it.
   const orgName = merchant?.name || ORG_NAME;
-  buffers["pass.json"] = Buffer.from(
-    JSON.stringify({
-      formatVersion: 1,
-      passTypeIdentifier: PASS_TYPE_ID,
-      teamIdentifier: TEAM_ID,
-      organizationName: orgName,
-      description: `${orgName} Loyalty Card`,
-      logoText: "",
-      backgroundColor: rgb(merchant?.bg_color ?? null, "rgb(255,255,255)"),
-      foregroundColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
-      labelColor: rgb(merchant?.label_color ?? null, "rgb(120,120,120)"),
-      sharingProhibited: true,
-      storeCard: {},
-    })
-  );
-
   const pass = new PKPass(buffers, passkitCertificates(), {
+    passTypeIdentifier: PASS_TYPE_ID,
+    teamIdentifier: TEAM_ID,
+    organizationName: orgName,
+    description: `${orgName} Loyalty Card`,
     serialNumber: serial,
     // These two are what let the card update itself in Wallet:
     webServiceURL: `${PUBLIC_BASE_URL}/api`,
     authenticationToken: authToken,
+    backgroundColor: rgb(merchant?.bg_color ?? null, "rgb(255,255,255)"),
+    foregroundColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
+    labelColor: rgb(merchant?.label_color ?? null, "rgb(120,120,120)"),
+    sharingProhibited: true,
   });
 
   pass.type = "storeCard";
