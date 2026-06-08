@@ -122,7 +122,8 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   pass.type = "storeCard";
 
   // POINTS as the big primary number (over the strip) — easiest to read.
-  pass.primaryFields.push({ key: "points", label: "POINTS", value: points });
+  // String value so iOS renders it exactly (no locale grouping like "1,000").
+  pass.primaryFields.push({ key: "points", label: "POINTS", value: String(points) });
 
   // "UPDATED" — refreshes every time we re-issue the pass
   pass.secondaryFields.push({

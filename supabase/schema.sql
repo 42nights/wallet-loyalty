@@ -95,10 +95,11 @@ create table if not exists transactions (
 alter table transactions add column if not exists merchant_id uuid references merchants(id);
 alter table transactions add column if not exists idempotency_key text;
 create index if not exists transactions_serial_idx on transactions (serial);
--- enforce idempotency only when a key is supplied; scope to merchant so one
--- tenant can never collide with / probe another's keys.
+-- enforce idempotency only when a key is supplied; scope to (merchant, card) so
+-- a key is idempotent for one specific card and one tenant can't probe another's.
+drop index if exists transactions_idempo_uidx;
 create unique index if not exists transactions_idempo_uidx
-  on transactions (merchant_id, idempotency_key)
+  on transactions (merchant_id, serial, idempotency_key)
   where idempotency_key is not null;
 
 -- fixed-window rate limiter buckets (login/lookup/redeem). Works across
@@ -131,10 +132,11 @@ declare
   v_points int;
   v_txn_id bigint;
 begin
-  -- (1) Replay short-circuit: this key already produced a txn → no-op, return current balance.
+  -- (1) Replay short-circuit: this key already produced a txn for this card → no-op.
   if p_idempo is not null then
     if exists (select 1 from transactions
-                where merchant_id = p_merchant and idempotency_key = p_idempo) then
+                where merchant_id = p_merchant and serial = p_serial
+                  and idempotency_key = p_idempo) then
       select pa.points into v_points
         from passes pa where pa.serial = p_serial and pa.merchant_id = p_merchant;
       return query select 'replay'::text, v_points;
@@ -151,8 +153,23 @@ begin
      and points + p_delta >= 0
   returning points into v_points;
 
-  -- (3) Disambiguate a non-update: missing/wrong-tenant card vs. insufficient points.
+  -- (3) Disambiguate a non-update.
   if not found then
+    -- Concurrent same-key retry: a parallel winner may have committed this key's
+    -- txn (and decremented the balance) between our step (1) and now, making our
+    -- guard fail. Re-check the key here so a genuine retry returns 'replay', not
+    -- a misleading 'insufficient'.
+    if p_idempo is not null and exists (
+      select 1 from transactions
+       where merchant_id = p_merchant and serial = p_serial
+         and idempotency_key = p_idempo
+    ) then
+      select pa.points into v_points
+        from passes pa where pa.serial = p_serial and pa.merchant_id = p_merchant;
+      return query select 'replay'::text, v_points;
+      return;
+    end if;
+    -- missing/wrong-tenant card vs. insufficient points
     if exists (select 1 from passes where serial = p_serial and merchant_id = p_merchant) then
       select pa.points into v_points
         from passes pa where pa.serial = p_serial and pa.merchant_id = p_merchant;
@@ -168,7 +185,7 @@ begin
   --     runs in the same implicit transaction as this call's +p_delta).
   insert into transactions (serial, merchant_id, delta, reason, staff_id, idempotency_key)
        values (p_serial, p_merchant, p_delta, p_reason, p_staff, p_idempo)
-  on conflict (merchant_id, idempotency_key) where idempotency_key is not null
+  on conflict (merchant_id, serial, idempotency_key) where idempotency_key is not null
   do nothing
   returning id into v_txn_id;
 

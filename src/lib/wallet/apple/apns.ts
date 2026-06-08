@@ -10,7 +10,9 @@ const APNS_HOST = process.env.APNS_HOST || "https://api.push.apple.com"; // sand
 
 export type PushResult = { token: string; status: number };
 
-// Returns the APNs HTTP status (0 on transport failure). 410 => dead token.
+// Returns the APNs HTTP status (0 on transport failure/timeout). 410 => dead token.
+const APNS_TIMEOUT_MS = 6000;
+
 export async function pushPass(pushToken: string): Promise<PushResult> {
   return new Promise((resolve) => {
     const client = http2.connect(APNS_HOST, {
@@ -18,7 +20,18 @@ export async function pushPass(pushToken: string): Promise<PushResult> {
       key: pem("PASS_SIGNER_KEY_PEM"),
       passphrase: process.env.PASS_SIGNER_KEY_PASSPHRASE || undefined,
     });
-    client.on("error", () => resolve({ token: pushToken, status: 0 }));
+
+    // settle exactly once; always tear down the session (no socket leak, no hang)
+    let settled = false;
+    const done = (status: number) => {
+      if (settled) return;
+      settled = true;
+      try { client.close(); } catch { /* already closing */ }
+      resolve({ token: pushToken, status });
+    };
+
+    client.on("error", () => done(0));
+    client.setTimeout(APNS_TIMEOUT_MS, () => done(0)); // connect/idle stall
 
     const req = client.request({
       ":method": "POST",
@@ -28,6 +41,7 @@ export async function pushPass(pushToken: string): Promise<PushResult> {
       "apns-priority": "5",
       "content-type": "application/json",
     });
+    req.setTimeout(APNS_TIMEOUT_MS, () => done(0)); // no response stall
 
     let status = 0;
     req.on("response", (h) => (status = Number(h[":status"]) || 0));
@@ -35,16 +49,12 @@ export async function pushPass(pushToken: string): Promise<PushResult> {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      client.close();
       if (status !== 200) {
         console.warn(`APNs ${status} for ${pushToken.slice(0, 8)}…: ${body}`);
       }
-      resolve({ token: pushToken, status });
+      done(status);
     });
-    req.on("error", () => {
-      client.close();
-      resolve({ token: pushToken, status: 0 });
-    });
+    req.on("error", () => done(0));
 
     req.end(JSON.stringify({})); // empty payload — required for pass updates
   });

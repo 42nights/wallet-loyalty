@@ -39,8 +39,14 @@ export async function applyTransaction(
 
   switch (row.status) {
     case "applied":
-      // a real change → tell every device holding this card to re-fetch
-      await wallet.notify([serial]);
+      // a real change → tell every device holding this card to re-fetch.
+      // Best-effort: the balance is already committed, so a push error must not
+      // turn a successful redeem/earn into a failure response.
+      try {
+        await wallet.notify([serial]);
+      } catch (e) {
+        console.warn("wallet.notify failed:", e instanceof Error ? e.message : e);
+      }
       return { ok: true, newBalance: row.balance ?? 0, replay: false };
     case "replay":
       // duplicate (idempotent retry): balance unchanged, no push needed

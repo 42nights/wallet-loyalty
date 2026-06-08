@@ -36,10 +36,11 @@ export async function GET(req: NextRequest, { params }: Params) {
   const changed = passes ?? [];
   if (!changed.length) return new NextResponse(null, { status: 204 });
 
+  // newest updated_at, compared numerically (not lexically) to be robust to any
+  // timestamp-format variation — this tag is what the device echoes back next poll.
   const lastUpdated = changed
-    .map((p) => p.updated_at)
-    .sort()
-    .at(-1)!;
+    .map((p) => p.updated_at as string)
+    .reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a));
 
   return NextResponse.json({
     serialNumbers: changed.map((p) => p.serial),
