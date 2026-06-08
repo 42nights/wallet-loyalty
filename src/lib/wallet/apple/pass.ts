@@ -112,6 +112,10 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     backgroundColor: rgb(merchant?.bg_color ?? null, "rgb(255,255,255)"),
     foregroundColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
     labelColor: rgb(merchant?.label_color ?? null, "rgb(120,120,120)"),
+    // stripColor = color of PRIMARY field value rendered over the strip. Apple
+    // defaults it to WHITE (ignores foregroundColor there), so the points looked
+    // white. Tie it to the merchant's foreground so points stay readable.
+    stripColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
     sharingProhibited: true,
   });
 
