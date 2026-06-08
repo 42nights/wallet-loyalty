@@ -108,6 +108,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     // These two are what let the card update itself in Wallet:
     webServiceURL: `${PUBLIC_BASE_URL}/api`,
     authenticationToken: authToken,
+    logoText: orgName, // shop name as text next to the logo (readability)
     backgroundColor: rgb(merchant?.bg_color ?? null, "rgb(255,255,255)"),
     foregroundColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
     labelColor: rgb(merchant?.label_color ?? null, "rgb(120,120,120)"),
@@ -116,13 +117,13 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
 
   pass.type = "storeCard";
 
-  // Header POINTS field (the big number on the card)
-  pass.headerFields.push({ key: "points", label: "POINTS", value: points });
+  // POINTS as the big primary number (over the strip) — easiest to read.
+  pass.primaryFields.push({ key: "points", label: "POINTS", value: points });
 
-  // "LAST UPDATED" — refreshes every time we re-issue the pass
+  // "UPDATED" — refreshes every time we re-issue the pass
   pass.secondaryFields.push({
     key: "updated",
-    label: "LAST UPDATED",
+    label: "UPDATED",
     value: updatedAt.toLocaleDateString("en-GB"), // dd/mm/yyyy
   });
 
