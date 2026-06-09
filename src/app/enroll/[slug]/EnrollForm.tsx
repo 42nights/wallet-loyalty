@@ -10,6 +10,8 @@ export default function EnrollForm({
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function join() {
@@ -17,7 +19,7 @@ export default function EnrollForm({
     const res = await fetch("/api/enroll", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, slug }),
+      body: JSON.stringify({ name, phone, email, consent, slug }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -52,6 +54,26 @@ export default function EnrollForm({
             inputMode="tel"
           />
         </div>
+        <div>
+          <div className="label">Email (optional)</div>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+            autoCapitalize="none"
+          />
+        </div>
+        <label className="row" style={{ gap: 8, alignItems: "center", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            style={{ width: "auto" }}
+          />
+          <span className="label" style={{ margin: 0 }}>
+            Text/email me offers from {merchantName}
+          </span>
+        </label>
         <button className="btn btn-primary" disabled={busy} onClick={join}>
           {busy ? "…" : "Add to Apple Wallet"}
         </button>

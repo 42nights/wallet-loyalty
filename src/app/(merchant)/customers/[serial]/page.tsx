@@ -4,6 +4,7 @@ import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { findAction } from "@/lib/config";
 import AdjustPoints from "./AdjustPoints";
+import CustomerCRM from "./CustomerCRM";
 
 export const runtime = "nodejs";
 
@@ -89,6 +90,10 @@ export default async function CustomerPage({
 
       <div style={{ marginTop: 12 }}>
         <AdjustPoints serial={p.serial} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <CustomerCRM serial={p.serial} />
       </div>
 
       <div className="card stack" style={{ marginTop: 12 }}>

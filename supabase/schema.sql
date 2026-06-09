@@ -94,6 +94,7 @@ create table if not exists transactions (
 );
 alter table transactions add column if not exists merchant_id uuid references merchants(id);
 alter table transactions add column if not exists idempotency_key text;
+alter table transactions add column if not exists amount numeric; -- raw bill $ on earns (Phase 2)
 create index if not exists transactions_serial_idx on transactions (serial);
 -- enforce idempotency only when a key is supplied; scope to (merchant, card) so
 -- a key is idempotent for one specific card and one tenant can't probe another's.
@@ -118,13 +119,17 @@ create table if not exists rate_limits (
 -- never has to parse exception message text.
 --   status: 'applied' | 'replay' | 'insufficient' | 'not_found'
 -- ---------------------------------------------------------------------------
+-- p_amount param added later (Phase 2) — drop the old 6-arg signature first so
+-- CREATE OR REPLACE doesn't leave an overload behind.
+drop function if exists apply_points(text, int, text, uuid, uuid, text);
 create or replace function apply_points(
   p_serial    text,
   p_delta     int,
   p_reason    text,
   p_staff     uuid,
   p_merchant  uuid,
-  p_idempo    text default null
+  p_idempo    text default null,
+  p_amount    numeric default null   -- raw bill amount on earns (null otherwise)
 ) returns table (status text, balance int)
 language plpgsql
 as $$
@@ -183,8 +188,8 @@ begin
   -- (4) Ledger insert. ON CONFLICT closes the concurrent same-key race: the
   --     loser gets 0 rows back and must unwind its own balance bump (safe — it
   --     runs in the same implicit transaction as this call's +p_delta).
-  insert into transactions (serial, merchant_id, delta, reason, staff_id, idempotency_key)
-       values (p_serial, p_merchant, p_delta, p_reason, p_staff, p_idempo)
+  insert into transactions (serial, merchant_id, delta, reason, staff_id, idempotency_key, amount)
+       values (p_serial, p_merchant, p_delta, p_reason, p_staff, p_idempo, p_amount)
   on conflict (merchant_id, serial, idempotency_key) where idempotency_key is not null
   do nothing
   returning id into v_txn_id;
@@ -334,9 +339,13 @@ returns jsonb language sql stable as $$
     'visits',     (select count(*) from transactions where serial = pa.serial and reason like 'earn:%')::int,
     'first_seen', (select min(created_at) from transactions where serial = pa.serial),
     'last_seen',  (select max(created_at) from transactions where serial = pa.serial),
-    'estimated_spend', round(
+    -- real bill total when amounts are stored, else inferred from points/earn_rate
+    'estimated_spend', round(coalesce(
+        (select sum(amount) from transactions where serial = pa.serial and reason = 'earn:purchase' and amount is not null),
         coalesce((select sum(delta) from transactions where serial = pa.serial and reason like 'earn:%'), 0)::numeric
-        / nullif((select earn_rate from merchants where id = p_merchant), 0), 2),
+          / nullif((select earn_rate from merchants where id = p_merchant), 0)
+      ), 2),
+    'spend_is_real', exists(select 1 from transactions where serial = pa.serial and reason = 'earn:purchase' and amount is not null),
     'favorite_redemption', (select reason from transactions
         where serial = pa.serial and reason like 'redeem:%'
         group by reason order by count(*) desc limit 1),
@@ -430,3 +439,41 @@ returns jsonb language sql stable as $$
     'customers', coalesce((select jsonb_agg(row_to_json(s)) from segmented s), '[]'::jsonb)
   );
 $$;
+
+-- ===========================================================================
+-- CRM — Phase 2: contact + consent on customers; tags + notes.
+-- ===========================================================================
+
+alter table passes add column if not exists customer_email text;
+alter table passes add column if not exists birthday date;
+alter table passes add column if not exists marketing_consent boolean not null default false;
+alter table passes add column if not exists consent_at timestamptz;
+alter table passes add column if not exists consent_source text;
+
+create table if not exists tags (
+  id uuid primary key default gen_random_uuid(),
+  merchant_id uuid not null references merchants(id) on delete cascade,
+  label text not null,
+  color text,
+  created_at timestamptz default now(),
+  unique (merchant_id, label)
+);
+
+create table if not exists customer_tags (
+  serial text references passes(serial) on delete cascade,
+  tag_id uuid references tags(id) on delete cascade,
+  merchant_id uuid not null references merchants(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (serial, tag_id)
+);
+create index if not exists customer_tags_merchant_idx on customer_tags (merchant_id, serial);
+
+create table if not exists customer_notes (
+  id bigint generated always as identity primary key,
+  serial text references passes(serial) on delete cascade,
+  merchant_id uuid not null references merchants(id) on delete cascade,
+  staff_id uuid references staff(id) on delete set null,
+  body text not null,
+  created_at timestamptz default now()
+);
+create index if not exists customer_notes_serial_idx on customer_notes (serial, created_at desc);

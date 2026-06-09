@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   if (!allowed)
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
-  const { name, phone, slug } = await req.json().catch(() => ({}));
+  const { name, phone, email, consent, slug } = await req.json().catch(() => ({}));
   if (!slug) return NextResponse.json({ error: "No merchant" }, { status: 400 });
 
   const { data: merchant } = await db
@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
 
   const phoneNorm =
     typeof phone === "string" && phone.trim() ? phone.trim() : null;
+  const emailNorm =
+    typeof email === "string" && email.trim() ? email.trim() : null;
+  const hasConsent = consent === true;
 
   const serial = randomUUID();
   const authToken = randomBytes(24).toString("hex");
@@ -36,6 +39,10 @@ export async function POST(req: NextRequest) {
     merchant_id: merchant.id,
     customer_name: name ?? null,
     customer_phone: phoneNorm,
+    customer_email: emailNorm,
+    marketing_consent: hasConsent,
+    consent_at: hasConsent ? new Date().toISOString() : null,
+    consent_source: hasConsent ? "enroll_form" : null,
     points: 0,
     auth_token: authToken,
   });

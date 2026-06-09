@@ -20,7 +20,8 @@ export async function applyTransaction(
   reason: string,
   staffId: string,
   merchantId: string,
-  idempotencyKey: string
+  idempotencyKey: string,
+  amount?: number | null
 ): Promise<ApplyResult> {
   const { data, error } = await db.rpc("apply_points", {
     p_serial: serial,
@@ -29,6 +30,7 @@ export async function applyTransaction(
     p_staff: staffId,
     p_merchant: merchantId,
     p_idempo: idempotencyKey,
+    p_amount: amount ?? null,
   });
 
   if (error) return { ok: false, status: "error", error: error.message };

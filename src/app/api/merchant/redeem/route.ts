@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
 
   let delta: number;
   let reason: string;
+  let billAmount: number | null = null;
 
   if (amount !== undefined) {
     // points-per-dollar earn: delta computed server-side from the merchant rate
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No merchant" }, { status: 403 });
     delta = Math.round(Number(merchant.earn_rate) * amt);
     reason = "earn:purchase";
+    billAmount = amt; // persist the raw bill $ for real revenue analytics
   } else {
     const action = findAction(actionId);
     if (!action)
@@ -63,7 +65,8 @@ export async function POST(req: NextRequest) {
     reason,
     staff.id,
     staff.merchantId,
-    idempotencyKey
+    idempotencyKey,
+    billAmount
   );
 
   if (result.ok)
