@@ -273,3 +273,160 @@ returns jsonb language sql stable as $$
             ) s) rep)
   );
 $$;
+
+-- ===========================================================================
+-- CRM / intelligence layer — Phase 1 (read-only analytics; no column changes)
+-- All scoped by p_merchant; all return jsonb; all `stable`.
+-- ===========================================================================
+
+create index if not exists transactions_merchant_created_idx on transactions (merchant_id, created_at);
+create index if not exists transactions_merchant_serial_reason_idx on transactions (merchant_id, serial, reason);
+
+-- Customer list: search (name/phone), sort, paginate. Aggregates from the ledger.
+create or replace function merchant_customers(
+  p_merchant uuid,
+  p_search   text default null,
+  p_sort     text default 'recent',   -- 'recent' | 'points' | 'lifetime' | 'name'
+  p_limit    int  default 50,
+  p_offset   int  default 0
+) returns jsonb language sql stable as $$
+  with base as (
+    select pa.serial, pa.customer_name, pa.customer_phone, pa.points, pa.created_at,
+           coalesce(sum(t.delta) filter (where t.delta > 0), 0)::int  as lifetime_earned,
+           coalesce(-sum(t.delta) filter (where t.delta < 0), 0)::int as lifetime_redeemed,
+           count(t.id) filter (where t.reason like 'earn:%')::int      as visits,
+           max(t.created_at)                                           as last_seen
+      from passes pa
+      left join transactions t on t.serial = pa.serial
+     where pa.merchant_id = p_merchant
+       and (p_search is null or p_search = ''
+            or pa.customer_name ilike '%' || p_search || '%'
+            or pa.customer_phone ilike '%' || p_search || '%')
+     group by pa.serial, pa.customer_name, pa.customer_phone, pa.points, pa.created_at
+  ), sorted as (
+    select * from base
+     order by
+       case when p_sort = 'points'   then points end          desc nulls last,
+       case when p_sort = 'lifetime' then lifetime_earned end  desc nulls last,
+       case when p_sort = 'name'     then customer_name end    asc  nulls last,
+       case when p_sort = 'recent'   then coalesce(last_seen, created_at) end desc nulls last,
+       coalesce(last_seen, created_at) desc
+  )
+  select jsonb_build_object(
+    'total', (select count(*) from base),
+    'customers', coalesce((select jsonb_agg(row_to_json(x)) from (
+        select * from sorted limit greatest(p_limit, 0) offset greatest(p_offset, 0)
+      ) x), '[]'::jsonb)
+  );
+$$;
+
+-- One customer's full profile (null if not this merchant's card).
+create or replace function customer_profile(p_merchant uuid, p_serial text)
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'serial', pa.serial,
+    'name', pa.customer_name,
+    'phone', pa.customer_phone,
+    'points', pa.points,
+    'enrolled_at', pa.created_at,
+    'lifetime_earned',   coalesce((select sum(delta)  from transactions where serial = pa.serial and delta > 0), 0)::int,
+    'lifetime_redeemed', coalesce((select -sum(delta) from transactions where serial = pa.serial and delta < 0), 0)::int,
+    'visits',     (select count(*) from transactions where serial = pa.serial and reason like 'earn:%')::int,
+    'first_seen', (select min(created_at) from transactions where serial = pa.serial),
+    'last_seen',  (select max(created_at) from transactions where serial = pa.serial),
+    'estimated_spend', round(
+        coalesce((select sum(delta) from transactions where serial = pa.serial and reason like 'earn:%'), 0)::numeric
+        / nullif((select earn_rate from merchants where id = p_merchant), 0), 2),
+    'favorite_redemption', (select reason from transactions
+        where serial = pa.serial and reason like 'redeem:%'
+        group by reason order by count(*) desc limit 1),
+    'recent', coalesce((select jsonb_agg(row_to_json(r)) from (
+        select delta, reason, created_at from transactions
+         where serial = pa.serial order by created_at desc limit 20) r), '[]'::jsonb)
+  )
+  from passes pa
+  where pa.serial = p_serial and pa.merchant_id = p_merchant;
+$$;
+
+-- Time series: new members + points issued/redeemed, bucketed (day|week|month).
+create or replace function merchant_timeseries(
+  p_merchant uuid, p_bucket text default 'day', p_from timestamptz default now() - interval '30 days'
+) returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'bucket', p_bucket,
+    'members', coalesce((select jsonb_agg(row_to_json(m) order by m.t) from (
+        select date_trunc(p_bucket, created_at) as t, count(*)::int as n
+          from passes where merchant_id = p_merchant and created_at >= p_from
+         group by 1) m), '[]'::jsonb),
+    'points', coalesce((select jsonb_agg(row_to_json(p) order by p.t) from (
+        select date_trunc(p_bucket, created_at) as t,
+               coalesce(sum(delta) filter (where delta > 0), 0)::int  as issued,
+               coalesce(-sum(delta) filter (where delta < 0), 0)::int as redeemed
+          from transactions where merchant_id = p_merchant and created_at >= p_from
+         group by 1) p), '[]'::jsonb)
+  );
+$$;
+
+-- Activity heatmap: day-of-week × hour transaction counts.
+create or replace function activity_heatmap(
+  p_merchant uuid, p_from timestamptz default now() - interval '90 days'
+) returns jsonb language sql stable as $$
+  select coalesce(jsonb_agg(row_to_json(h)), '[]'::jsonb) from (
+    select extract(dow from created_at)::int as dow,
+           extract(hour from created_at)::int as hour,
+           count(*)::int as n
+      from transactions where merchant_id = p_merchant and created_at >= p_from
+     group by 1, 2) h;
+$$;
+
+-- Per-staff activity (also the fraud signal in Phase 3).
+create or replace function staff_activity(
+  p_merchant uuid, p_from timestamptz default now() - interval '30 days'
+) returns jsonb language sql stable as $$
+  select coalesce(jsonb_agg(row_to_json(s) order by s.txns desc), '[]'::jsonb) from (
+    select st.username, st.role,
+           count(t.id)::int as txns,
+           coalesce(sum(t.delta) filter (where t.delta > 0), 0)::int  as points_issued,
+           coalesce(-sum(t.delta) filter (where t.delta < 0), 0)::int as points_redeemed
+      from staff st
+      left join transactions t on t.staff_id = st.id and t.created_at >= p_from
+     where st.merchant_id = p_merchant
+     group by st.id, st.username, st.role) s;
+$$;
+
+-- RFM / behavioral segments: counts + per-customer label.
+create or replace function merchant_segments(p_merchant uuid)
+returns jsonb language sql stable as $$
+  with agg as (
+    select pa.serial, pa.customer_name,
+           count(t.id) filter (where t.reason like 'earn:%')::int        as visits,
+           max(t.created_at) filter (where t.reason like 'earn:%')        as last_earn,
+           coalesce(sum(t.delta) filter (where t.delta > 0), 0)::int      as earned
+      from passes pa
+      left join transactions t on t.serial = pa.serial
+     where pa.merchant_id = p_merchant
+     group by pa.serial, pa.customer_name
+  ), ranked as (
+    select *,
+           case when visits > 0 then extract(day from now() - last_earn)::int end as recency_days,
+           case when earned > 0 then ntile(10) over (order by earned desc) end    as earn_decile
+      from agg
+  ), segmented as (
+    select serial, customer_name, visits, recency_days, earned,
+      case
+        when visits = 0                                          then 'dormant'
+        when recency_days > 90                                   then 'lapsed'
+        when visits >= 3 and recency_days between 31 and 90      then 'at_risk'
+        when earn_decile = 1 and recency_days <= 30              then 'vip'
+        when visits >= 3 and recency_days <= 30                  then 'regular'
+        when visits <= 1 and recency_days <= 30                  then 'new'
+        else 'active'
+      end as segment
+      from ranked
+  )
+  select jsonb_build_object(
+    'counts', (select coalesce(jsonb_object_agg(segment, n), '{}'::jsonb)
+                 from (select segment, count(*)::int n from segmented group by segment) c),
+    'customers', coalesce((select jsonb_agg(row_to_json(s)) from segmented s), '[]'::jsonb)
+  );
+$$;
