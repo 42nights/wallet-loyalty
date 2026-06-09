@@ -29,9 +29,9 @@ export default function DigestCard() {
   }
 
   return (
-    <div className="card stack" style={{ marginTop: 12 }}>
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-        <div className="label">Weekly digest ✨</div>
+    <div className="panel" style={{ height: "100%" }}>
+      <div className="panel-h">
+        <span className="panel-t">Weekly digest ✨</span>
         <button
           className="btn btn-ghost"
           style={{ width: "auto", padding: "0 14px" }}
