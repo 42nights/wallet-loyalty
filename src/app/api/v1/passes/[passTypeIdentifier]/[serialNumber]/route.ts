@@ -12,14 +12,34 @@ type Params = {
   params: Promise<{ passTypeIdentifier: string; serialNumber: string }>;
 };
 
+type PassRow = {
+  serial: string;
+  merchant_id: string | null;
+  points: number;
+  auth_token: string;
+  updated_at: string;
+  offer_text?: string | null;
+};
+
 export async function GET(req: NextRequest, { params }: Params) {
   const { serialNumber } = await params;
 
-  const { data: pass } = await db
+  // offer_text is a Phase-4 column. Select it, but if the DB hasn't run that
+  // migration yet, fall back to the base columns — a missing column must NEVER
+  // break the live-update path (this is the lifeline that keeps cards fresh).
+  const base = "serial, merchant_id, points, auth_token, updated_at";
+  let { data: pass, error } = await db
     .from("passes")
-    .select("serial, merchant_id, points, auth_token, updated_at, offer_text")
+    .select(`${base}, offer_text`)
     .eq("serial", serialNumber)
-    .single();
+    .single<PassRow>();
+  if (error && /offer_text/i.test(error.message ?? "")) {
+    ({ data: pass } = await db
+      .from("passes")
+      .select(base)
+      .eq("serial", serialNumber)
+      .single<PassRow>());
+  }
   if (!pass) return new NextResponse("Not found", { status: 404 });
 
   const header = req.headers.get("authorization") || "";
@@ -37,7 +57,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     points: pass.points,
     authToken: pass.auth_token,
     updatedAt: new Date(pass.updated_at),
-    offerText: pass.offer_text,
+    offerText: pass.offer_text ?? null,
   });
 
   return new NextResponse(new Uint8Array(buffer), {
