@@ -555,3 +555,115 @@ create index if not exists alerts_merchant_idx on alerts (merchant_id, created_a
 --       from merchants m, lateral jsonb_to_recordset(detect_anomalies(m.id))
 --            as a(kind text, severity text, detail jsonb)
 --   $$);
+
+-- ===========================================================================
+-- CRM — Phase 4: AI ask-your-data (token budget) + campaigns (reward a segment,
+-- Wallet win-back back-field) + on-demand digests.
+-- ===========================================================================
+
+-- Per-pass win-back copy shown on the BACK of the Wallet card. Set by a campaign,
+-- rendered by buildApplePass when present; null = no offer field.
+alter table passes add column if not exists offer_text text;
+
+-- --- AI usage / per-merchant daily token budget (soft cost cap) ------------
+create table if not exists ai_usage (
+  merchant_id   uuid not null references merchants(id) on delete cascade,
+  day           date not null default current_date,
+  input_tokens  bigint not null default 0,
+  output_tokens bigint not null default 0,
+  calls         int not null default 0,
+  primary key (merchant_id, day)
+);
+
+-- Today's total tokens for a merchant (pre-call gate reads this).
+create or replace function ai_usage_today(p_merchant uuid)
+returns bigint language sql stable as $$
+  select coalesce(
+    (select input_tokens + output_tokens from ai_usage
+      where merchant_id = p_merchant and day = current_date), 0);
+$$;
+
+-- Atomically add usage after a call; returns the new daily total.
+create or replace function ai_add_usage(p_merchant uuid, p_in int, p_out int)
+returns bigint language plpgsql as $$
+declare v_total bigint;
+begin
+  insert into ai_usage (merchant_id, day, input_tokens, output_tokens, calls)
+       values (p_merchant, current_date, greatest(p_in,0), greatest(p_out,0), 1)
+  on conflict (merchant_id, day) do update
+     set input_tokens  = ai_usage.input_tokens  + greatest(p_in,0),
+         output_tokens = ai_usage.output_tokens + greatest(p_out,0),
+         calls         = ai_usage.calls + 1
+  returning input_tokens + output_tokens into v_total;
+  return v_total;
+end;
+$$;
+
+-- --- Campaigns: reward a segment + optional Wallet win-back offer ----------
+create table if not exists campaigns (
+  id           uuid primary key default gen_random_uuid(),
+  merchant_id  uuid not null references merchants(id) on delete cascade,
+  name         text not null,
+  segment      text not null,                 -- target RFM bucket (merchant_segments)
+  bonus_points int  not null default 0,        -- points credited to each targeted card
+  offer_text   text,                           -- optional Wallet back-field win-back copy
+  status       text not null default 'draft' check (status in ('draft','sent')),
+  targeted     int  not null default 0,
+  created_by   uuid references staff(id) on delete set null,
+  created_at   timestamptz default now(),
+  sent_at      timestamptz
+);
+create index if not exists campaigns_merchant_idx on campaigns (merchant_id, created_at desc);
+
+-- One row per (campaign, card). Unique key = idempotent re-runs (a retried send
+-- never double-credits). points_applied mirrors the ledger campaign:<id> txn.
+create table if not exists campaign_sends (
+  id            bigint generated always as identity primary key,
+  campaign_id   uuid not null references campaigns(id) on delete cascade,
+  merchant_id   uuid not null references merchants(id) on delete cascade,
+  serial        text not null references passes(serial) on delete cascade,
+  points_applied int not null default 0,
+  created_at    timestamptz default now(),
+  unique (campaign_id, serial)
+);
+create index if not exists campaign_sends_campaign_idx on campaign_sends (campaign_id);
+
+-- Lift, straight from the ledger: of the cards targeted, how many made a REAL
+-- purchase (earn:purchase, NOT the campaign bonus) within 14 days of the send.
+create or replace function campaign_lift(p_merchant uuid, p_campaign uuid)
+returns jsonb language sql stable as $$
+  with snd as (
+    select cs.serial, c.sent_at
+      from campaign_sends cs
+      join campaigns c on c.id = cs.campaign_id
+     where cs.campaign_id = p_campaign
+       and cs.merchant_id = p_merchant
+       and c.merchant_id  = p_merchant
+       and c.sent_at is not null
+  ), returned as (
+    select s.serial,
+           exists (select 1 from transactions t
+                    where t.serial = s.serial
+                      and t.reason = 'earn:purchase'
+                      and t.created_at >  s.sent_at
+                      and t.created_at <= s.sent_at + interval '14 days') as came_back
+      from snd s
+  )
+  select jsonb_build_object(
+    'targeted',     (select count(*) from returned)::int,
+    'earned_after', (select count(*) from returned where came_back)::int,
+    'lift_pct',     (select case when count(*) = 0 then 0
+                       else round(100.0 * count(*) filter (where came_back) / count(*), 1) end
+                     from returned)
+  );
+$$;
+
+-- --- On-demand AI digests (Haiku 5-bullet summaries) -----------------------
+create table if not exists digests (
+  id          bigint generated always as identity primary key,
+  merchant_id uuid not null references merchants(id) on delete cascade,
+  body        text not null,
+  model       text,
+  created_at  timestamptz default now()
+);
+create index if not exists digests_merchant_idx on digests (merchant_id, created_at desc);

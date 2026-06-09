@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const { data: pass } = await db
     .from("passes")
-    .select("serial, merchant_id, points, auth_token, updated_at")
+    .select("serial, merchant_id, points, auth_token, updated_at, offer_text")
     .eq("serial", serialNumber)
     .single();
   if (!pass) return new NextResponse("Not found", { status: 404 });
@@ -37,6 +37,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     points: pass.points,
     authToken: pass.auth_token,
     updatedAt: new Date(pass.updated_at),
+    offerText: pass.offer_text,
   });
 
   return new NextResponse(new Uint8Array(buffer), {

@@ -10,6 +10,8 @@ export type PassData = {
   points: number;
   authToken: string;
   updatedAt?: Date;
+  /** Optional win-back copy shown on the back of the card (set by a campaign). */
+  offerText?: string | null;
 };
 
 export interface WalletProvider {

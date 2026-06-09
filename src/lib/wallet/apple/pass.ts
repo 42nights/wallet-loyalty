@@ -75,7 +75,7 @@ async function assetBuffer(
 }
 
 export async function buildApplePass(data: PassData): Promise<Buffer> {
-  const { serial, merchantId, points, authToken, updatedAt = new Date() } = data;
+  const { serial, merchantId, points, authToken, updatedAt = new Date(), offerText } = data;
 
   let merchant: MerchantBranding | null = null;
   if (merchantId) {
@@ -131,6 +131,12 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     label: "UPDATED",
     value: updatedAt.toLocaleDateString("en-GB"), // dd/mm/yyyy
   });
+
+  // Win-back offer on the BACK of the card (campaign-set). Passive: it shows when
+  // the customer opens the card in Wallet — no lockscreen marketing.
+  if (offerText && offerText.trim()) {
+    pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
+  }
 
   // The QR the merchant scans — encodes the serial for counter lookup.
   pass.setBarcodes({

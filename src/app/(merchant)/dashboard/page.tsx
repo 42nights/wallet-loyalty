@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { findAction } from "@/lib/config";
+import AskPanel from "./AskPanel";
+import DigestCard from "./DigestCard";
 
 export const runtime = "nodejs";
 
@@ -81,6 +83,7 @@ export default async function DashboardPage() {
       </div>
       <div className="row" style={{ gap: 12, marginBottom: 12 }}>
         <Link className="btn btn-ghost" href="/customers">Customers</Link>
+        <Link className="btn btn-ghost" href="/campaigns">Campaigns</Link>
         <Link className="btn btn-ghost" href="/scan">Scan</Link>
         <Link className="btn btn-ghost" href="/staff">Staff</Link>
       </div>
@@ -101,6 +104,12 @@ export default async function DashboardPage() {
         <Stat label="Points redeemed" value={s.points_redeemed} />
         <Stat label="Repeat rate" value={`${Math.round((s.repeat_rate ?? 0) * 100)}%`} />
       </div>
+
+      <div style={{ marginTop: 12 }}>
+        <AskPanel />
+      </div>
+
+      <DigestCard />
 
       <div className="card stack" style={{ marginTop: 12 }}>
         <div className="label">Segments</div>
