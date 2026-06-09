@@ -18,6 +18,15 @@ type Stats = {
 type SegCustomer = { serial: string; customer_name: string | null; segment: string };
 type Segments = { counts: Record<string, number>; customers: SegCustomer[] };
 type StaffRow = { username: string; role: string; txns: number; points_issued: number; points_redeemed: number };
+type Anomaly = { kind: string; severity: string; detail: { date?: string; points?: number; avg?: number; staff?: string; issued?: number } };
+type Funnel = { enrolled: number; earned_once: number; earned_3plus: number; redeemed: number };
+
+function anomalyText(a: Anomaly): string {
+  const d = a.detail;
+  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${d.points} pts (avg ${d.avg})`;
+  if (a.kind === "staff_over_issue") return `${d.staff} issued ${d.issued} pts — outlier`;
+  return a.kind;
+}
 
 const EMPTY: Stats = {
   members: 0, active_members: 0, points_issued: 0, points_redeemed: 0, top_redemptions: [], repeat_rate: 0,
@@ -49,14 +58,18 @@ export default async function DashboardPage() {
   if (staff.role !== "owner" || !staff.merchantId) redirect("/scan");
   const m = staff.merchantId;
 
-  const [statsR, segR, staffR] = await Promise.all([
+  const [statsR, segR, staffR, anomR, funnelR] = await Promise.all([
     db.rpc("merchant_stats", { p_merchant: m }),
     db.rpc("merchant_segments", { p_merchant: m }),
     db.rpc("staff_activity", { p_merchant: m }),
+    db.rpc("detect_anomalies", { p_merchant: m }),
+    db.rpc("redemption_funnel", { p_merchant: m }),
   ]);
   const s = (statsR.data as Stats | null) ?? EMPTY;
   const seg = (segR.data as Segments | null) ?? { counts: {}, customers: [] };
   const staffRows = (staffR.data as StaffRow[] | null) ?? [];
+  const anomalies = (anomR.data as Anomaly[] | null) ?? [];
+  const funnel = (funnelR.data as Funnel | null) ?? { enrolled: 0, earned_once: 0, earned_3plus: 0, redeemed: 0 };
 
   const atRisk = seg.customers.filter((c) => c.segment === "at_risk").slice(0, 8);
   const lapsed = seg.customers.filter((c) => c.segment === "lapsed").slice(0, 8);
@@ -71,6 +84,15 @@ export default async function DashboardPage() {
         <Link className="btn btn-ghost" href="/scan">Scan</Link>
         <Link className="btn btn-ghost" href="/staff">Staff</Link>
       </div>
+
+      {anomalies.length > 0 && (
+        <div className="card stack" style={{ marginBottom: 12, borderColor: "var(--bad)" }}>
+          <div className="label" style={{ color: "var(--bad)" }}>⚠ Alerts ({anomalies.length})</div>
+          {anomalies.map((a, i) => (
+            <div key={i}>{anomalyText(a)}</div>
+          ))}
+        </div>
+      )}
 
       <div className="grid2">
         <Stat label="Members" value={s.members} />
@@ -122,6 +144,19 @@ export default async function DashboardPage() {
             <div className="label">{r.txns} txns · +{r.points_issued} / −{r.points_redeemed}</div>
           </div>
         ))}
+      </div>
+
+      <div className="card stack" style={{ marginTop: 12 }}>
+        <div className="label">Redemption funnel</div>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <span>Enrolled <b>{funnel.enrolled}</b></span>
+          <span className="label">→</span>
+          <span>Earned <b>{funnel.earned_once}</b></span>
+          <span className="label">→</span>
+          <span>3+ <b>{funnel.earned_3plus}</b></span>
+          <span className="label">→</span>
+          <span>Redeemed <b>{funnel.redeemed}</b></span>
+        </div>
       </div>
 
       <div className="card stack" style={{ marginTop: 12 }}>

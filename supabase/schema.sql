@@ -477,3 +477,81 @@ create table if not exists customer_notes (
   created_at timestamptz default now()
 );
 create index if not exists customer_notes_serial_idx on customer_notes (serial, created_at desc);
+
+-- ===========================================================================
+-- CRM — Phase 3: rule-based intelligence (anomalies, funnel) + alerts store.
+-- ===========================================================================
+
+-- Live anomaly detection (no ML): redemption spikes + staff over-issuing.
+create or replace function detect_anomalies(
+  p_merchant uuid, p_from timestamptz default now() - interval '30 days'
+) returns jsonb language sql stable as $$
+  with daily_redeem as (
+    select date_trunc('day', created_at) as d, -sum(delta) as pts
+      from transactions
+     where merchant_id = p_merchant and delta < 0 and created_at >= p_from
+     group by 1
+  ), rstats as (select avg(pts) mu, coalesce(stddev_pop(pts), 0) sd from daily_redeem),
+  spikes as (
+    select 'redemption_spike' as kind, 'warn' as severity,
+           jsonb_build_object('date', d::date, 'points', pts::int,
+                              'avg', round((select mu from rstats))::int) as detail
+      from daily_redeem, rstats
+     where sd > 0 and pts > mu + 2 * sd
+  ), staff_iss as (
+    select st.username,
+           coalesce(sum(t.delta) filter (where t.delta > 0), 0) as issued
+      from staff st
+      left join transactions t on t.staff_id = st.id and t.merchant_id = p_merchant and t.created_at >= p_from
+     where st.merchant_id = p_merchant
+     group by st.id, st.username
+  ), sstats as (select avg(issued) mu, coalesce(stddev_pop(issued), 0) sd from staff_iss),
+  over_issue as (
+    select 'staff_over_issue' as kind, 'warn' as severity,
+           jsonb_build_object('staff', username, 'issued', issued::int) as detail
+      from staff_iss, sstats
+     where sd > 0 and issued > mu + 2 * sd and issued > 0
+  )
+  select coalesce(jsonb_agg(row_to_json(a)), '[]'::jsonb)
+    from (select * from spikes union all select * from over_issue) a;
+$$;
+
+-- Redemption funnel: enrolled → earned once → earned 3+ → redeemed.
+create or replace function redemption_funnel(p_merchant uuid)
+returns jsonb language sql stable as $$
+  with per as (
+    select pa.serial,
+           count(t.id) filter (where t.reason like 'earn:%')   as earns,
+           count(t.id) filter (where t.reason like 'redeem:%') as redeems
+      from passes pa
+      left join transactions t on t.serial = pa.serial
+     where pa.merchant_id = p_merchant
+     group by pa.serial
+  )
+  select jsonb_build_object(
+    'enrolled',     (select count(*) from per)::int,
+    'earned_once',  (select count(*) from per where earns >= 1)::int,
+    'earned_3plus', (select count(*) from per where earns >= 3)::int,
+    'redeemed',     (select count(*) from per where redeems >= 1)::int
+  );
+$$;
+
+-- Alerts store (for acknowledgement/history; dashboard reads live detect_anomalies today).
+create table if not exists alerts (
+  id bigint generated always as identity primary key,
+  merchant_id uuid not null references merchants(id) on delete cascade,
+  kind text not null,
+  severity text not null default 'info',
+  payload jsonb not null,
+  acknowledged boolean not null default false,
+  created_at timestamptz default now()
+);
+create index if not exists alerts_merchant_idx on alerts (merchant_id, created_at desc);
+
+-- Optional nightly persistence (enable the pg_cron extension first in Supabase):
+--   select cron.schedule('nightly-anomalies','0 3 * * *', $$
+--     insert into alerts (merchant_id, kind, severity, payload)
+--     select m.id, a.kind, a.severity, a.detail
+--       from merchants m, lateral jsonb_to_recordset(detect_anomalies(m.id))
+--            as a(kind text, severity text, detail jsonb)
+--   $$);
