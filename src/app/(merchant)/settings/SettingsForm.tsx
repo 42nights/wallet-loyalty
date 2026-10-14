@@ -120,7 +120,7 @@ export default function SettingsForm() {
                   <>Points: customers earn points on every {formatMoney(1)} they spend</>
                 )}
               </div>
-              <div className={styles.help}>
+              <div className={styles.help} style={{ marginTop: 8 }}>
                 Set up by 42nights.{" "}
                 {stamps
                   ? "The number of stamps stays fixed once customers have stamps, so every card keeps its value. You can rename the reward."

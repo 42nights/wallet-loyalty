@@ -113,8 +113,8 @@ export default function EnrollForm({
         <div className="card stack" role="status">
           <div className={s.title}>Your card is ready</div>
           <p className={s.lead}>
-            Tap <b>Add</b> in the Wallet sheet to save your {merchantName} card. Your {unit}
-            update on it automatically.
+            Tap <b>Add</b> in the Wallet sheet to save your {merchantName} card.
+            Your {unit} update on it automatically.
           </p>
           <a className={`btn btn-primary ${s.linkBtn}`} href={done.cardUrl}>
             Open my card again

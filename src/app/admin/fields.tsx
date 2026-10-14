@@ -77,7 +77,7 @@ export function LoyaltyFields({ value, onChange, locked }: { value: Loyalty; onC
               {name}
               {value.mode === key && <span aria-hidden>✓</span>}
             </div>
-            <div className={s.tplRow}><span>{sub}</span></div>
+            <div className={s.hint}>{sub}</div>
           </button>
         ))}
       </div>
