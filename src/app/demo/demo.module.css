@@ -95,6 +95,7 @@
 
 .foot { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--line); }
 .foot p { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 0 0 14px; }
+.footNote { color: var(--muted); font-size: 15px; line-height: 1.6; max-width: 60ch; margin: 0 0 18px; }
 .footCtas { display: flex; flex-wrap: wrap; gap: 10px; }
 .footCtas :global(.btn) { width: auto; padding: 14px 20px; text-decoration: none; display: inline-block; }
 

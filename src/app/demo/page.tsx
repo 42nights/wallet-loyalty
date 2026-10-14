@@ -47,17 +47,25 @@ export default function DemoPage() {
 
       <DemoClient merchants={merchants} qr={qrPath(SAMPLE_SERIAL)} updated={updated} />
 
-      <footer className={s.foot}>
+      {/* "Ask us about a pilot" on / lands here. With no SALES_CONTACT_EMAIL we
+          have no address to show, so the note says who can put them in touch. */}
+      <footer id="contact" className={s.foot}>
         <p>Want this for your business?</p>
+        {!contact && (
+          <div className={s.footNote}>
+            Ask us about a pilot. We set up every business ourselves, so ask the person who shared this page with you, or
+            the staff at the shop where you saw the card, to put you in touch.
+          </div>
+        )}
         <div className={s.footCtas}>
-          <Link href="/#pricing" className="btn btn-primary">
-            See pricing
-          </Link>
           {contact && (
-            <a href={`mailto:${contact}?subject=${encodeURIComponent("42nights Wallet Loyalty")}`} className="btn btn-ghost">
+            <a href={`mailto:${contact}?subject=${encodeURIComponent("42nights Wallet Loyalty")}`} className="btn btn-primary">
               Book a call
             </a>
           )}
+          <Link href="/#founding" className={`btn ${contact ? "btn-ghost" : "btn-primary"}`}>
+            Founding merchants
+          </Link>
           <Link href="/" className="btn btn-ghost">
             Back to the overview
           </Link>
