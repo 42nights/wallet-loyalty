@@ -38,6 +38,26 @@
 .mname:hover { color: var(--accent); }
 .slug { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
 
+/* Phone: one card per merchant instead of a sideways-scrolling table. The
+   header row is hidden and each cell prints its own column name (data-label).
+   Cells without one (name, health badge) take a full row; the rest sit 3 across. */
+@media (max-width: 600px) {
+  .tableWrap { overflow: visible; margin: 0; padding: 0; }
+  .table { min-width: 0; }
+  .table thead { display: none; }
+  .table tbody { display: block; }
+  .table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .table tbody tr:last-child { border-bottom: none; }
+  .table td { display: block; padding: 0; border: none; white-space: normal; overflow-wrap: anywhere; }
+  .table td.num { text-align: left !important; }
+  .table td:not([data-label]) { grid-column: 1 / -1; }
+  .table td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 3px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: .14em; color: var(--muted);
+  }
+  .table tbody tr:hover td { background: none; }
+}
+
 .badge {
   display: inline-flex; align-items: center; gap: 6px; font-size: 10px; text-transform: uppercase;
   letter-spacing: .14em; padding: 4px 9px; border-radius: 999px; white-space: nowrap;
