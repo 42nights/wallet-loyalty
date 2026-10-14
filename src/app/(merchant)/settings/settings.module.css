@@ -52,7 +52,8 @@
 .seg button:hover, .seg button:focus-visible { border-color: var(--accent); }
 .seg button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
 
-.days { display: flex; flex-wrap: wrap; gap: 8px; border: none; margin: 0; padding: 0; min-width: 0; }
+/* 4 columns: Mon-Thu over Fri-Sun, never a lone chip on a third row */
+.days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border: none; margin-inline: 0; padding: 0; min-width: 0; }
 .days legend { padding: 0; margin-bottom: 8px; }
 .day {
   display: flex; align-items: center; gap: 7px; padding: 9px 12px; font-size: 14px; cursor: pointer;
@@ -60,6 +61,9 @@
 }
 .day:has(input:checked) { border-color: var(--accent); }
 .day input, .check input { width: 18px; height: 18px; padding: 0; margin: 0; accent-color: var(--accent); flex: none; }
+
+/* the card wording on its own line, so "3–5 pm" never breaks at the dash */
+.preview { display: block; margin-top: 4px; }
 
 .times { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .times label { display: block; min-width: 0; }

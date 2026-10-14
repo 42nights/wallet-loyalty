@@ -284,7 +284,7 @@ export default function SettingsForm() {
                 {typeof hhCheck === "string" ? (
                   <span style={{ color: "var(--bad)" }}>{hhCheck}</span>
                 ) : hhCheck ? (
-                  <>Cards will say <b>{describeHappyHour(hhCheck)}</b></>
+                  <>Cards will say <b className={styles.preview}>{describeHappyHour(hhCheck)}</b></>
                 ) : (
                   "No happy hour: every bill earns the normal rate."
                 )}

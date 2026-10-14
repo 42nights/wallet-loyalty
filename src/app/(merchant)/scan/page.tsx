@@ -360,7 +360,7 @@ export default function ScanPage() {
         )}
         {billAmt !== null && !overCap && (
           <div className="label">
-            = {Math.round(earnRate * billAmt * (happyHour ?? 1))} pts ({earnRate}× rate{happyHour ? `, happy hour ${happyHour}×` : ""})
+            = {Math.round(earnRate * billAmt * (happyHour ?? 1))} pts ({earnRate}× rate{happyHour ? ` × ${happyHour}` : ""})
           </div>
         )}
         {pending && (

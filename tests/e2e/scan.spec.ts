@@ -119,7 +119,7 @@ test("owner sets a happy hour in /settings → /scan shows it and earns double",
   await page.getByPlaceholder("serial…").press("Enter");
   await expect(page.getByText("Happy hour 2× points")).toBeVisible();
   await page.getByPlaceholder("bill amount").fill("10");
-  await expect(page.getByText("= 200 pts (10× rate, happy hour 2×)")).toBeVisible();
+  await expect(page.getByText("= 200 pts (10× rate × 2)")).toBeVisible();
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.locator(".balance")).toHaveText("200");
   await expect(page.locator(".toast.ok")).toContainText("+200 pts");
