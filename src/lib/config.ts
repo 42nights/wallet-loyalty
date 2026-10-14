@@ -294,9 +294,11 @@ export function describeHappyHour(h: HappyHour): string {
 }
 
 // Why an owner deactivated a card (passes.void_reason; the schema's check
-// constraint holds the same keys).
+// constraint holds the same keys). "lost" keeps its stored key but means a
+// duplicate or replaced card: a customer who lost their phone needs the same
+// card re-sent (Send card to phone), not deactivated.
 export const VOID_REASONS = {
-  lost: "Lost / duplicate",
+  lost: "Duplicate / replaced card",
   fraud: "Fraud",
   customer: "Customer asked",
   other: "Other",

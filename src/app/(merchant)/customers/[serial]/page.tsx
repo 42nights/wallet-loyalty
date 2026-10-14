@@ -97,6 +97,17 @@ export default async function CustomerPage({
           <div className="label">{p.name || "Customer"}</div>
           <div className="balance">{nf(p.points)}</div>
           <div className="label">{unitLabel(mode, p.points)} · {formatPhone(p.phone) || "no phone"}</div>
+          {voided && (
+            <span
+              style={{
+                display: "inline-block", marginTop: 10, padding: "3px 10px", borderRadius: 999,
+                border: "1px solid var(--bad)", color: "var(--bad)",
+                fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase",
+              }}
+            >
+              Deactivated
+            </span>
+          )}
         </div>
       </div>
 
@@ -118,7 +129,7 @@ export default async function CustomerPage({
 
       {voided ? (
         <div style={{ marginTop: 12 }}>
-          <CardStatus serial={p.serial} voided={voided} />
+          <CardStatus serial={p.serial} voided={voided} unit={unitLabel(mode, 2)} />
         </div>
       ) : (
         <>
@@ -160,7 +171,7 @@ export default async function CustomerPage({
 
       {!voided && (
         <div style={{ marginTop: 24 }}>
-          <CardStatus serial={p.serial} voided={null} />
+          <CardStatus serial={p.serial} voided={null} unit={unitLabel(mode, 2)} />
         </div>
       )}
     </div>

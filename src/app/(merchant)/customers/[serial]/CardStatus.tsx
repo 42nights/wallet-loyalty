@@ -8,12 +8,15 @@ const REASONS = Object.entries(VOID_REASONS) as [VoidReason, string][];
 // Deactivate / reactivate this card (POST / DELETE /api/merchant/void).
 // Deactivating takes a second step that names a reason, like removing points.
 // `voided` comes from the server page, which refreshes after each change.
+// `unit`: what the card counts, "points" or "stamps".
 export default function CardStatus({
   serial,
   voided,
+  unit,
 }: {
   serial: string;
   voided: { at: string; reason: string | null } | null;
+  unit: string;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -47,7 +50,7 @@ export default function CardStatus({
         <div>
           <div className="label" style={{ color: "var(--bad)" }}>Card deactivated</div>
           <div style={{ lineHeight: 1.5 }}>
-            Since {when} · {why}. No points can be added or used and the card can&apos;t be re-sent. Its points and
+            Since {when} · {why}. No {unit} can be added or used and the card can&apos;t be re-sent. Its {unit} and
             history are kept.
           </div>
         </div>
@@ -64,8 +67,11 @@ export default function CardStatus({
       <div>
         <div className="label">Deactivate card</div>
         <div className="label" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "none", marginBottom: 0 }}>
-          Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet. Points
+          Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet. Its {unit}
           and history are kept, and you can reactivate it.
+        </div>
+        <div style={{ marginTop: 8, lineHeight: 1.5 }}>
+          <b>Lost phone?</b> Use Send card to phone instead — it is the same card.
         </div>
       </div>
       {!confirming ? (
@@ -75,13 +81,12 @@ export default function CardStatus({
       ) : (
         <div className="confirm">
           Why are you deactivating this card?
-          <div className="grid2" role="radiogroup" aria-label="Reason" style={{ marginTop: 10 }}>
+          <div className="grid2" role="group" aria-label="Reason" style={{ marginTop: 10 }}>
             {REASONS.map(([key, text]) => (
               <button
                 key={key}
                 type="button"
-                role="radio"
-                aria-checked={reason === key}
+                aria-pressed={reason === key}
                 className="btn btn-ghost"
                 style={{
                   padding: 12,
@@ -98,7 +103,13 @@ export default function CardStatus({
             ))}
           </div>
           <div className="row">
-            <button className="btn btn-primary" disabled={busy || !reason} onClick={() => send("POST")}>
+            {/* destructive: the --bad colour, not the orange of positive actions */}
+            <button
+              className="btn"
+              style={{ background: "var(--bad)", color: "var(--accent-ink)" }}
+              disabled={busy || !reason}
+              onClick={() => send("POST")}
+            >
               {busy ? "…" : "Yes, deactivate"}
             </button>
             <button className="btn btn-ghost" disabled={busy} onClick={() => { setConfirming(false); setReason(null); }}>

@@ -84,9 +84,11 @@ test("owner deactivates a card with a reason, /scan shows it deactivated, then r
   await page.getByRole("button", { name: "Deactivate card" }).click();
   const yes = page.getByRole("button", { name: "Yes, deactivate" });
   await expect(yes).toBeDisabled(); // a reason is required
-  await page.getByRole("radio", { name: "Customer asked" }).click();
+  await page.getByRole("button", { name: "Customer asked" }).click();
+  await expect(page.getByRole("button", { name: "Customer asked" })).toHaveAttribute("aria-pressed", "true");
   await yes.click();
   await expect(page.getByText("Card deactivated", { exact: true })).toBeVisible();
+  await expect(page.getByText("Deactivated", { exact: true })).toBeVisible(); // the chip in the hero
   await expect(page.getByText(/Customer asked\. No points can be added or used/)).toBeVisible();
   // nothing left on the page that would change the balance or re-send the card
   await expect(page.getByLabel("Points to add or remove")).toHaveCount(0);

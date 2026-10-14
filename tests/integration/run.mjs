@@ -662,7 +662,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   // decision: a deactivated card keeps its number, so no second card is made
   const again = await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } });
   const [stillVoid] = await rows(db.from("passes").select("voided_at").eq("serial", vc.serial));
-  chk("re-enrolling its number → 409, and the card stays deactivated", `${again.status}:${Boolean(stillVoid?.voided_at)}`, "409:true");
+  chk("re-enrolling its number → 409 saying the card is paused, and the card stays deactivated",
+    `${again.status}:${(await again.json()).error}:${Boolean(stillVoid?.voided_at)}`,
+    "409:This number's card is paused — ask the owner to switch it back on.:true");
   const vPass = await latestPass(vc);
   chk("Wallet card says DEACTIVATED once: header, no primary field; the back is STATUS, UPDATED, TERMS",
     `${field(vPass, "headerFields", "balance")}|${(vPass.storeCard?.primaryFields ?? []).length}|${(vPass.storeCard?.backFields ?? []).map((f) => f.key).join(",")}`,

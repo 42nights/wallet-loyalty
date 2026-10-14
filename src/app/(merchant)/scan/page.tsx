@@ -370,8 +370,8 @@ export default function ScanPage() {
           <div>
             <div className="label">{customer.name || "Customer"}</div>
             <div className={styles.voided} role="status">
-              <b>This card is deactivated.</b> No points can be added or used. The owner can reactivate it on the
-              customer&apos;s page.
+              <b>This card is deactivated.</b> No {unitLabel(mode, 2)} can be added or used. The owner can reactivate
+              it on the customer&apos;s page.
             </div>
           </div>
           <button className="btn btn-primary" onClick={reset}>Scan next customer</button>

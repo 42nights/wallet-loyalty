@@ -15,11 +15,13 @@ export const runtime = "nodejs";
 // and a phone number is guessable, so re-issuing would leak that customer's
 // signed pass + auth token to anyone who knows their number. Re-sending a lost
 // card must go through staff (an authenticated path).
-const alreadyEnrolled = () =>
+// A deactivated card can't be re-sent, so its number gets its own answer.
+const alreadyEnrolled = (paused = false) =>
   NextResponse.json(
     {
-      error:
-        "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
+      error: paused
+        ? "This number's card is paused — ask the owner to switch it back on."
+        : "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
     },
     { status: 409 }
   );
@@ -75,9 +77,10 @@ export async function POST(req: NextRequest) {
   // compare. Rows stored from now on are canonical, so the index still decides
   // for them (and for a concurrent double-tap).
   // ponytail: delete once legacy rows are rewritten to the canonical form.
+  // "*": voided_at is a later column (absent = not deactivated)
   const { data: sameTail, error: tailError } = await db
     .from("passes")
-    .select("customer_phone")
+    .select("*")
     .eq("merchant_id", merchant.id)
     .regexMatch("customer_phone", phoneSuffixPattern(digitsOf(phone)));
   if (tailError) {
@@ -87,8 +90,8 @@ export async function POST(req: NextRequest) {
   // A deactivated card still holds its number (the unique index counts it
   // too), so it blocks a second card on purpose: staff find it by phone on
   // /scan, where it reads as deactivated, and the owner can reactivate it.
-  if (sameTail.some((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone))
-    return alreadyEnrolled();
+  const same = sameTail.find((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone);
+  if (same) return alreadyEnrolled(Boolean(same.voided_at));
 
   const hasConsent = consent === true;
   const serial = randomUUID();
