@@ -112,6 +112,11 @@ What it covers:
 - **anomaly rule**: on a fresh merchant, 10 normal earns give `detect_anomalies`
   `[]`; one confirmed 1,000,000-point earn by its cashier gives exactly one
   `staff_over_issue` naming that cashier.
+- **admin earn rate**: logged in as the creator (the suite gives its `next dev`
+  a per-run `ADMIN_PASSWORD`), a PATCH outside 0.1–100 is a 400, 100 at the
+  default bill limit saves, and with a 100000 bill limit 20 is a 400 naming 10
+  as the highest rate that fits while 10 (exactly 1,000,000) saves. Creating a
+  merchant at rate 1000 is a 400.
 
 **When it fails**: the app's own output is in `test-results/integration/next.log`.
 A `FAIL harness: …` line means the run stopped early (for example, enroll failed and

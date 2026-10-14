@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
 import styles from "./settings.module.css";
 
@@ -80,7 +80,7 @@ export default function SettingsForm() {
   }
 
   const rateNum = Number(rate);
-  const rateValid = rate.trim() !== "" && rateNum >= 0.1 && rateNum <= 100;
+  const rateValid = rate.trim() !== "" && rateNum >= EARN_RATE.min && rateNum <= EARN_RATE.max;
   const limitNum = Number(limit);
   const limitValid = limit.trim() !== "" && limitNum >= 10 && limitNum <= 100000;
 
@@ -138,14 +138,14 @@ export default function SettingsForm() {
           <section className="card stack" aria-labelledby="rate-h">
             <div>
               <div className="label" id="rate-h">Earn rate</div>
-              <div className={styles.help}>Points per {formatMoney(1)} spent (0.1 – 100).</div>
+              <div className={styles.help}>Points per {formatMoney(1)} spent ({EARN_RATE.min} – {EARN_RATE.max}).</div>
             </div>
             <form className="row" onSubmit={saveRate}>
               <input
                 type="number"
                 inputMode="decimal"
-                min={0.1}
-                max={100}
+                min={EARN_RATE.min}
+                max={EARN_RATE.max}
                 step="any"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
@@ -164,7 +164,7 @@ export default function SettingsForm() {
               {rateValid ? (
                 <>A {formatMoney(EXAMPLE_BILL)} bill earns <b>{Math.round(rateNum * EXAMPLE_BILL)}</b> points</>
               ) : (
-                <span style={{ color: "var(--bad)" }}>Enter a rate between 0.1 and 100</span>
+                <span style={{ color: "var(--bad)" }}>Enter a rate between {EARN_RATE.min} and {EARN_RATE.max}</span>
               )}
             </div>
           </section>

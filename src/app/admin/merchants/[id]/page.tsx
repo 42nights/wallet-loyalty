@@ -6,7 +6,7 @@ import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
 import { DEFAULT_COLORS, UUID_RE, rgbToHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
-import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, nf } from "../../ui";
+import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, day, nf } from "../../ui";
 import MerchantEditor from "./MerchantEditor";
 import StaffList from "./StaffList";
 import AssetUploader from "./AssetUploader";
@@ -81,7 +81,7 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             {enrollUrl ? <a href={enrollUrl} target="_blank" rel="noreferrer">{enrollUrl}</a> : "No enroll link (no slug)"}
             <br />
             {REDEEM_TEMPLATES[template].label} template · {nf(Number(m.earn_rate))} pts per $1 · last activity{" "}
-            {ago(stats.lastActivity)} · created {m.created_at ? new Date(m.created_at).toLocaleDateString("en-GB") : "—"}
+            {ago(stats.lastActivity)} · created {m.created_at ? day(m.created_at) : "—"}
           </div>
         </div>
       </div>

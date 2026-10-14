@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { TrendChart } from "@/app/(merchant)/dashboard/charts";
 import type { Daily, Health, Kpis } from "@/lib/admin/stats";
+import { formatMoney } from "@/lib/format";
 import s from "./admin.module.css";
 
 // Presentational pieces shared by the overview and the merchant page. No hooks,
 // so they render on the server and ship no JS.
 
 export const nf = (n: number) => n.toLocaleString("en-US");
-export const dollars = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+// "Oct 13, 2026". `timeZone` for values that are already calendar days (the
+// charts' UTC "2026-10-13" keys), so the label is that day, not the day before.
+export const day = (d: string, timeZone?: string) =>
+  new Date(d).toLocaleDateString("en-US", { dateStyle: "medium", timeZone });
 
 // "3h ago". null = nothing inside the 60-day window the stats look at.
 export function ago(iso: string | null): string {
@@ -19,11 +22,18 @@ export function ago(iso: string | null): string {
   return `${Math.round(mins / 1440)}d ago`;
 }
 
-export const HEALTH_LABEL: Record<Health, string> = { new: "New", active: "Active", quiet: "Quiet", empty: "Empty" };
+export const HEALTH_LABEL: Record<Health, string> = {
+  new: "New",
+  newActive: "New · active",
+  active: "Active",
+  quiet: "Quiet",
+  empty: "Empty",
+};
 export const HEALTH_HELP: Record<Health, string> = {
-  new: "Created less than 7 days ago",
-  active: "Activity in the last 14 days",
-  quiet: "No activity for 14+ days",
+  new: "Created less than 7 days ago, no activity yet",
+  newActive: "Created less than 7 days ago, with activity in the last 30 days",
+  active: "Activity in the last 30 days",
+  quiet: "No activity for 30+ days",
   empty: "No cards issued yet",
 };
 
@@ -58,14 +68,14 @@ export function KpiTiles({ k, lead }: { k: Kpis; lead: { k: string; v: string; s
       <Kpi k="Active cards · 30d" v={nf(k.active30)} sub="earned at least once" />
       <Kpi k="Transactions · 30d" v={nf(k.txns30)} />
       <Kpi k="Points issued · 30d" v={nf(k.issued30)} sub={`vs ${nf(k.redeemed30)} redeemed (${redeemPct}%)`} />
-      <Kpi k="Tracked revenue · 30d" v={dollars(k.revenue30)} sub="bill totals entered at /scan" />
+      <Kpi k="Tracked revenue · 30d" v={formatMoney(k.revenue30)} sub="bill totals entered at /scan" />
       <Kpi k="New cards · 30d" v={nf(k.newCards30)} />
     </div>
   );
 }
 
 export function DailyCharts({ daily }: { daily: Daily }) {
-  const span = `${daily.days[0]} → ${daily.days[daily.days.length - 1]} · UTC`;
+  const span = `${day(daily.days[0], "UTC")} → ${day(daily.days[daily.days.length - 1], "UTC")} · UTC`;
   return (
     <div className="dash-grid" style={{ marginBottom: 14 }}>
       <div className="panel col-6">

@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DEFAULT_TEMPLATE, type TemplateKey } from "@/lib/config";
+import { DEFAULT_TEMPLATE, EARN_RATE, type TemplateKey } from "@/lib/config";
 import {
   DEFAULT_COLORS, MIN_PASSWORD, SLUG_RE, generatePassword, hexToRgb, rgbToHex, slugify,
 } from "@/lib/admin/merchant";
@@ -209,7 +209,7 @@ export default function NewMerchant() {
             </div>
             <label className={s.field}>
               <span className="label">Points per $1 spent</span>
-              <input type="number" inputMode="decimal" min="0.01" max="1000" step="any" value={earnRate} onChange={(e) => setEarnRate(e.target.value)} required />
+              <input type="number" inputMode="decimal" min={EARN_RATE.min} max={EARN_RATE.max} step="any" value={earnRate} onChange={(e) => setEarnRate(e.target.value)} required />
               <EarnHint rate={Number(earnRate)} template={template} />
             </label>
           </div>

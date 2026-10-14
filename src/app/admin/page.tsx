@@ -9,7 +9,7 @@ import s from "./admin.module.css";
 export const runtime = "nodejs";
 
 // Needs-attention first: a quiet merchant is the one about to churn.
-const ORDER: Health[] = ["quiet", "empty", "new", "active"];
+const ORDER: Health[] = ["quiet", "empty", "new", "newActive", "active"];
 
 export default async function AdminOverview() {
   if (!(await isAdmin())) redirect("/admin/login");
@@ -33,7 +33,11 @@ export default async function AdminOverview() {
 
       <KpiTiles
         k={kpis}
-        lead={{ k: "Merchants", v: nf(merchantCount), sub: `${merchants.filter((m) => m.health === "active").length} active` }}
+        lead={{
+          k: "Merchants",
+          v: nf(merchantCount),
+          sub: `${merchants.filter((m) => m.health === "active" || m.health === "newActive").length} active · 30d`,
+        }}
       />
       <DailyCharts daily={daily} />
 
@@ -82,12 +86,12 @@ export default async function AdminOverview() {
                       <span className={s.slug}>/enroll/{m.slug ?? "—"}</span>
                     </td>
                     <td><HealthBadge health={m.health} /></td>
-                    <td>{REDEEM_TEMPLATES[m.template].label}</td>
-                    <td className={s.num}>{nf(m.earnRate)}</td>
-                    <td className={s.num}>{nf(m.cards)}</td>
-                    <td className={s.num}>{nf(m.active30)}</td>
-                    <td>{ago(m.lastActivity)}</td>
-                    <td className={s.num}>{m.staff}</td>
+                    <td data-label="Template">{REDEEM_TEMPLATES[m.template].label}</td>
+                    <td data-label="Earn / $1" className={s.num}>{nf(m.earnRate)}</td>
+                    <td data-label="Cards" className={s.num}>{nf(m.cards)}</td>
+                    <td data-label="Active 30d" className={s.num}>{nf(m.active30)}</td>
+                    <td data-label="Last activity">{ago(m.lastActivity)}</td>
+                    <td data-label="Staff" className={s.num}>{m.staff}</td>
                   </tr>
                 ))}
               </tbody>
