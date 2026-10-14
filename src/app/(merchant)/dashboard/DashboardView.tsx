@@ -59,7 +59,7 @@ const INS_ICON: Record<Insight["dir"], string> = { up: "↑", down: "↓", warn:
 
 // Rule-based insights computed straight from the aggregates — no LLM needed for
 // the headline trends (the AI digest panel does the deeper write-up).
-function computeInsights(d: DashboardData): Insight[] {
+export function computeInsights(d: DashboardData): Insight[] {
   const out: Insight[] = [];
 
   const issued = d.ts.points.map((p) => p.issued);
@@ -69,7 +69,12 @@ function computeInsights(d: DashboardData): Insight[] {
     const prior = sum(issued.slice(0, half));
     if (recent > 0 || prior > 0) {
       const p = prior <= 0 ? 100 : Math.round(((recent - prior) / prior) * 100);
-      out.push({ dir: p >= 0 ? "up" : "down", text: `Points issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
+      // detect_anomalies covers the same window: a rise next to a staff
+      // over-issue flag is no growth to celebrate, so it reads neutral.
+      if (p >= 0 && d.anomalies.some((a) => a.kind === "staff_over_issue"))
+        out.push({ dir: "info", text: `Points issued up ${p}% vs the previous period — check the staff outlier below before reading it as growth.` });
+      else
+        out.push({ dir: p >= 0 ? "up" : "down", text: `Points issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
     }
   }
 
