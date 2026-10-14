@@ -26,7 +26,7 @@ is Apple's push service.
    nothing here is installed on a real device). `APNS_HOST` is overridden by both suites.
 4. `npm ci` (Playwright 1.56.1 and its Chromium: `npx playwright install chromium`
    if it's missing). `unzip` and `openssl` on PATH (stock macOS has both).
-5. Ports **3190** and **3191** free. Each suite starts its own `next dev` and
+5. Ports **3190** and **3191** free (override with `TEST_PORT=… npm run test:integration` and `E2E_PORT=… npm run test:e2e` to run several worktrees side by side). Each suite starts its own `next dev` and
    refuses to run if its port is taken.
 
 **Safety:** both suites create and delete rows, so `tests/fixtures.mjs` refuses to

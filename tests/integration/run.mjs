@@ -17,7 +17,7 @@ import {
 } from "../fixtures.mjs";
 import { startMockApns } from "./mock-apns.mjs";
 
-const PORT = 3190;
+const PORT = Number(process.env.TEST_PORT) || 3190; // TEST_PORT lets parallel worktrees run the suite side by side
 const B = `http://localhost:${PORT}`;
 const MUTATE = process.env.MUTATE === "1";
 const LOG = join(ROOT, "test-results", "integration", "next.log");

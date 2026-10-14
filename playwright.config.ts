@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 // End-to-end suite (npm run test:e2e). Starts its own `next dev` on :3191 and
 // runs every spec on a desktop and an iPhone viewport. Fixture merchant/staff/
 // cards come from tests/e2e/global-setup.mjs (own fixtures, cleaned up after).
-const PORT = 3191;
+const PORT = Number(process.env.E2E_PORT) || 3191; // E2E_PORT: same idea as TEST_PORT
 const BASE = `http://localhost:${PORT}`;
 // global-setup preflights these as local; pin them so a shell-exported
 // SUPABASE_URL cannot point the app under test at another database. (Parsed
