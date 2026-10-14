@@ -13,7 +13,7 @@ export default async function EnrollPage({
 }) {
   const { slug } = await params;
 
-  // "*" so a database without the loyalty_mode column still serves the page
+  // "*" so a database without the later columns (loyalty_mode, birthday_reward) still serves the page
   const { data: merchant } = await db
     .from("merchants")
     .select("*")
@@ -22,5 +22,12 @@ export default async function EnrollPage({
 
   if (!merchant) notFound();
 
-  return <EnrollForm slug={slug} merchantName={merchant.name} unit={unitLabel(merchant.loyalty_mode, 2)} />;
+  return (
+    <EnrollForm
+      slug={slug}
+      merchantName={merchant.name}
+      unit={unitLabel(merchant.loyalty_mode, 2)}
+      askBirthday={merchant.birthday_reward === true}
+    />
+  );
 }

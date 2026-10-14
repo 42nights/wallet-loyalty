@@ -91,6 +91,12 @@
 }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field :global(.label) { margin: 0; }
+/* same box as globals.css inputs; select has no global style */
+.field select {
+  width: 100%; background: var(--surface); border: 1px solid var(--line); color: var(--ink);
+  font-family: var(--mono); font-size: 16px; padding: 14px; border-radius: 12px; outline: none; cursor: pointer;
+}
+.field select:focus { border-color: var(--accent); }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 @media (max-width: 560px) { .two { grid-template-columns: minmax(0, 1fr); } }
 .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }

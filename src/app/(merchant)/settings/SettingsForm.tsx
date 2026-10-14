@@ -2,7 +2,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EARN_RATE, REDEEM_TEMPLATES, STAMP_REWARD_MAX, type LoyaltyMode, type TemplateKey } from "@/lib/config";
+import {
+  EARN_RATE, REDEEM_TEMPLATES, STAMP_REWARD_MAX, describeHappyHour, parseHappyHour, timezoneLabel,
+  type HappyHour, type LoyaltyMode, type TemplateKey,
+} from "@/lib/config";
 import { formatMoney } from "@/lib/format";
 import styles from "./settings.module.css";
 
@@ -15,10 +18,22 @@ type Settings = {
   mode: LoyaltyMode;
   stampGoal: number;
   stampReward: string;
+  timezone: string;
+  birthdayReward: boolean;
+  birthdayBonus: number;
+  happyHour: HappyHour | null;
 };
 type Msg = { kind: "ok" | "bad"; text: string } | null;
+// the happy-hour editor's draft; multiplier 0 = off
+type Window = { multiplier: 0 | 2 | 3; days: number[]; start: string; end: string };
 
 const EXAMPLE_BILL = 20;
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first, like the card's "Mon–Fri"
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const draftOf = (h: HappyHour | null): Window =>
+  h ? { ...h } : { multiplier: 0, days: [1, 2, 3, 4, 5], start: "15:00", end: "17:00" };
+const windowOf = (w: Window) =>
+  w.multiplier ? { days: [...w.days].sort((a, b) => a - b), start: w.start, end: w.end, multiplier: w.multiplier } : null;
 
 export default function SettingsForm() {
   const router = useRouter();
@@ -26,6 +41,7 @@ export default function SettingsForm() {
   const [rate, setRate] = useState("");
   const [limit, setLimit] = useState("");
   const [reward, setReward] = useState("");
+  const [hh, setHh] = useState<Window>(draftOf(null));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [linkMsg, setLinkMsg] = useState<Msg>(null);
@@ -41,11 +57,15 @@ export default function SettingsForm() {
       setRate(String(data.earnRate));
       setLimit(String(data.maxBill));
       setReward(data.stampReward);
+      setHh(draftOf(data.happyHour));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function save(patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill" | "stampReward">>, okText: string) {
+  async function save(
+    patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill" | "stampReward" | "birthdayReward" | "happyHour">>,
+    okText: string
+  ) {
     if (busy) return;
     setBusy(true);
     setMsg(null);
@@ -83,6 +103,12 @@ export default function SettingsForm() {
     save({ stampReward: reward.trim() }, `Reward renamed to ${reward.trim()}. Customers' cards update in Wallet.`);
   }
 
+  function saveHappyHour(e: FormEvent) {
+    e.preventDefault();
+    const w = windowOf(hh);
+    save({ happyHour: w }, w ? `Happy hour saved: ${describeHappyHour(w)}. Cards are updating.` : "Happy hour is off. Cards are updating.");
+  }
+
   async function copyLink() {
     if (!s?.enrollUrl) return;
     await navigator.clipboard.writeText(s.enrollUrl).then(
@@ -97,6 +123,9 @@ export default function SettingsForm() {
   const limitValid = limit.trim() !== "" && limitNum >= 10 && limitNum <= 100000;
   // A stamp card has no bill rules or reward template: those sections are hidden.
   const stamps = s?.mode === "stamps";
+  // the route's own check, run here for the inline message; it stays the authority
+  const hhCheck = parseHappyHour(windowOf(hh));
+  const hhChanged = s !== null && JSON.stringify(windowOf(hh)) !== JSON.stringify(s.happyHour);
 
   return (
     <div className="wrap">
@@ -255,6 +284,92 @@ export default function SettingsForm() {
                 <span style={{ color: "var(--bad)" }}>Enter a limit between {formatMoney(10)} and {formatMoney(100000)}</span>
               )}
             </div>
+          </section>
+
+          <section className="card stack" aria-labelledby="hh-h">
+            <div>
+              <div className="label" id="hh-h">Happy hour</div>
+              <div className={styles.help}>
+                Bills added at /scan inside this weekly window earn extra points, and the window shows on every card.
+                It runs on your shop&apos;s clock: <b>{timezoneLabel(s.timezone)}</b> (42nights sets this).
+              </div>
+            </div>
+            <form className="stack" onSubmit={saveHappyHour}>
+              <div className={styles.seg} role="group" aria-label="Happy hour points">
+                {([[0, "Off"], [2, "2× points"], [3, "3× points"]] as const).map(([m, text]) => (
+                  <button key={m} type="button" aria-pressed={hh.multiplier === m} onClick={() => setHh({ ...hh, multiplier: m })}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+              {hh.multiplier > 0 && (
+                <>
+                  <fieldset className={styles.days}>
+                    <legend className="label">Days</legend>
+                    {DAY_ORDER.map((d) => (
+                      <label key={d} className={styles.day}>
+                        <input
+                          type="checkbox"
+                          checked={hh.days.includes(d)}
+                          onChange={(e) =>
+                            setHh({ ...hh, days: e.target.checked ? [...hh.days, d] : hh.days.filter((x) => x !== d) })
+                          }
+                        />
+                        {DAY_NAMES[d]}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <div className={styles.times}>
+                    <label>
+                      <span className="label">From</span>
+                      <input type="time" value={hh.start} onChange={(e) => setHh({ ...hh, start: e.target.value })} required />
+                    </label>
+                    <label>
+                      <span className="label">Until</span>
+                      <input type="time" value={hh.end} onChange={(e) => setHh({ ...hh, end: e.target.value })} required />
+                    </label>
+                  </div>
+                </>
+              )}
+              <div className={styles.example} aria-live="polite">
+                {typeof hhCheck === "string" ? (
+                  <span style={{ color: "var(--bad)" }}>{hhCheck}</span>
+                ) : hhCheck ? (
+                  <>Cards will say <b className={styles.preview}>{describeHappyHour(hhCheck)}</b></>
+                ) : (
+                  "No happy hour: every bill earns the normal rate."
+                )}
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={busy || typeof hhCheck === "string" || !hhChanged}>
+                Save happy hour
+              </button>
+            </form>
+          </section>
+
+          <section className="card stack" aria-labelledby="bday-h">
+            <div>
+              <div className="label" id="bday-h">Birthday treat</div>
+              <div className={styles.help}>
+                The sign-up page asks for an optional birthday (month and day). On the day, the member&apos;s card gets{" "}
+                <b>{s.birthdayBonus} bonus points</b>, the price of your cheapest reward.
+              </div>
+            </div>
+            <label className={styles.check}>
+              <input
+                type="checkbox"
+                checked={s.birthdayReward}
+                disabled={busy}
+                onChange={(e) =>
+                  save(
+                    { birthdayReward: e.target.checked },
+                    e.target.checked
+                      ? "Birthday treat is on: new members can add their birthday when they join"
+                      : "Birthday treat is off"
+                  )
+                }
+              />
+              Give members a birthday treat
+            </label>
           </section>
 
           <section className="card stack" aria-labelledby="link-h">

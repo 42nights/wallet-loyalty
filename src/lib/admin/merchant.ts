@@ -1,4 +1,4 @@
-import { EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, type LoyaltyMode, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, canonicalTimezone, type LoyaltyMode, type TemplateKey } from "@/lib/config";
 import { PASS_THEMES } from "@/lib/passThemes";
 
 // Merchant/staff input rules for the creator admin. No server-only imports:
@@ -73,6 +73,7 @@ export type MerchantUpdate = {
   loyalty_mode?: LoyaltyMode;
   stamp_goal?: number;
   stamp_reward?: string;
+  timezone?: string;
 };
 
 const COLOR_FIELDS = [
@@ -105,6 +106,13 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
     if (typeof b.template !== "string" || !Object.hasOwn(REDEEM_TEMPLATES, b.template))
       return "Pick one of the redeem templates";
     out.redeem_template = b.template as TemplateKey;
+  }
+  // Optional on create too (the column defaults to Pacific). Any zone Intl
+  // knows, stored in its canonical spelling; the forms offer US_TIMEZONES.
+  if (b.timezone !== undefined) {
+    const tz = canonicalTimezone(b.timezone);
+    if (!tz) return "Pick a time zone";
+    out.timezone = tz;
   }
   for (const [key, col, label] of COLOR_FIELDS) {
     if (!has(key)) continue;

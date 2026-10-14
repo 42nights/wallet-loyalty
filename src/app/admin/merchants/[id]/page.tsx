@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, loyaltyMode, stampGoal, stampReward, templateKey } from "@/lib/config";
+import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, loyaltyMode, stampGoal, stampReward, templateKey, timezoneOf } from "@/lib/config";
 import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
@@ -43,6 +43,7 @@ type MerchantRow = {
   loyalty_mode?: string | null; // stamp card columns: absent on an un-migrated database
   stamp_goal?: number | null;
   stamp_reward?: string | null;
+  timezone?: string | null; // later column: select("*") below tolerates its absence
 };
 
 export default async function AdminMerchantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,7 +52,7 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
   if (!UUID_RE.test(id)) notFound();
 
   const [{ data: m }, { data: staff }, stats, art, { count: txns }] = await Promise.all([
-    // "*" so the stamp card columns come along when the database has them
+    // "*" so the later columns (stamp card, timezone) come along when the database has them
     db.from("merchants").select("*").eq("id", id).maybeSingle<MerchantRow>(),
     db
       .from("staff")
@@ -112,6 +113,7 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             initial={{
               name: m.name,
               earnRate: String(Number(m.earn_rate)),
+              timezone: timezoneOf(m.timezone),
               template,
               colors: {
                 bg: rgbToHex(m.bg_color, themeHex(template).bg),

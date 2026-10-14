@@ -35,6 +35,7 @@ function label(reason: string, reward: string): string {
   if (reason === `redeem:${STAMP_REWARD_ID}`) return reward;
   if (reason === "adjust:manual") return "Adjustment";
   if (reason.startsWith("campaign:")) return "Campaign";
+  if (reason === "bonus:birthday") return "Birthday treat";
   const id = reason.split(":")[1] ?? reason;
   return findAction(id)?.label ?? reason;
 }

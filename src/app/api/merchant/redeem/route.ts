@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
-import { STAMP_EARN_MAX, loyaltyMode, merchantRedemptions } from "@/lib/config";
+import { STAMP_EARN_MAX, happyHourMultiplier, loyaltyMode, merchantRedemptions } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
@@ -16,7 +16,12 @@ export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) —
 //              Over merchants.max_bill → 422. Half of max_bill or more needs
 //              confirm: true, else 409 { confirm: { points } } and nothing is
 //              written — /scan shows those points and resends with confirm.
+//              Inside the merchant's happy hour the points are multiplied
+//              (2x/3x); the ledger keeps reason earn:purchase and the raw bill.
 //   stamps   → stamp cards only: 1..STAMP_EARN_MAX stamps for this tap ("earn:stamp").
+// Success and confirm (409) answers carry happyHour: the multiplier in force
+// now, or null, so /scan's banner follows the window without polling. Success
+// also carries points: the delta actually applied.
 export async function POST(req: NextRequest) {
   const staff = await getStaff();
   if (!staff) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,7 +33,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
   // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
   // planting one could make a later undo of <key> look already done.
-  if (idempotencyKey.startsWith("undo:"))
+  // "birthday:<year>:<serial>" is the birthday cron's: a planted one would make
+  // that year's treat a replay, so the customer never got it.
+  if (/^(undo|birthday):/.test(idempotencyKey))
     return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const allowed = await rateLimit(`redeem:${staff.id}`, 120, 60);
@@ -51,6 +58,8 @@ export async function POST(req: NextRequest) {
   // Largest bill one earn may carry. `?? 1000` is the schema default, so a
   // database without the max_bill column yet still gets the cap.
   const maxBill = Number(merchant.max_bill ?? 1000);
+  const multiplier = happyHourMultiplier(merchant);
+  const happyHour = multiplier > 1 ? multiplier : null;
 
   let delta: number;
   let reason: string;
@@ -79,7 +88,7 @@ export async function POST(req: NextRequest) {
         { error: `Bill is over this shop's limit of ${formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings` },
         { status: 422 }
       );
-    delta = Math.round(Number(merchant.earn_rate) * amt);
+    delta = Math.round(Number(merchant.earn_rate) * amt * multiplier);
     reason = "earn:purchase";
     billAmount = amt; // persist the raw bill $ for real revenue analytics
   } else {
@@ -92,6 +101,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Bound delta well within int4 to avoid overflow / fat-finger over-credit.
+  // Checked after the happy-hour multiplier: the cap is on what gets credited.
   if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1_000_000)
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
 
@@ -99,7 +109,7 @@ export async function POST(req: NextRequest) {
     // The hint is for a terminal still running an older /scan bundle that has no
     // confirm step: reloading picks up the version that shows one.
     return NextResponse.json(
-      { error: "Confirm this bill (reload the page if no confirm button appears)", confirm: { points: delta } },
+      { error: "Confirm this bill (reload the page if no confirm button appears)", confirm: { points: delta }, happyHour },
       { status: 409 }
     );
 
@@ -118,6 +128,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       newBalance: result.newBalance,
       replay: result.replay,
+      points: delta,
+      happyHour,
     });
 
   if (result.status === "insufficient")

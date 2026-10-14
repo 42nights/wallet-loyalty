@@ -2,11 +2,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DEFAULT_TEMPLATE, EARN_RATE, STAMP_GOAL, type TemplateKey } from "@/lib/config";
+import { DEFAULT_TEMPLATE, DEFAULT_TIMEZONE, EARN_RATE, STAMP_GOAL, type TemplateKey } from "@/lib/config";
 import {
   MIN_PASSWORD, SLUG_RE, colorBody, generatePassword, slugify, themeHex,
 } from "@/lib/admin/merchant";
-import { ColorFields, EarnHint, LoyaltyFields, TemplatePicker, WalletPreview, type Colors, type Loyalty } from "../../fields";
+import { ColorFields, EarnHint, LoyaltyFields, TemplatePicker, TimezoneSelect, WalletPreview, type Colors, type Loyalty } from "../../fields";
 import s from "../../admin.module.css";
 
 type SlugState = "empty" | "invalid" | "checking" | "free" | "taken";
@@ -33,6 +33,7 @@ export default function NewMerchant() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slugEdit, setSlugEdit] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
   const [template, setTemplate] = useState<TemplateKey>(DEFAULT_TEMPLATE);
   const [earnRate, setEarnRate] = useState("10");
   const [loyalty, setLoyalty] = useState<Loyalty>({ mode: "points", goal: String(STAMP_GOAL.default), reward: "Free coffee" });
@@ -92,6 +93,7 @@ export default function NewMerchant() {
       body: JSON.stringify({
         name,
         slug,
+        timezone,
         template,
         earnRate: Number(earnRate),
         // only a stamp card writes the stamp columns (points = the schema defaults)
@@ -199,6 +201,7 @@ export default function NewMerchant() {
               </div>
               <span className={`${s.hint} ${hintClass}`} aria-live="polite">{hintText}</span>
             </div>
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
           </div>
 
           <div className={`panel ${s.section}`}>

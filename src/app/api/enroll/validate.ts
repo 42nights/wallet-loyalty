@@ -5,7 +5,9 @@
 
 export const NAME_MAX = 60;
 
-export type EnrollFields = { name: string; phone: string; email: string | null };
+// birthday: "2000-MM-DD" or null. Month and day only; 2000 is a placeholder
+// year (a leap year, so Feb 29 is valid) — see birthdaysOn() in config.ts.
+export type EnrollFields = { name: string; phone: string; email: string | null; birthday: string | null };
 export type FieldErrors = Partial<Record<keyof EnrollFields, string>>;
 
 // One canonical form per phone number, so the (merchant_id, customer_phone)
@@ -30,6 +32,7 @@ export function validateEnroll(input: {
   name?: unknown;
   phone?: unknown;
   email?: unknown;
+  birthday?: unknown;
 }): { ok: true; value: EnrollFields } | { ok: false; errors: FieldErrors } {
   const errors: FieldErrors = {};
 
@@ -55,6 +58,18 @@ export function validateEnroll(input: {
   if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
     errors.email = "Enter a valid email address, or leave it empty.";
 
-  if (errors.name || errors.phone || errors.email || !phone) return { ok: false, errors };
-  return { ok: true, value: { name, phone, email } };
+  // Optional, as "MM-DD" (the form's month and day pickers). A real calendar
+  // check on the leap placeholder year: Feb 29 is kept, Feb 30 refused.
+  const rawBirthday = typeof input.birthday === "string" ? input.birthday.trim() : "";
+  let birthday: string | null = null;
+  if (rawBirthday) {
+    const m = /^(\d{2})-(\d{2})$/.exec(rawBirthday);
+    const d = m ? new Date(Date.UTC(2000, Number(m[1]) - 1, Number(m[2]))) : null;
+    if (m && d && d.getUTCMonth() === Number(m[1]) - 1 && d.getUTCDate() === Number(m[2]))
+      birthday = `2000-${rawBirthday}`;
+    else errors.birthday = "Pick both a month and a day, or leave both empty.";
+  }
+
+  if (errors.name || errors.phone || errors.email || errors.birthday || !phone) return { ok: false, errors };
+  return { ok: true, value: { name, phone, email, birthday } };
 }

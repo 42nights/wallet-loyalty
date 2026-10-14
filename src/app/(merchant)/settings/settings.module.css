@@ -40,6 +40,36 @@
 .example { font-size: 14px; color: var(--muted); }
 .example b { color: var(--ink); font-family: var(--display); font-size: 18px; }
 
+.help b { color: var(--ink); font-weight: 400; }
+
+/* happy hour: Off / 2x / 3x, then day chips and the two times */
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.seg button {
+  font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 13px 8px; cursor: pointer; transition: border-color .15s ease, background .15s ease;
+}
+.seg button:hover, .seg button:focus-visible { border-color: var(--accent); }
+.seg button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
+
+/* 4 columns: Mon-Thu over Fri-Sun, never a lone chip on a third row */
+.days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border: none; margin-inline: 0; padding: 0; min-width: 0; }
+.days legend { padding: 0; margin-bottom: 8px; }
+.day {
+  display: flex; align-items: center; gap: 7px; padding: 9px 12px; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+}
+.day:has(input:checked) { border-color: var(--accent); }
+.day input, .check input { width: 18px; height: 18px; padding: 0; margin: 0; accent-color: var(--accent); flex: none; }
+
+/* the card wording on its own line, so "3–5 pm" never breaks at the dash */
+.preview { display: block; margin-top: 4px; }
+
+.times { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.times label { display: block; min-width: 0; }
+
+.check { display: flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; }
+
 .link {
   display: block;
   font-size: 13px;

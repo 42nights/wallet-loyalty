@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
   if (!idem) return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
   // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
   // planting one could make a later undo of <key> look already done.
-  if (idem.startsWith("undo:"))
+  // "birthday:<year>:<serial>" is reserved for the birthday cron likewise.
+  if (/^(undo|birthday):/.test(idem))
     return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const { serial, delta } = await req.json().catch(() => ({}));

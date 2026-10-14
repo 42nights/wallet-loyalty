@@ -33,6 +33,9 @@ export default function ScanPage() {
   const [addLocked, setAddLocked] = useState(false);
   const [earnRate, setEarnRate] = useState(1);
   const [maxBill, setMaxBill] = useState<number | null>(null); // null until /me answers
+  // happy-hour multiplier in force (null = none): from /me, then refreshed by
+  // every redeem answer, so the banner follows the window without polling
+  const [happyHour, setHappyHour] = useState<number | null>(null);
   const [redemptions, setRedemptions] = useState<Action[]>([]);
   // a stamp card shows stamp buttons instead of the bill box (/me says which)
   const [mode, setMode] = useState<LoyaltyMode>("points");
@@ -59,6 +62,7 @@ export default function ScanPage() {
       if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
       setMode(me.mode === "stamps" ? "stamps" : "points");
       if (typeof me.stampGoal === "number") setStampGoal(me.stampGoal);
+      setHappyHour(typeof me.happyHour === "number" ? me.happyHour : null);
     }
   }
   useEffect(() => {
@@ -202,7 +206,8 @@ export default function ScanPage() {
     setPhone("");
   }
 
-  async function apply(body: { actionId: string } | { amount: number; confirm?: true } | { stamps: number }, okMsg: string) {
+  // okMsg is for rewards and stamps; a bill earn's toast shows the points the server credited
+  async function apply(body: { actionId: string } | { amount: number; confirm?: true } | { stamps: number }, okMsg = "") {
     if (!customer || busy) return; // busy guard: no double-tap
     setBusy(true);
     setToast(null); // an old toast must never read as this tap's result
@@ -218,6 +223,7 @@ export default function ScanPage() {
       });
       if (res.status === 401) return router.push("/login");
       const data = await res.json();
+      if ("happyHour" in data) setHappyHour(typeof data.happyHour === "number" ? data.happyHour : null);
       // a big bill: the server wrote nothing and wants a confirm first
       if (res.status === 409 && data.confirm && "amount" in body) {
         setPending({ amount: body.amount, points: data.confirm.points });
@@ -233,7 +239,7 @@ export default function ScanPage() {
       setCustomer({ ...customer, points: data.newBalance });
       setFlash(true);
       setTimeout(() => setFlash(false), 400);
-      setToast({ kind: "ok", msg: okMsg, undoKey: key });
+      setToast({ kind: "ok", msg: "amount" in body ? `+${data.points} pts` : okMsg, undoKey: key });
       loadToday();
       if ("amount" in body) {
         // a bill left in the box invites a second tap, i.e. a double credit
@@ -277,7 +283,7 @@ export default function ScanPage() {
     setToast(null);
     const amt = parseBill(bill);
     if (amt === null) return setBillErr(true);
-    apply({ amount: amt }, `+${Math.round(earnRate * amt)} pts`);
+    apply({ amount: amt });
   }
 
   function reset() {
@@ -291,6 +297,10 @@ export default function ScanPage() {
     setMatches(null);
     setManual("");
   }
+
+  const banner = happyHour ? (
+    <div className={styles.happy} role="status">Happy hour {happyHour}× points</div>
+  ) : null;
 
   // ---- scan view ----
   if (!customer) {
@@ -315,6 +325,7 @@ export default function ScanPage() {
           <div className={styles.todayNote}>An undone tap counts only under Undos.</div>
         </details>
         <div className="card stack">
+          {banner}
           <div className="label">Scan the customer's Wallet QR</div>
           <div id="reader" />
           {cameraError && (
@@ -360,6 +371,7 @@ export default function ScanPage() {
   return (
     <div className="wrap">
       <div className="card stack">
+        {banner}
         <div>
           <div className="label">{customer.name || "Customer"}</div>
           <div className={`balance ${flash ? "flash" : ""}`}>{customer.points}</div>
@@ -426,17 +438,18 @@ export default function ScanPage() {
             )}
             {billAmt !== null && !overCap && (
               <div className="label">
-                = {Math.round(earnRate * billAmt)} pts ({earnRate}× rate)
+                = {Math.round(earnRate * billAmt * (happyHour ?? 1))} pts ({earnRate}× rate{happyHour ? ` × ${happyHour}` : ""})
               </div>
             )}
             {pending && (
               <div className={styles.confirm} role="alert">
                 <div>
-                  Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
+                  Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>
+                  {happyHour ? ` (happy hour ${happyHour}×)` : ""}. Is that right?
                 </div>
                 <div className="row">
                   <button className="btn btn-primary" disabled={busy}
-                    onClick={() => apply({ amount: pending.amount, confirm: true }, `+${pending.points} pts`)}>
+                    onClick={() => apply({ amount: pending.amount, confirm: true })}>
                     Add +{pending.points} pts
                   </button>
                   <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}

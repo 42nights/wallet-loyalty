@@ -14,6 +14,8 @@ export type PassData = {
   offerText?: string | null;
   /** Shown as MEMBER on the front of the card; the field is left out when null. */
   customerName?: string | null;
+  /** passes.birthday ("2000-MM-DD"). With the merchant's birthday treat on, the back says when it comes. */
+  birthday?: string | null;
 };
 
 export interface WalletProvider {

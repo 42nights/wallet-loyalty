@@ -137,3 +137,18 @@
 .stampBtns > button { padding: 18px 8px; }
 /* the one stamp reward, full width */
 .one { display: grid; }
+
+/* happy hour is on: bill earns are multiplied (the redeem route decides).
+   Tinted like .confirm, not filled: a solid accent block reads as a button. */
+.happy {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 11px 14px;
+}

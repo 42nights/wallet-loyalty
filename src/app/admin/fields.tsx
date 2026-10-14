@@ -1,6 +1,6 @@
 "use client";
 import {
-  EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, type LoyaltyMode, type TemplateKey,
+  EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, US_TIMEZONES, type LoyaltyMode, type TemplateKey,
 } from "@/lib/config";
 import { hexToRgb } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
@@ -104,6 +104,23 @@ export function LoyaltyFields({ value, onChange, locked }: { value: Loyalty; onC
       )}
       {locked && <span className={s.hint}>{locked}</span>}
     </>
+  );
+}
+
+// The shop's clock (merchants.timezone). A stored zone outside the US list
+// (set through the API) is shown as-is rather than silently replaced.
+export function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }) {
+  return (
+    <label className={s.field}>
+      <span className="label">Time zone</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {!US_TIMEZONES.some((t) => t.id === value) && <option value={value}>{value}</option>}
+        {US_TIMEZONES.map((t) => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+      <span className={s.hint}>The shop&apos;s clock: happy hour and birthday treats follow it.</span>
+    </label>
   );
 }
 

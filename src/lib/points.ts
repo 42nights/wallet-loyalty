@@ -35,7 +35,7 @@ export async function applyPoints(
   serial: string,
   delta: number,
   reason: string,
-  staffId: string,
+  staffId: string | null, // null = no person (the birthday cron)
   merchantId: string,
   idempotencyKey: string,
   amount?: number | null

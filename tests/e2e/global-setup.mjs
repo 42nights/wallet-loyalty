@@ -16,6 +16,14 @@ export default async function globalSetup(config) {
     const scanCards = {};
     for (const p of config.projects)
       scanCards[p.name] = await createCard(db, m.id, { name: `Scan ${p.name}` });
+    // The happy-hour journey switches a merchant's happy hour on, which would
+    // double the points the /scan journey above asserts, so it gets its own
+    // merchant (and card) per project.
+    const happy = {};
+    for (const p of config.projects) {
+      const h = await createMerchant(db, run, { key: `hh-${p.name}`, template: "cafe", earnRate: 10 });
+      happy[p.name] = { owner: h.owner, cashier: h.cashier, card: await createCard(db, h.id, { name: `Happy ${p.name}` }) };
+    }
     const searchCard = await createCard(db, m.id, {
       name: `Findable ${run}`,
       phone: "+1555" + String(Date.now()).slice(-7),
@@ -27,7 +35,7 @@ export default async function globalSetup(config) {
       stampCards[p.name] = await createCard(db, st.id, { name: `Stamps ${p.name}` });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
-      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard,
+      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard, happy,
       stamps: { cashier: st.cashier, cards: stampCards },
     });
 
