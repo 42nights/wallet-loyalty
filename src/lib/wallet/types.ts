@@ -12,6 +12,8 @@ export type PassData = {
   updatedAt?: Date;
   /** Optional win-back copy shown on the back of the card (set by a campaign). */
   offerText?: string | null;
+  /** Shown as MEMBER on the front of the card; the field is left out when null. */
+  customerName?: string | null;
 };
 
 export interface WalletProvider {

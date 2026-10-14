@@ -26,6 +26,7 @@ export type DashboardData = {
   stats: Stats; seg: Segments; staffRows: StaffRow[]; anomalies: Anomaly[];
   funnel: FunnelT; ts: TimeSeries; heat: HeatCell[];
   days: string; bucket: string; theme: "light" | "dark";
+  aiEnabled: boolean;
 };
 
 const SEGMENT_ORDER = ["vip", "regular", "new", "active", "at_risk", "lapsed", "dormant"];
@@ -33,13 +34,19 @@ const SEGMENT_LABEL: Record<string, string> = {
   vip: "VIP", regular: "Regular", new: "New", active: "Active", at_risk: "At-risk", lapsed: "Lapsed", dormant: "Dormant",
 };
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const nf = (n: number) => n.toLocaleString("en-US");
+// Server component, so these run once on the server: no hydration mismatch.
+const nf = new Intl.NumberFormat().format;
+// KPI tiles: 1,070,775 → "1.1M" so a 7-digit value can't overflow a phone tile
+// (the full number is in the tile's title). Below 100,000 the exact number fits.
+const COMPACT_FROM = 100_000;
+const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format;
+const kpiNum = (n: number) => (n >= COMPACT_FROM ? compact(n) : nf(n));
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
 
 function anomalyText(a: Anomaly): string {
   const d = a.detail;
-  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${d.points} pts (avg ${d.avg}).`;
-  if (a.kind === "staff_over_issue") return `${d.staff} issued ${d.issued} pts — an outlier worth a look.`;
+  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${nf(d.points ?? 0)} pts (avg ${nf(d.avg ?? 0)}).`;
+  if (a.kind === "staff_over_issue") return `${d.staff} issued ${nf(d.issued ?? 0)} pts — an outlier worth a look.`;
   return a.kind;
 }
 function actionLabel(reason: string): string {
@@ -52,7 +59,7 @@ const INS_ICON: Record<Insight["dir"], string> = { up: "↑", down: "↓", warn:
 
 // Rule-based insights computed straight from the aggregates — no LLM needed for
 // the headline trends (the AI digest panel does the deeper write-up).
-function computeInsights(d: DashboardData): Insight[] {
+export function computeInsights(d: DashboardData): Insight[] {
   const out: Insight[] = [];
 
   const issued = d.ts.points.map((p) => p.issued);
@@ -62,7 +69,12 @@ function computeInsights(d: DashboardData): Insight[] {
     const prior = sum(issued.slice(0, half));
     if (recent > 0 || prior > 0) {
       const p = prior <= 0 ? 100 : Math.round(((recent - prior) / prior) * 100);
-      out.push({ dir: p >= 0 ? "up" : "down", text: `Points issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
+      // detect_anomalies covers the same window: a rise next to a staff
+      // over-issue flag is no growth to celebrate, so it reads neutral.
+      if (p >= 0 && d.anomalies.some((a) => a.kind === "staff_over_issue"))
+        out.push({ dir: "info", text: `Points issued up ${p}% vs the previous period — check the staff outlier below before reading it as growth.` });
+      else
+        out.push({ dir: p >= 0 ? "up" : "down", text: `Points issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
     }
   }
 
@@ -103,23 +115,30 @@ function computeInsights(d: DashboardData): Insight[] {
   return out;
 }
 
-function Kpi({ k, v, spark }: { k: string; v: string | number; spark?: React.ReactNode }) {
+// `sub` says what period the number covers, so no tile reads as something it isn't.
+function Kpi({ k, n, v, sub, spark }: { k: string; n?: number; v?: string; sub?: string; spark?: React.ReactNode }) {
   return (
     <div className="panel kpi">
       <div className="k">{k}</div>
-      <div className="v">{v}</div>
+      <div className="v" title={n !== undefined && n >= COMPACT_FROM ? nf(n) : undefined}>
+        {v ?? kpiNum(n ?? 0)}
+      </div>
+      {sub && <div className="sub">{sub}</div>}
       {spark && <div className="spark">{spark}</div>}
     </div>
   );
 }
 
 export default function DashboardView({ data }: { data: DashboardData }) {
-  const { stats: s, seg, staffRows, funnel, ts, heat, days, bucket, theme } = data;
+  const { stats: s, seg, staffRows, funnel, ts, heat, days, bucket, theme, aiEnabled } = data;
+  const range = days === "365" ? "last 12 months" : `last ${days} days`;
 
+  // The time series is already windowed to the selected range, so its sums are
+  // the range totals — the tiles follow the Range picker like the charts do.
   const issued = ts.points.map((p) => p.issued);
   const redeemed = ts.points.map((p) => p.redeemed);
   const memberSeries = ts.members.map((p) => p.n);
-  const memberLabels = ts.members.map((p) => new Date(p.t).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }));
+  const memberLabels = ts.members.map((p) => new Date(p.t).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
 
   const segSegments = SEGMENT_ORDER.map((k) => ({ label: SEGMENT_LABEL[k], color: SEGMENT_COLORS[k], value: seg.counts[k] ?? 0 }));
   const atRisk = seg.customers.filter((c) => c.segment === "at_risk").slice(0, 8);
@@ -129,31 +148,21 @@ export default function DashboardView({ data }: { data: DashboardData }) {
   return (
     <div className="dash">
       <div className="dash-top">
-        <div className="brand" style={{ margin: 0 }}>
-          <span className="dot" /> 42nights <small>analytics</small>
-        </div>
-        <nav className="dash-nav">
-          <Link href="/customers">Customers</Link>
-          <Link href="/campaigns">Campaigns</Link>
-          <Link href="/scan">Scan</Link>
-          <Link href="/staff">Staff</Link>
-        </nav>
+        <Controls days={days} bucket={bucket} />
         <ThemeToggle initial={theme} />
       </div>
 
-      <Controls days={days} bucket={bucket} />
-
       <div className="kpi-row">
-        <Kpi k="Members" v={nf(s.members)} spark={memberSeries.length > 1 ? <Sparkline data={memberSeries} color="var(--c-members)" /> : undefined} />
-        <Kpi k="Active · 30d" v={nf(s.active_members)} />
-        <Kpi k="Points issued" v={nf(s.points_issued)} spark={issued.length > 1 ? <Sparkline data={issued} color="var(--c-issued)" /> : undefined} />
-        <Kpi k="Points redeemed" v={nf(s.points_redeemed)} spark={redeemed.length > 1 ? <Sparkline data={redeemed} color="var(--c-redeemed)" /> : undefined} />
-        <Kpi k="Repeat rate" v={`${Math.round((s.repeat_rate ?? 0) * 100)}%`} />
+        <Kpi k="Members" n={s.members} sub={`+${nf(sum(memberSeries))} new · ${range}`} spark={memberSeries.length > 1 ? <Sparkline data={memberSeries} color="var(--c-members)" /> : undefined} />
+        <Kpi k="Active · 30d" n={s.active_members} sub="always last 30 days" />
+        <Kpi k="Points issued" n={sum(issued)} sub={range} spark={issued.length > 1 ? <Sparkline data={issued} color="var(--c-issued)" /> : undefined} />
+        <Kpi k="Points redeemed" n={sum(redeemed)} sub={range} spark={redeemed.length > 1 ? <Sparkline data={redeemed} color="var(--c-redeemed)" /> : undefined} />
+        <Kpi k="Repeat rate" v={`${Math.round((s.repeat_rate ?? 0) * 100)}%`} sub="all time" />
       </div>
 
       <div className="dash-grid">
         <div className="panel col-8">
-          <div className="panel-h"><span className="panel-t">Points flow</span><span className="label" style={{ margin: 0 }}>last {days} days</span></div>
+          <div className="panel-h"><span className="panel-t">Points flow</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
           <TrendChart caption={`per ${bucket}`} series={[{ label: "Issued", color: "var(--c-issued)", data: issued }, { label: "Redeemed", color: "var(--c-redeemed)", data: redeemed }]} />
         </div>
 
@@ -207,28 +216,29 @@ export default function DashboardView({ data }: { data: DashboardData }) {
         </div>
 
         <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">Top redemptions</span></div>
+          <div className="panel-h"><span className="panel-t">Top redemptions</span><span className="label" style={{ margin: 0 }}>all time</span></div>
           {s.top_redemptions.length === 0 && <div className="label">none yet</div>}
           {s.top_redemptions.slice(0, 6).map((t) => (
-            <div className="lrow" key={t.reason}><span>{actionLabel(t.reason)}</span><span className="label" style={{ margin: 0 }}>{t.count}× · {nf(t.points)}</span></div>
+            <div className="lrow" key={t.reason}><span>{actionLabel(t.reason)}</span><span className="label" style={{ margin: 0 }}>{nf(t.count)}× · {nf(t.points)}</span></div>
           ))}
         </div>
 
         <div className="panel col-6">
-          <div className="panel-h"><span className="panel-t">Staff · 30d</span></div>
+          {/* staff_activity is windowed by the same range as the charts */}
+          <div className="panel-h"><span className="panel-t">Staff</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
           {staffRows.length === 0 && <div className="label">none</div>}
           {staffRows.map((r) => (
             <div className="lrow" key={r.username}>
               <span>{r.username} <span className="label" style={{ display: "inline", margin: 0 }}>{r.role}</span></span>
-              <span className="label" style={{ margin: 0 }}>{r.txns} txns · +{nf(r.points_issued)} / −{nf(r.points_redeemed)}</span>
+              <span className="label" style={{ margin: 0 }}>{nf(r.txns)} txns · +{nf(r.points_issued)} / −{nf(r.points_redeemed)}</span>
             </div>
           ))}
         </div>
 
-        <div className="col-6"><DigestCard /></div>
+        {aiEnabled && <div className="col-6"><DigestCard /></div>}
       </div>
 
-      <CommandBar />
+      {aiEnabled && <CommandBar />}
     </div>
   );
 }

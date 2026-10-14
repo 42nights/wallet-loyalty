@@ -1,0 +1,25 @@
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+/* QR codes need dark-on-light to scan reliably, so the tile stays white in
+   both themes. */
+.qr {
+  background: #fff;
+  border-radius: 14px;
+  padding: 12px;
+  width: min(240px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+.qr svg { display: block; width: 100%; height: auto; }
+
+.hint {
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 17px;
+}

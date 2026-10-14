@@ -1,0 +1,170 @@
+/* Landing page. Built on the globals.css tokens only, so light/dark follow the
+   same data-theme switch as the staff app. */
+
+.page { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+@media (min-width: 861px) { .page { padding: 0 32px; } }
+.page a:focus-visible, .page summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+/* ---- nav ---- */
+.nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 16px 0 10px; }
+.nav :global(.theme-toggle) { margin-left: 0; }
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -.03em;
+  color: var(--ink); text-decoration: none;
+}
+.mark { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.brandSub { font-family: var(--mono); font-weight: 400; font-size: 12px; letter-spacing: 0; color: var(--muted); }
+/* Phone: the section links get their own row under the brand (F13: never
+   hidden behind a menu). One line at 375px and up; narrower screens wrap. */
+.navLinks { order: 1; flex-basis: 100%; display: flex; flex-wrap: wrap; column-gap: 18px; }
+.navLinks a { color: var(--muted); font-size: 13px; text-decoration: none; white-space: nowrap; padding: 6px 0; }
+.staff { margin-left: auto; color: var(--muted); font-size: 13px; text-decoration: none; white-space: nowrap; }
+.staff:hover, .navLinks a:hover { color: var(--ink); }
+@media (max-width: 479px) { .brandSub { display: none; } }
+@media (min-width: 861px) {
+  .nav { padding-bottom: 16px; }
+  .navLinks { order: 0; flex-basis: auto; column-gap: 22px; margin-left: auto; }
+  .staff { margin-left: 10px; }
+}
+
+/* ---- hero ---- */
+.hero { display: grid; gap: 36px; padding: 28px 0 64px; }
+@media (min-width: 861px) {
+  .hero { grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); align-items: center; gap: 24px; padding: 40px 0 88px; }
+}
+.heroText h1 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(44px, 7.4vw, 84px); line-height: .96; letter-spacing: -.045em;
+  margin: 0 0 24px; max-width: 11ch; text-wrap: balance;
+}
+.lede { font-size: 16px; line-height: 1.65; max-width: 46ch; margin: 0; }
+.ctas { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 18px; }
+.cta { width: auto; padding: 15px 22px; text-decoration: none; display: inline-block; }
+.small { color: var(--muted); font-size: 13px; margin: 0; }
+
+.heroArt { position: relative; display: flex; justify-content: center; padding: 8px 0 30px; overflow: clip; }
+@media (min-width: 861px) { .heroArt { min-height: 600px; align-items: center; overflow: visible; } }
+.heroPhone { position: relative; z-index: 1; }
+.cardOffset { padding-top: 70px; } /* keeps the card clear of the static banner */
+
+/* The old way, lying on top of the new: a paper punch card over the phone's
+   empty lower screen, clear of the QR code. */
+.punch {
+  position: absolute; z-index: 2;
+  bottom: 4px; left: 2px; width: 196px;
+  padding: 14px 16px 16px; border-radius: 10px;
+  background: #efe4cc; color: #3a2a18;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 18px 40px -22px rgba(0, 0, 0, .55);
+  transform: rotate(-9deg);
+}
+@media (min-width: 861px) { .punch { bottom: 46px; left: calc(50% - 320px); width: 244px; } }
+.punchHead b { display: block; font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+.punchHead span { display: block; font-size: 11px; margin-top: 3px; opacity: .75; }
+.holes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin-top: 16px; }
+.holes span { aspect-ratio: 1; border-radius: 50%; border: 1.5px dashed rgba(58, 42, 24, .4); }
+.holes .stamped { border: 2px solid #c4521c; background: radial-gradient(circle, #c4521c 0 38%, transparent 40%); }
+.holes .stamped:nth-child(2n) { transform: rotate(14deg) scale(.96); }
+
+/* ---- sections ---- */
+.section { padding: 64px 0; border-top: 1px solid var(--line); }
+@media (min-width: 861px) { .section { padding: 96px 0; } }
+.section h2 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(30px, 4.4vw, 48px); line-height: 1.02; letter-spacing: -.035em;
+  margin: 0 0 14px; max-width: 18ch;
+}
+.sectionLede { color: var(--muted); font-size: 15px; line-height: 1.65; max-width: 58ch; margin: 0 0 32px; }
+
+/* how it works: a real sequence, so it is numbered */
+.steps { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 32px; counter-reset: step; }
+@media (min-width: 861px) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; } }
+.steps li { counter-increment: step; border-top: 2px solid var(--ink); padding-top: 16px; }
+.steps li::before {
+  content: counter(step);
+  display: block; font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 1;
+  letter-spacing: -.04em; color: var(--accent);
+}
+.steps h3 { font-family: var(--display); font-weight: 700; font-size: 21px; letter-spacing: -.01em; margin: 14px 0 8px; }
+.steps p { color: var(--muted); font-size: 14.5px; line-height: 1.65; margin: 0; max-width: 40ch; }
+
+/* templates: the same four-button grid the cashier sees on /scan */
+.templates { display: grid; gap: 16px; }
+@media (min-width: 861px) { .templates { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.template { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 20px; }
+.template h3 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 0 0 14px; }
+.keys { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.keys li { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px; }
+.keys span { display: block; font-family: var(--display); font-weight: 700; font-size: 15px; }
+.keys small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* owners */
+.owners { display: grid; gap: 40px; }
+@media (min-width: 861px) { .owners { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; } }
+.features { margin: 0; }
+.features > div { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--line); }
+@media (min-width: 560px) { .features > div { grid-template-columns: 128px minmax(0, 1fr); gap: 16px; } }
+.features dt { font-family: var(--display); font-weight: 700; font-size: 16px; }
+.features dd { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.soon { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline; margin-top: 22px; padding-top: 16px; border-top: 1px dashed var(--line); }
+.soonTag { border: 1px dashed var(--muted); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.soon ul { list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+
+.dash { margin: 0; display: grid; gap: 12px; }
+.dashKpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.dashKpis b { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.03em; line-height: 1; }
+.panelNote { color: var(--muted); font-size: 12px; }
+
+/* comparison table; becomes stacked rows on phones */
+.compare { width: 100%; border-collapse: collapse; font-size: 14px; }
+.compare th, .compare td { text-align: left; vertical-align: top; padding: 14px 12px; border-bottom: 1px solid var(--line); }
+.compare thead th { font-family: var(--display); font-weight: 700; font-size: 15px; }
+.compare tbody th { font-weight: 400; color: var(--muted); width: 25%; }
+.compare .us { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.compare thead .us { color: var(--accent); }
+@media (max-width: 699px) {
+  .compare thead { display: none; }
+  .compare, .compare tbody, .compare tr, .compare th, .compare td { display: block; width: auto; }
+  .compare tr { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .compare tbody th { width: auto; padding: 0 0 8px; border: none; color: var(--ink); font-family: var(--display); font-weight: 700; font-size: 16px; }
+  .compare td { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px 8px; border: none; border-radius: 8px; }
+  .compare td::before { content: attr(data-label); color: var(--muted); font-size: 12px; padding-top: 2px; }
+}
+
+/* founding merchants: no prices on the public page, a conversation instead */
+.founding { display: grid; gap: 32px; }
+@media (min-width: 861px) { .founding { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; } }
+.founding .ctas { margin-bottom: 0; }
+.perks {
+  list-style: none; margin: 0; padding: 8px 24px;
+  background: var(--surface); border: 1px solid var(--accent); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 18px;
+}
+.perks li { position: relative; padding: 16px 0 16px 18px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.perks li + li { border-top: 1px solid var(--line); }
+.perks li::before { content: ""; position: absolute; left: 0; top: 23px; width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+.perks b { color: var(--ink); font-family: var(--display); font-weight: 700; font-size: 15px; }
+
+/* faq — native <details> */
+.faq { max-width: 760px; }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary {
+  position: relative; cursor: pointer; list-style: none;
+  padding: 18px 32px 18px 0;
+  font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -.01em;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 2px; top: 16px; font-family: var(--mono); font-size: 20px; color: var(--accent); }
+.faq details[open] summary::after { content: "−"; }
+.faq p { color: var(--muted); font-size: 14.5px; line-height: 1.7; margin: 0 0 20px; max-width: 64ch; }
+
+.closing .ctas { margin-bottom: 0; }
+
+/* footer */
+.footer {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  padding: 24px 0 40px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 12px;
+}
+.footer a { color: var(--muted); text-decoration: none; }
+.footer a:hover { color: var(--ink); }
+.footer p { flex-basis: 100%; margin: 0; font-size: 11px; }

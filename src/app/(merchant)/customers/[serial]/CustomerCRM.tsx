@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type FormEvent } from "react";
 
 type Tag = { id: string; label: string; color: string | null };
 type Note = { id: number; body: string; created_at: string };
@@ -36,6 +36,17 @@ export default function CustomerCRM({ serial }: { serial: string }) {
     await load();
   }
 
+  // Create = make the tag and attach it to this customer. A label that already
+  // exists (any case) just attaches that tag instead of making a duplicate.
+  async function createTag(e: FormEvent) {
+    e.preventDefault();
+    const label = newTag.trim();
+    if (!label || busy) return;
+    const existing = allTags.find((t) => t.label.toLowerCase() === label.toLowerCase());
+    await act(existing ? { action: "assignTag", serial, tagId: existing.id } : { action: "createTag", serial, label });
+    setNewTag("");
+  }
+
   const assignedTags = allTags.filter((t) => assigned.includes(t.id));
   const available = allTags.filter((t) => !assigned.includes(t.id));
 
@@ -66,13 +77,12 @@ export default function CustomerCRM({ serial }: { serial: string }) {
           ))}
         </div>
       )}
-      <div className="row">
-        <input value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="new tag…" />
-        <button className="btn btn-ghost" style={{ width: "auto", padding: "0 14px" }} disabled={busy || !newTag.trim()}
-          onClick={async () => { await act({ action: "createTag", label: newTag.trim() }); setNewTag(""); }}>
+      <form className="row" onSubmit={createTag}>
+        <input value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="new tag…" aria-label="New tag" maxLength={40} />
+        <button type="submit" className="btn btn-ghost" style={{ width: "auto", padding: "0 14px" }} disabled={busy || !newTag.trim()}>
           Create
         </button>
-      </div>
+      </form>
 
       <div className="label" style={{ marginTop: 8 }}>Notes</div>
       <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="add a note…" rows={2}
@@ -85,7 +95,7 @@ export default function CustomerCRM({ serial }: { serial: string }) {
         <div key={n.id} className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
           <div>{n.body}</div>
           <span className="label" style={{ whiteSpace: "nowrap" }}>
-            {new Date(n.created_at).toLocaleDateString("en-GB")}
+            {new Date(n.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}
           </span>
         </div>
       ))}

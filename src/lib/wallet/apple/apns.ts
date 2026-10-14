@@ -6,7 +6,10 @@ import { pem } from "./certs";
 // "this pass changed, come re-download it". Authenticated with the Pass Type ID
 // signing certificate as a TLS client cert. apns-topic = the pass type id.
 
-const APNS_HOST = process.env.APNS_HOST || "https://api.push.apple.com"; // sandbox: https://api.sandbox.push.apple.com
+// Production APNs only. Apple: "A push notification for a pass update works
+// only in the production environment" — the sandbox host never updates a pass.
+// APNS_HOST exists so local/test runs can point at a dead port.
+const APNS_HOST = process.env.APNS_HOST || "https://api.push.apple.com";
 
 export type PushResult = { token: string; status: number };
 
@@ -19,6 +22,12 @@ function pushOne(client: http2.ClientHttp2Session, pushToken: string): Promise<P
     let body = "";
     let req: http2.ClientHttp2Stream;
     try {
+      // Apple's pass web-service doc names no push type or priority. The payload
+      // is empty, so the type is "background", and APNs says a background push
+      // must use priority 5 ("Using priority 10 is an error"). Priority 5 may be
+      // batched, so RUNBOOK §5 times redeem → card update on a real device. If
+      // that misses 5 s, compare against sending NEITHER header; never pair
+      // priority 10 with background. Record the measured result here.
       req = client.request({
         ":method": "POST",
         ":path": `/3/device/${pushToken}`,

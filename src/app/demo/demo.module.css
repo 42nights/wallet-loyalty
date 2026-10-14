@@ -1,0 +1,104 @@
+/* /demo — built on the globals.css tokens and the real terminal/dashboard
+   classes (.card .balance .redeem-btn .panel …) so it looks like the product. */
+
+.page { max-width: 1120px; margin: 0 auto; padding: 18px 16px 64px; }
+@media (min-width: 861px) { .page { padding: 26px 32px 96px; } }
+
+.bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bar .brand {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -.03em;
+  color: var(--ink); text-decoration: none; margin: 0;
+}
+.pill {
+  border: 1px solid var(--accent); color: var(--accent);
+  border-radius: 999px; padding: 4px 11px; font-size: 12px; white-space: nowrap;
+}
+.staff { margin-left: auto; color: var(--muted); font-size: 13px; text-decoration: none; }
+.staff:hover { color: var(--ink); }
+@media (max-width: 480px) {
+  .bar { gap: 10px; }
+  .bar .brand { font-size: 19px; }
+  .pill { font-size: 11px; padding: 3px 8px; }
+}
+
+.intro h1 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(34px, 6vw, 56px); line-height: 1.02; letter-spacing: -.035em;
+  margin: 36px 0 12px; max-width: 16ch;
+}
+.intro p { color: var(--muted); font-size: 15px; line-height: 1.6; max-width: 60ch; margin: 0; }
+
+.switcher { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 28px 0 22px; }
+.switch {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 12px; border-radius: 14px; text-align: left; cursor: pointer;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  font-family: var(--mono); transition: border-color .15s ease;
+}
+.switch:hover { border-color: var(--muted); }
+.switch[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch > span:last-child { min-width: 0; }
+.switch b { display: block; font-family: var(--display); font-weight: 700; font-size: 16px; }
+.switch small { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: 0 0 0 1px var(--line); }
+@media (max-width: 480px) {
+  .switch { flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px; }
+  .switch small { white-space: normal; }
+}
+
+.board {
+  display: grid; gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "guide" "phone" "counter" "owner";
+}
+@media (min-width: 861px) {
+  .board {
+    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-areas: "phone guide" "phone counter" "owner owner";
+    column-gap: 40px;
+  }
+}
+
+.guide { grid-area: guide; margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.65; }
+.guide li::marker { color: var(--accent); font-weight: 500; }
+.guide b { font-family: var(--display); }
+
+.phoneCol { grid-area: phone; display: flex; flex-direction: column; align-items: center; gap: 12px; }.caption { color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; max-width: 300px; margin: 0; }
+
+.counter { grid-area: counter; align-self: start; }
+.toastSlot { min-height: 62px; }
+.after { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; min-height: 28px; }
+.reset {
+  margin-left: auto; padding: 6px 2px; border: none; background: none; cursor: pointer;
+  color: var(--muted); font-family: var(--mono); font-size: 12px; text-decoration: underline; text-underline-offset: 3px;
+}
+.reset:hover { color: var(--ink); }
+.reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.owner { grid-area: owner; margin-top: 20px; }
+.ownerHead h2 { font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: -.02em; margin: 0 0 6px; }
+.ownerHead p { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 16px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.kpi { gap: 6px; }
+.kpiV {
+  font-family: var(--display); font-weight: 800; font-variant-numeric: tabular-nums;
+  font-size: clamp(22px, 2.6vw, 32px); line-height: 1.05; letter-spacing: -.03em;
+  transition: color .3s ease;
+}
+.hot .kpiV { color: var(--accent); }
+.ownerGrid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 861px) { .ownerGrid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+.muted { color: var(--muted); font-size: 12px; text-align: right; }
+.note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 4px 0 0; }
+
+.foot { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--line); }
+.foot p { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 0 0 14px; }
+.footNote { color: var(--muted); font-size: 15px; line-height: 1.6; max-width: 60ch; margin: 0 0 18px; }
+.footCtas { display: flex; flex-wrap: wrap; gap: 10px; }
+.footCtas :global(.btn) { width: auto; padding: 14px 20px; text-decoration: none; display: inline-block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kpiV, .switch { transition: none; }
+}

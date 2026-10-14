@@ -26,7 +26,7 @@ card on a real phone.
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | service-role key is **server-only**. |
 | `PASS_TYPE_ID`, `APPLE_TEAM_ID`, `PASS_ORG_NAME` | pass identifiers. |
 | `APPLE_WWDR_PEM`, `PASS_SIGNER_CERT_PEM`, `PASS_SIGNER_KEY_PEM`, `PASS_SIGNER_KEY_PASSPHRASE` | base64 PEM (or raw PEM). The signing cert also authenticates APNs. |
-| `APNS_HOST` | `https://api.push.apple.com` (prod) or `https://api.sandbox.push.apple.com`. |
+| `APNS_HOST` | Leave unset (defaults to production `https://api.push.apple.com`). Apple: pass-update pushes work **only in production**, so never point it at the sandbox; it exists only so local runs can aim at a dead port. |
 
 ## 3. Seed + branding
 ```bash
@@ -48,12 +48,20 @@ npm run dev
 ## 5. Real-device test (the only way to verify the update loop)
 1. Start a tunnel: `cloudflared tunnel --url http://localhost:3000` → copy the https URL.
 2. Set `PUBLIC_BASE_URL` to that URL and restart `npm run dev` (the URL is baked into each issued pass).
-3. On an **iPhone in Safari**, open `https://<tunnel>/enroll/corgi` → fill name/phone → **Add to Apple Wallet**.
-4. On the counter device, open `/scan`, log in, scan the card's QR (or type the serial) → tap a redeem button or enter a bill amount → **watch the card balance update in Wallet within a few seconds.**
-5. If it doesn't update, check: `PUBLIC_BASE_URL` is https? device registered (a row in `registrations`)? APNs returned 200 (server logs)? Apple's error posts land at `/api/v1/log`.
+3. On an **iPhone in Safari**, open `https://<tunnel>/enroll/corgi` → fill name/phone → **Get my card** → tap **Add** in the Wallet sheet. The page should then show "Your card is ready".
+   - Also open the same enroll link on a laptop: the page should enroll and show a QR. Scan it with the iPhone camera → the Wallet sheet opens.
+4. Check the card itself (front and back):
+   - [ ] **Points are readable over the strip.** The big number's colour relies on `stripColor`, which Apple does not document (`pass.ts`); if Wallet ignores it, the number renders white. If unreadable, change the strip art or `fg_color`.
+   - [ ] Header shows POINTS while the card is collapsed in the Wallet stack; MEMBER shows the enrolled name; NEXT REWARD is not cut off.
+   - [ ] Icon, logo and strip are sharp (defaults are at the BUILD_PLAN §3 sizes; check a merchant with uploaded art too).
+   - [ ] Back: HOW TO EARN, REWARDS, UPDATED (in the phone's own time zone/format), TERMS. The QR has no number under it (if the camera cannot read it, find the customer by phone on /scan).
+5. **Timed update (BUILD_PLAN §11: "Redeem/earn reflects in Wallet < 5s").** Lock the iPhone with the card added. On the counter device, start a stopwatch as you tap a redeem button or submit a bill amount; stop it when the "You now have N points" notification appears (or when the open card's number changes). Repeat 5 times; note each time and whether the phone was locked or on Wi-Fi/cellular.
+   - All under 5 s → keep the current headers and write the times next to the APNs headers in `src/lib/wallet/apple/apns.ts`.
+   - Any over 5 s → the comparison is to send **neither** `apns-push-type` nor `apns-priority` (Apple's pass web-service doc specifies neither). Change **both together**: never send `apns-priority: 10` (or omit priority, which defaults to 10) while keeping `apns-push-type: background`; APNs says "Always use priority 5. Using priority 10 is an error." Re-run the 5 timings and record both sets in `apns.ts`.
+6. If it doesn't update, check: `PUBLIC_BASE_URL` is https? device registered (a row in `registrations`)? APNs returned 200 (server logs)? `APNS_HOST` unset (production)? Apple's error posts land at `/api/v1/log`.
 
 ## 6. Deploy (Vercel)
-- Import the repo; set **all** env vars from §2 (use the prod domain for `PUBLIC_BASE_URL`, prod `APNS_HOST`).
+- Import the repo; set **all** env vars from §2 (use the prod https domain for `PUBLIC_BASE_URL`; leave `APNS_HOST` unset). A production build refuses to sign any card while `PUBLIC_BASE_URL` is not `https://` or `APPLE_TEAM_ID` is unset, and logs which one is wrong.
 - Routes that sign passes / call APNs are pinned to the Node runtime already.
 - Re-run §1 against the prod Supabase if separate. Repeat §5 on the prod domain.
 - Optional: a daily `delete from rate_limits where window_start < now() - interval '1 day'` (pg_cron) to sweep stale limiter buckets.
@@ -64,8 +72,10 @@ npm run dev
 - [ ] Two cashiers, same card, same second → atomic `apply_points`, no lost update.
 - [ ] Card not found / wrong merchant → 404 (no existence leak).
 - [ ] Dead push token (410) → device + its registrations pruned.
-- [ ] Re-enroll same phone at a merchant → re-issues the existing card, no duplicate.
-- [ ] Enroll on Android/desktop → `.pkpass` won't add; "open in Safari on iPhone".
+- [ ] Re-enroll same phone at a merchant, in any format (`555-016856`, `555 016856`, `(555) 016.856`) → 409 "this number already has a card here", no duplicate; staff re-send the card.
+- [ ] Enroll with an empty name, a bad phone or a bad email → inline error under that field, no card created.
+- [ ] Enroll on Android/desktop → card created, page shows a QR of the 1-hour card link to scan with the iPhone.
+- [ ] Unregister the last card on a device (delete it from Wallet) → its `devices` row is gone too.
 
 ## 8. Security audit (BUILD_PLAN §8)
 - **No IDOR.** Every merchant route is session-gated and scoped:

@@ -1,0 +1,32 @@
+/* Enroll page additions on top of the globals.css tokens and classes. */
+
+.field label { display: block; }
+.field input[aria-invalid="true"] { border-color: var(--bad); }
+.error { color: var(--bad); font-size: 13px; margin-top: 6px; }
+
+.title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.lead { margin-bottom: 0; font-size: 15px; line-height: 1.55; }
+.hint { margin-bottom: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+
+/* Neutral .toast for "already enrolled": not an error on the customer's side. */
+.info { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+
+/* .btn is written for <button>; this lets an <a> wear it. */
+.linkBtn { display: block; text-align: center; text-decoration: none; }
+
+/* White tile so phone cameras read the code on the dark theme too. */
+.qr {
+  display: block;
+  width: 240px;
+  height: 240px;
+  margin-left: auto;
+  margin-right: auto;
+  background: #fff;
+  border-radius: 12px;
+}

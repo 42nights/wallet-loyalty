@@ -50,12 +50,14 @@ These can't be guessed — lock them or the build will thrash:
 ### Apple Wallet pass images (per merchant — these define the card look)
 | File | @1x | @2x | @3x | Required? |
 |---|---|---|---|---|
-| `icon.png` | 29×29 | 58×58 | 87×87 | **Yes** (notifications/share sheet) |
-| `logo.png` | ≤160×50 | ≤320×100 | — | top-left of card |
-| `strip.png` | 375×123 | 750×246 | 1125×369 | the band behind the points (the "stars" area) |
+| `icon.png` | 38×38 | 76×76 | 114×114 | **Yes** (notifications/share sheet) |
+| `logo.png` | ≤160×50 | ≤320×100 | ≤480×150 | top-left of card |
+| `strip.png` | 375×144 | 750×288 | 1125×432 | the band behind the points (the "stars" area) |
 
+Sizes follow Apple's current HIG Wallet tables (store card strip 375×144 pt, icon 38×38 pt, logo max 160×50 pt).
 Plus per merchant: `backgroundColor`, `foregroundColor`, `labelColor` (rgb()).
-A default set (orange icon, star strip) ships in `models/loyalty.pass/` and `assets/` — replace per merchant.
+A default set per redeem template (café, restaurant, retail) ships in `models/themes/<template>/`, drawn in code by `scripts/render-pass-art.mjs` for the colours in `src/lib/passThemes.ts` — replace per merchant.
+A default only fills a file whose base image (`icon.png`, `logo.png`, `strip.png`) the merchant has not uploaded, so their own art is never mixed with ours.
 
 > **Multi-tenant implication:** don't sign from the static `models/` folder.
 > Store each merchant's images + colors in Supabase storage / a `merchants` row,
@@ -167,9 +169,9 @@ export const runtime = "nodejs"; // NOT edge — passkit + http2 need Node
 - **Card not found / deleted** → graceful "not found".
 - **Dead push token (410)** → prune.
 - **Pass not updating** — checklist: `webServiceURL` is https? `authToken` matches? push returned 200? device registered? check `/api/v1/log`.
-- **Clock/timezone** on "LAST UPDATED" — pick merchant TZ, format consistently.
+- **Clock/timezone** on "UPDATED" — the field carries a Date with `dateStyle`/`timeStyle`, so Wallet formats it in the customer's own time zone and locale.
 - **Anti-farming** — only relevant **if** you allow customer self-scan; with staff-initiated earn the serial-in-QR is fine (staff verifies presence). If self-scan: signed token + per-pass rate limit. Don't over-build this for the staff flow.
-- **Enroll on Android / desktop** — `.pkpass` won't add; show "open in Safari on iPhone" (and Google Wallet path in Phase 2).
+- **Enroll on Android / desktop** — `.pkpass` won't add; the card is still created and the page shows a QR of the 1-hour card link to open on the iPhone (and Google Wallet path in Phase 2).
 - **Wallet sharing** — `sharingProhibited: true` is set so customers can't hand cards around.
 
 ---
@@ -184,7 +186,7 @@ export const runtime = "nodejs"; // NOT edge — passkit + http2 need Node
 
 ## 9. Deploy
 - Vercel, Node runtime functions. Set all env vars. `PUBLIC_BASE_URL` = the prod https domain (it's baked into each pass).
-- APNs prod host for real devices; sandbox for TestFlight-style testing.
+- APNs production host only: Apple says pass-update pushes work only in the production environment, so there is no sandbox test path.
 - Supabase: run `schema.sql` + the `apply_points` function.
 
 ## 10. Testing plan

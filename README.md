@@ -34,13 +34,13 @@ src/lib/
     apple/apns.ts      ← empty push + 410 dead-token pruning
     apple/provider.ts  ← buildPass + notify
 src/app/api/v1/...     ← Apple's pass web service (register / serials / latest / log)
-src/app/api/enroll     ← create or re-issue a card, return the .pkpass
+src/app/api/enroll     ← POST creates a card → { cardUrl } (1-hour link); GET ?card= serves the .pkpass
 src/app/api/merchant   ← login / me / lookup / redeem / staff
 src/app/(merchant)/    ← scan terminal · owner dashboard · staff management
 src/app/enroll/[slug]  ← per-merchant customer sign-up
 supabase/schema.sql    ← tables + apply_points / rate_limit_hit / merchant_stats
 scripts/               ← seed.ts (merchant + owner + cashier) · upload-assets.ts
-models/loyalty.pass    ← reference art (also the source of the bundled defaults)
+models/themes/<tpl>/   ← default pass art per template, from scripts/render-pass-art.mjs
 ```
 
 ## The mental model
@@ -48,7 +48,9 @@ models/loyalty.pass    ← reference art (also the source of the bundled default
 The **pass doesn't store points — Postgres does.** The card is a live view of a
 row. To change points: write a ledger row → update the cached balance → send an
 empty APNs push → the iPhone calls back for the latest `.pkpass`. That's the
-whole loop. The "LAST UPDATED" date refreshes on every re-issue.
+whole loop. The header POINTS field carries a `changeMessage`, so Wallet shows
+"You now have N points" when the balance changes; UPDATED (back of the card)
+refreshes on every re-issue.
 
 ## Setup
 
@@ -88,7 +90,7 @@ npm run dev
 ```
 
 ## Try it
-- **Enroll a customer:** open `/enroll/<slug>` (e.g. `/enroll/corgi`) in Safari on iPhone → adds the branded card to Wallet.
+- **Enroll a customer:** open `/enroll/<slug>` (e.g. `/enroll/corgi`) on an iPhone → the Wallet sheet opens with the branded card. On any other device the card is still created and the page shows a QR to open it on the iPhone (valid 1 hour).
 - **Counter:** open `/scan` → log in → scan the customer's QR (or paste the serial) → tap a redeem button or enter a bill amount to earn → watch the card update in Wallet.
 - **Owner:** `/dashboard` (metrics) and `/staff` (manage cashiers) — owner role only.
 
@@ -115,7 +117,8 @@ merchant has an `earn_rate`, and the `/scan` bill-amount input applies
 - ✅ **Rate-limit:** login / lookup / redeem are throttled via a Postgres limiter.
 - ✅ **Idempotency:** redeem requires an `Idempotency-Key`, so a double-tap or retry can't double-apply.
 - **Anti-replay (optional):** the QR encodes the raw serial. Since earn/redeem are staff-initiated this is fine; only encode a short-lived signed token if you ever allow customer self-scan.
-- **`apns-push-type`:** currently `background`. If updates lag, test `alert`.
+- **`apns-push-type`:** `background` with `apns-priority: 5` (APNs requires priority 5 for background pushes). If the timed real-device test in RUNBOOK §5 misses 5 s, compare against sending neither header — never priority 10 with `background`.
+- **APNs host:** production only. Apple: pass-update pushes work only in the production environment, so there is no sandbox path to test against.
 - Rotate `SESSION_SECRET` for production.
 
 ## NFC later (the tap)
