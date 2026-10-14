@@ -317,6 +317,16 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const cached = await rows(db.from("passes").select("serial, points").in("serial", targets).order("serial"));
   chk("cached balance equals the ledger", cached.map((p) => p.points).join(","), "50,50");
 
+  // --- CRM: "Create" on a customer page makes the tag and attaches it ----------
+  console.log("crm tags");
+  const ct = await req("/api/merchant/crm", { method: "POST", body: { action: "createTag", serial, label: `vip-${run}` }, j: own });
+  const ctj = await ct.json();
+  chk("createTag with a serial", ct.status, 200);
+  const crm = await (await req(`/api/merchant/crm?serial=${serial}`, { j: own })).json();
+  chk("the new tag is attached to that customer", crm.assignedTagIds?.includes(ctj.id), true);
+  chk("createTag on another merchant's card → 404",
+    (await req("/api/merchant/crm", { method: "POST", body: { action: "createTag", serial: rc.serial, label: `x-${run}` }, j: own })).status, 404);
+
   // --- card link (owner re-send) ---------------------------------------------
   console.log("card link");
   chk("GET /api/enroll?card=garbage → 410", (await req("/api/enroll?card=garbage")).status, 410);
