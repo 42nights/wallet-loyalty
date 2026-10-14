@@ -68,6 +68,13 @@ export const REDEMPTIONS: Action[] = REDEEM_TEMPLATES[DEFAULT_TEMPLATE].actions;
 // Earning is points-per-dollar with a per-merchant `earn_rate` (merchants
 // table). The /scan bill-amount input applies round(earn_rate * amount)
 // server-side (see /api/merchant/redeem). There are no fixed earn presets.
+//
+// The one allowed range for earn_rate, for owner Settings and the creator admin
+// alike (the routes enforce it, the forms mirror it). The redeem route caps one
+// earn at 1,000,000 points, so at rate r any bill above 1,000,000 / r is refused
+// at the counter; 100 keeps bills up to 10,000 working.
+export const EARN_RATE = { min: 0.1, max: 100 } as const;
+
 export const ALL_ACTIONS: Action[] = Object.values(REDEEM_TEMPLATES).flatMap((t) => t.actions);
 
 // Label lookup for history views. To validate a redeem, use redemptionsFor()

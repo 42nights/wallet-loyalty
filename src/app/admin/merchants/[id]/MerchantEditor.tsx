@@ -1,7 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { TemplateKey } from "@/lib/config";
+import { EARN_RATE, type TemplateKey } from "@/lib/config";
 import { hexToRgb } from "@/lib/admin/merchant";
 import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
@@ -54,7 +54,7 @@ export default function MerchantEditor({
           </label>
           <label className={s.field}>
             <span className="label">Points per $1</span>
-            <input type="number" inputMode="decimal" min="0.01" max="1000" step="any" value={v.earnRate} onChange={(e) => set({ earnRate: e.target.value })} required />
+            <input type="number" inputMode="decimal" min={EARN_RATE.min} max={EARN_RATE.max} step="any" value={v.earnRate} onChange={(e) => set({ earnRate: e.target.value })} required />
           </label>
         </div>
         <EarnHint rate={Number(v.earnRate)} template={v.template} />

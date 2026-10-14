@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => null);
   if (!b || typeof b !== "object") return NextResponse.json({ error: "Bad request" }, { status: 400 });
 
+  // No rate x bill-limit check here (PATCH has one): a new merchant starts at
+  // the schema default max_bill of 1000, and EARN_RATE.max (100) x 1000 is
+  // 100,000 points, well under the redeem route's 1,000,000 per-earn cap.
   const fields = merchantFields(b, false);
   if (typeof fields === "string") return NextResponse.json({ error: fields }, { status: 400 });
   const slug = typeof b.slug === "string" ? b.slug : "";

@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
+import { EARN_RATE, PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-// points per 1 unit of currency. The settings form mirrors these as input
-// min/max; this route is the authority.
-const EARN_RATE_MIN = 0.1;
-// The redeem route caps one earn at 1,000,000 points, so at rate r any bill above
-// 1,000,000 / r is refused at the counter. 100 keeps bills up to 10,000 working.
-const EARN_RATE_MAX = 100;
+// Earn rate: EARN_RATE in config.ts (shared with the creator admin). The
+// settings form mirrors these limits as input min/max; this route is the authority.
+
 // largest bill one earn may carry (merchants.max_bill, enforced by the redeem route)
 const MAX_BILL_MIN = 10;
 const MAX_BILL_MAX = 100_000;
@@ -61,9 +58,9 @@ export async function PATCH(req: NextRequest) {
     update.redeem_template = template;
   }
   if (earnRate !== undefined) {
-    if (typeof earnRate !== "number" || !(earnRate >= EARN_RATE_MIN && earnRate <= EARN_RATE_MAX))
+    if (typeof earnRate !== "number" || !(earnRate >= EARN_RATE.min && earnRate <= EARN_RATE.max))
       return NextResponse.json(
-        { error: `Earn rate must be between ${EARN_RATE_MIN} and ${EARN_RATE_MAX}` },
+        { error: `Earn rate must be between ${EARN_RATE.min} and ${EARN_RATE.max}` },
         { status: 400 }
       );
     update.earn_rate = earnRate;

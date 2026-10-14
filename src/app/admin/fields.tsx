@@ -1,5 +1,5 @@
 "use client";
-import { REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 import { hexToRgb } from "@/lib/admin/merchant";
 import s from "./admin.module.css";
 
@@ -38,7 +38,8 @@ export function TemplatePicker({ value, onChange }: { value: TemplateKey; onChan
 // "A $20 bill earns 200 pts; first reward after ~$8" — makes the earn rate
 // concrete against the chosen template's cheapest reward.
 export function EarnHint({ rate, template }: { rate: number; template: TemplateKey }) {
-  if (!Number.isFinite(rate) || rate <= 0) return <span className={`${s.hint} ${s.bad}`}>Enter a number above 0</span>;
+  if (!(rate >= EARN_RATE.min && rate <= EARN_RATE.max))
+    return <span className={`${s.hint} ${s.bad}`}>Enter a rate between {EARN_RATE.min} and {EARN_RATE.max}</span>;
   const cheapest = REDEEM_TEMPLATES[template].actions.reduce((a, b) => (-b.points < -a.points ? b : a));
   return (
     <span className={s.hint}>

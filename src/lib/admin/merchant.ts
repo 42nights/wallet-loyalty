@@ -1,4 +1,4 @@
-import { REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 
 // Merchant/staff input rules for the creator admin. No server-only imports:
 // the wizard uses the same helpers client-side for live feedback, and the API
@@ -81,7 +81,9 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
   }
   if (has("earnRate")) {
     const rate = typeof b.earnRate === "number" || typeof b.earnRate === "string" ? Number(b.earnRate) : NaN;
-    if (!Number.isFinite(rate) || rate <= 0 || rate > 1000) return "Earn rate must be a number above 0 and at most 1000";
+    // Same range as owner Settings, so a rate set here can be saved there too.
+    if (!(rate >= EARN_RATE.min && rate <= EARN_RATE.max))
+      return `Earn rate must be between ${EARN_RATE.min} and ${EARN_RATE.max} points per $1`;
     out.earn_rate = rate;
   }
   if (has("template")) {
