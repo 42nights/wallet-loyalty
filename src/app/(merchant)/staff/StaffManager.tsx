@@ -25,6 +25,8 @@ export default function StaffManager() {
   const [resetId, setResetId] = useState<string | null>(null);
   const [resetPw, setResetPw] = useState("");
   const [resetErr, setResetErr] = useState<string | null>(null);
+  // inline remove confirm, same pattern as the reset
+  const [removeId, setRemoveId] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch("/api/merchant/staff");
@@ -62,12 +64,16 @@ export default function StaffManager() {
     load();
   }
 
-  async function remove(id: string) {
-    if (!confirm("Remove this cashier?")) return;
-    const res = await fetch(`/api/merchant/staff/${id}`, { method: "DELETE" });
+  async function remove(m: Member) {
+    if (busy) return;
+    setBusy(true);
+    const res = await fetch(`/api/merchant/staff/${m.id}`, { method: "DELETE" }).catch(() => null);
+    setBusy(false);
+    if (!res) return setMsg({ kind: "bad", text: "Couldn't reach the server. Try again." });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return setMsg({ kind: "bad", text: data.error || "Couldn't remove them. Try again." });
-    setMsg({ kind: "ok", text: "Removed" });
+    setRemoveId(null);
+    setMsg({ kind: "ok", text: `Removed ${m.username}.` });
     load();
   }
 
@@ -148,13 +154,27 @@ export default function StaffManager() {
                   <button
                     className="btn btn-ghost"
                     style={{ width: "auto", padding: "8px 12px", fontSize: 15 }}
-                    onClick={() => remove(m.id)}
+                    disabled={removeId === m.id}
+                    onClick={() => setRemoveId(m.id)}
                   >
                     Remove
                   </button>
                 )}
               </div>
             </div>
+            {removeId === m.id && (
+              <div className="confirm" style={{ marginTop: 10 }}>
+                Remove <b>{m.username}</b>? They will be signed out and can no longer use /scan.
+                <div className="row">
+                  <button className="btn btn-primary" type="button" disabled={busy} onClick={() => remove(m)}>
+                    {busy ? "…" : "Remove"}
+                  </button>
+                  <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => setRemoveId(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             {resetId === m.id && (
               <form className="confirm" style={{ marginTop: 10 }} onSubmit={(e) => saveReset(e, m)}>
                 New password for <b>{m.username}</b>. They&apos;ll use it the next time they sign in.

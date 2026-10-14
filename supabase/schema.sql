@@ -407,14 +407,14 @@ $$;
 create or replace function merchant_segments(p_merchant uuid)
 returns jsonb language sql stable as $$
   with agg as (
-    select pa.serial, pa.customer_name,
+    select pa.serial, pa.customer_name, pa.created_at,
            count(t.id) filter (where t.reason like 'earn:%')::int        as visits,
            max(t.created_at) filter (where t.reason like 'earn:%')        as last_earn,
            coalesce(sum(t.delta) filter (where t.delta > 0), 0)::int      as earned
       from passes pa
       left join transactions t on t.serial = pa.serial
      where pa.merchant_id = p_merchant
-     group by pa.serial, pa.customer_name
+     group by pa.serial, pa.customer_name, pa.created_at
   ), ranked as (
     select *,
            case when visits > 0 then extract(day from now() - last_earn)::int end as recency_days,
@@ -423,6 +423,7 @@ returns jsonb language sql stable as $$
   ), segmented as (
     select serial, customer_name, visits, recency_days, earned,
       case
+        when visits = 0 and created_at >= now() - interval '30 days' then 'new'
         when visits = 0                                          then 'dormant'
         when recency_days > 90                                   then 'lapsed'
         when visits >= 3 and recency_days between 31 and 90      then 'at_risk'

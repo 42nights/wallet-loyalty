@@ -54,15 +54,23 @@ export async function POST(req: NextRequest) {
       if (error) return NextResponse.json({ error: "Failed" }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
+    // With a serial, the new tag is also attached to that customer (the
+    // customer page's "Create" button).
     case "createTag": {
       const label = typeof b.label === "string" ? b.label.trim().slice(0, 40) : "";
       if (!label) return NextResponse.json({ error: "Empty label" }, { status: 400 });
-      const { error } = await db.from("tags")
-        .insert({ merchant_id: m, label, color: b.color ?? null });
+      if (b.serial && !(await ownsCard(owner, b.serial)))
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      const { data: tag, error } = await db.from("tags")
+        .insert({ merchant_id: m, label, color: b.color ?? null }).select("id").single();
       if (error)
         return NextResponse.json({ error: error.code === "23505" ? "Tag exists" : "Failed" },
           { status: error.code === "23505" ? 409 : 500 });
-      return NextResponse.json({ ok: true });
+      if (b.serial) {
+        const { error: e } = await db.from("customer_tags").insert({ serial: b.serial, tag_id: tag.id, merchant_id: m });
+        if (e) return NextResponse.json({ error: "Failed" }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, id: tag.id });
     }
     case "assignTag":
     case "removeTag": {

@@ -290,10 +290,20 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("restaurant cashier: own 'drinks' (500)", await balanceOf(await redeem(other, { serial: rc.serial, actionId: "drinks" })), 500);
 
   // --- campaigns ---------------------------------------------------------------
-  // Fresh cards with no earn are the only "dormant" ones in the cafe fixture.
+  // "dormant" = no earn and enrolled over 30 days ago, so these two cards are
+  // backdated; a card enrolled today with no earn is "new" (merchant_segments).
+  // They are the only dormant ones in the cafe fixture.
   console.log("campaigns");
   const d1 = await createCard(db, cafe.id, { name: "Dormant One" });
   const d2 = await createCard(db, cafe.id, { name: "Dormant Two" });
+  const fresh = await createCard(db, cafe.id, { name: "Joined Today" });
+  await rows(db.from("passes").update({ created_at: new Date(Date.now() - 60 * 86_400_000).toISOString() })
+    .in("serial", [d1.serial, d2.serial]).select("serial"));
+  const { data: segs, error: segErr } = await db.rpc("merchant_segments", { p_merchant: cafe.id });
+  if (segErr) throw new Error(`merchant_segments: ${segErr.message}`);
+  const segOf = (c) => segs.customers.find((x) => x.serial === c.serial)?.segment;
+  chk("segments: no earn, enrolled 60 days ago → dormant", `${segOf(d1)},${segOf(d2)}`, "dormant,dormant");
+  chk("segments: no earn, enrolled today → new", segOf(fresh), "new");
   const devC = `t-${run}-dev-camp`;
   const tokC = `t-${run}-tok-camp`;
   chk("register device on a dormant card", (await register(devC, d1, tokC)).status, 201);
@@ -324,6 +334,30 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("ledger: each card credited exactly once (+50)", targets.map((s) => per[s]).join(","), "50,50");
   const cached = await rows(db.from("passes").select("serial, points").in("serial", targets).order("serial"));
   chk("cached balance equals the ledger", cached.map((p) => p.points).join(","), "50,50");
+
+  // --- CRM: "Create" on a customer page makes the tag and attaches it ----------
+  console.log("crm tags");
+  const ct = await req("/api/merchant/crm", { method: "POST", body: { action: "createTag", serial, label: `vip-${run}` }, j: own });
+  const ctj = await ct.json();
+  chk("createTag with a serial", ct.status, 200);
+  const crm = await (await req(`/api/merchant/crm?serial=${serial}`, { j: own })).json();
+  chk("the new tag is attached to that customer", crm.assignedTagIds?.includes(ctj.id), true);
+  chk("createTag on another merchant's card → 404",
+    (await req("/api/merchant/crm", { method: "POST", body: { action: "createTag", serial: rc.serial, label: `x-${run}` }, j: own })).status, 404);
+
+  // --- staff removal: the owner removes a cashier who is signed in; their
+  //     still-valid cookie stops working on the next request ------------------
+  console.log("staff removal");
+  const gone = { username: `t-${run}-gone`, password: `pw-${run}` };
+  chk("owner adds a cashier", (await req("/api/merchant/staff", { method: "POST", body: gone, j: own })).status, 200);
+  const goneJar = jar();
+  chk("the new cashier signs in", (await login(goneJar, gone)).status, 200);
+  chk("their session works", (await req("/api/merchant/me", { j: goneJar })).status, 200);
+  const [goneRow] = await rows(db.from("staff").select("id").eq("username", gone.username));
+  chk("owner removes them", (await req(`/api/merchant/staff/${goneRow?.id}`, { method: "DELETE", j: own })).status, 200);
+  chk("removed cashier's cookie: /api/merchant/me → 401", (await req("/api/merchant/me", { j: goneJar })).status, 401);
+  chk("removed cashier's cookie: lookup → 401",
+    (await req("/api/merchant/lookup", { method: "POST", body: { serial }, j: goneJar })).status, 401);
 
   // --- card link (owner re-send) ---------------------------------------------
   console.log("card link");

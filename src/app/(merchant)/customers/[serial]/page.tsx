@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { findAction } from "@/lib/config";
-import { formatPhone } from "@/lib/format";
+import { formatMoney, formatPhone } from "@/lib/format";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
 import SendCardPanel from "@/components/SendCardPanel";
@@ -85,7 +85,7 @@ export default async function CustomerPage({
         <Stat k="Lifetime redeemed" v={nf(p.lifetime_redeemed)} />
         <Stat
           k="Est. spend"
-          v={p.estimated_spend != null ? `~${p.estimated_spend.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
+          v={p.estimated_spend != null ? `~${formatMoney(p.estimated_spend)}` : "—"}
         />
         <Stat k="First seen" v={d(p.first_seen)} />
         <Stat k="Last seen" v={d(p.last_seen)} />
