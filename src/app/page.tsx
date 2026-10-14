@@ -199,7 +199,8 @@ export default async function Landing() {
           <h2>Rewards that fit what you sell</h2>
           <p className={s.sectionLede}>
             Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
-            Customers earn points on every dollar they spend, at a rate you choose.
+            Customers earn points on every dollar they spend, at a rate you choose. Prefer a classic stamp card? Your card
+            can count stamps instead: staff tap +1 stamp, no bill to type, and a full card earns the reward you pick.
           </p>
           <div className={s.templates}>
             {Object.entries(REDEEM_TEMPLATES).map(([key, t]) => (

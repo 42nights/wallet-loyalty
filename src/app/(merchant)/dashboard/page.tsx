@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { loyaltyMode, stampReward } from "@/lib/config";
 import DashboardView, {
   DashboardData, Stats, Segments, StaffRow, Anomaly, FunnelT, TimeSeries, HeatCell,
 } from "./DashboardView";
@@ -29,7 +30,7 @@ export default async function DashboardPage({
 
   const theme = ((await cookies()).get("theme")?.value === "light" ? "light" : "dark") as "light" | "dark";
 
-  const [statsR, segR, staffR, anomR, funnelR, tsR, heatR] = await Promise.all([
+  const [statsR, segR, staffR, anomR, funnelR, tsR, heatR, merchantR] = await Promise.all([
     db.rpc("merchant_stats", { p_merchant: m }),
     db.rpc("merchant_segments", { p_merchant: m }),
     db.rpc("staff_activity", { p_merchant: m, p_from: from }),
@@ -37,6 +38,8 @@ export default async function DashboardPage({
     db.rpc("redemption_funnel", { p_merchant: m }),
     db.rpc("merchant_timeseries", { p_merchant: m, p_bucket: bucket, p_from: from }),
     db.rpc("activity_heatmap", { p_merchant: m, p_from: from }),
+    // "*": the stamp card columns may not exist yet (then it's points)
+    db.from("merchants").select("*").eq("id", m).maybeSingle(),
   ]);
 
   const data: DashboardData = {
@@ -48,6 +51,8 @@ export default async function DashboardPage({
     ts: (tsR.data as TimeSeries | null) ?? { bucket, members: [], points: [] },
     heat: (heatR.data as HeatCell[] | null) ?? [],
     days, bucket, theme,
+    mode: loyaltyMode(merchantR.data?.loyalty_mode),
+    stampReward: stampReward(merchantR.data?.stamp_reward),
     // Decided here, not in the browser: without a key the AI routes can only
     // fail, so the command bar and digest card aren't shown at all.
     aiEnabled: Boolean(process.env.ANTHROPIC_API_KEY),

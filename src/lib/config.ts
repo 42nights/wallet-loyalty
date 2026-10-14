@@ -65,7 +65,7 @@ export function redemptionsFor(template: unknown): Action[] {
 // Back-compat: the default template's buttons.
 export const REDEMPTIONS: Action[] = REDEEM_TEMPLATES[DEFAULT_TEMPLATE].actions;
 
-// Earning is points-per-dollar with a per-merchant `earn_rate` (merchants
+// On a points card, earning is points-per-dollar with a per-merchant `earn_rate` (merchants
 // table). The /scan bill-amount input applies round(earn_rate * amount)
 // server-side (see /api/merchant/redeem). There are no fixed earn presets.
 //
@@ -74,6 +74,54 @@ export const REDEMPTIONS: Action[] = REDEEM_TEMPLATES[DEFAULT_TEMPLATE].actions;
 // earn at 1,000,000 points, so at rate r any bill above 1,000,000 / r is refused
 // at the counter; 100 keeps bills up to 10,000 working.
 export const EARN_RATE = { min: 0.1, max: 100 } as const;
+
+// ---------------------------------------------------------------------------
+// Stamp cards. A merchant runs either points (above) or a stamp card
+// (merchants.loyalty_mode). The ledger is the same: a stamp is one unit in
+// transactions/apply_points, earned +1..+STAMP_EARN_MAX per tap (reason
+// "earn:stamp", no bill) and spent stamp_goal at a time on the one reward
+// (reason "redeem:stamp_reward"). Readers below take the raw column value, so a
+// missing column (un-migrated database) reads as the schema default.
+// ---------------------------------------------------------------------------
+export type LoyaltyMode = "points" | "stamps";
+export const STAMP_GOAL = { min: 3, max: 20, default: 10 } as const;
+export const STAMP_REWARD_MAX = 30; // characters, = the schema check
+export const STAMP_EARN_MAX = 3; // stamps one tap may add (several items at once)
+export const STAMP_REWARD_ID = "stamp_reward";
+
+export function loyaltyMode(value: unknown): LoyaltyMode {
+  return value === "stamps" ? "stamps" : "points";
+}
+
+export function stampGoal(value: unknown): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= STAMP_GOAL.min && n <= STAMP_GOAL.max ? n : STAMP_GOAL.default;
+}
+
+export function stampReward(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "Free coffee";
+}
+
+type MerchantRules = {
+  loyalty_mode?: unknown;
+  stamp_goal?: unknown;
+  stamp_reward?: unknown;
+  redeem_template?: unknown;
+};
+
+// The redeem buttons a merchant's /scan shows and /api/merchant/redeem accepts:
+// the one stamp reward on a stamp card, else the merchant's template.
+export function merchantRedemptions(m: MerchantRules): Action[] {
+  if (loyaltyMode(m.loyalty_mode) === "stamps")
+    return [{ id: STAMP_REWARD_ID, label: stampReward(m.stamp_reward), points: -stampGoal(m.stamp_goal), kind: "redeem" }];
+  return redemptionsFor(m.redeem_template);
+}
+
+// What a balance is counted in, for copy: "pts"/"points", or "stamp"/"stamps".
+export function unitLabel(mode: unknown, n: number, short = false): string {
+  if (loyaltyMode(mode) === "stamps") return n === 1 ? "stamp" : "stamps";
+  return short ? "pts" : "points";
+}
 
 export const ALL_ACTIONS: Action[] = Object.values(REDEEM_TEMPLATES).flatMap((t) => t.actions);
 

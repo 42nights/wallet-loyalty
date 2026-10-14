@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { loyaltyMode } from "@/lib/config";
 import CampaignsClient from "./CampaignsClient";
 
 export const runtime = "nodejs";
@@ -17,7 +18,11 @@ export default async function CampaignsPage() {
   if (staff.role !== "owner" || !staff.merchantId) redirect("/scan?denied=1");
 
   // Segment counts so the owner sees how many cards each target hits.
-  const { data: seg } = await db.rpc("merchant_segments", { p_merchant: staff.merchantId });
+  const [{ data: seg }, { data: merchant }] = await Promise.all([
+    db.rpc("merchant_segments", { p_merchant: staff.merchantId }),
+    // "*": the loyalty_mode column may not exist yet (then it's points)
+    db.from("merchants").select("*").eq("id", staff.merchantId).maybeSingle(),
+  ]);
   const counts = (seg as { counts?: Record<string, number> } | null)?.counts ?? {};
   const segments = SEGMENT_ORDER.map((k) => ({
     key: k,
@@ -27,7 +32,7 @@ export default async function CampaignsPage() {
 
   return (
     <div className="wrap">
-      <CampaignsClient segments={segments} />
+      <CampaignsClient segments={segments} mode={loyaltyMode(merchant?.loyalty_mode)} />
     </div>
   );
 }

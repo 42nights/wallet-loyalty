@@ -8,11 +8,15 @@ import {
   redemptionsFor,
   assertPassConfig,
   templateKey,
+  loyaltyMode,
+  stampGoal,
+  stampReward,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
 import { PASS_THEMES } from "@/lib/passThemes";
 import { passkitCertificates } from "./certs";
 import { ASSET_NAMES } from "./assets";
+import { stampStrip } from "./stampStrip";
 import type { PassData } from "../types";
 
 // Build the .pkpass entirely from in-memory buffers — per-merchant branding,
@@ -26,7 +30,7 @@ const STORAGE_BUCKET = "pass-assets";
 
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
-// (earn_rate, redeem_template) are therefore optional here.
+// (earn_rate, redeem_template, the stamp card ones) are therefore optional here.
 type MerchantRow = {
   id: string;
   name: string;
@@ -36,6 +40,9 @@ type MerchantRow = {
   assets_updated_at: string | null;
   earn_rate?: number | string | null;
   redeem_template?: string | null;
+  loyalty_mode?: string | null;
+  stamp_goal?: number | null;
+  stamp_reward?: string | null;
 };
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
@@ -125,12 +132,21 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   const theme = PASS_THEMES[template];
   const bg = rgb(merchant?.bg_color ?? null, theme.bg);
   const fg = rgb(merchant?.fg_color ?? null, theme.fg);
+  const label = rgb(merchant?.label_color ?? null, theme.label);
   const buffers = withDefaultArt(uploaded, template);
-  // The default strip is drawn for the theme's colours. Under a merchant's own
-  // background/foreground it could swallow the big points number (dark text on
-  // the dark themed strip), so their card goes without a strip until they
-  // upload one.
-  if (bg !== theme.bg || fg !== theme.fg) {
+  const stamps = loyaltyMode(merchant?.loyalty_mode) === "stamps";
+  const goal = stampGoal(merchant?.stamp_goal);
+  const reward = stampReward(merchant?.stamp_reward);
+  if (stamps) {
+    // On a stamp card the strip IS the balance: the grid, drawn for this card's
+    // count in the card's real colours, replaces any uploaded or default strip.
+    for (const [name, scale] of [["strip.png", 1], ["strip@2x.png", 2], ["strip@3x.png", 3]] as const)
+      buffers[name] = stampStrip(points, goal, { bg, fg, label }, scale);
+  } else if (bg !== theme.bg || fg !== theme.fg) {
+    // The default strip is drawn for the theme's colours. Under a merchant's own
+    // background/foreground it could swallow the big points number (dark text on
+    // the dark themed strip), so their card goes without a strip until they
+    // upload one.
     for (const name of ["strip.png", "strip@2x.png", "strip@3x.png"]) {
       if (!uploaded[name]) delete buffers[name];
     }
@@ -154,7 +170,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     // The merchant's colours win; unset ones come from their template's theme.
     backgroundColor: bg,
     foregroundColor: fg,
-    labelColor: rgb(merchant?.label_color ?? null, theme.label),
+    labelColor: label,
     // stripColor is NOT in Apple's Pass reference: passkit-generator marks it an
     // "Undocumented feature" for the colour of a primary value drawn over the
     // strip. It is tied to the merchant's foreground so the points stay readable
@@ -176,25 +192,35 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // is the ONE field with a changeMessage, so a balance change shows a single
   // notification. Never put one on the OFFER (the HIG forbids change messages
   // for marketing).
-  pass.headerFields.push({
-    key: "balance",
-    label: "POINTS",
-    value: balance,
-    changeMessage: "You now have %@ points",
-  });
+  if (stamps) {
+    // A stamp card has no primary number: the strip's grid shows the count.
+    pass.headerFields.push({
+      key: "balance",
+      label: "STAMPS",
+      value: `${balance} of ${goal}`,
+      changeMessage: "Stamps: %@",
+    });
+  } else {
+    pass.headerFields.push({
+      key: "balance",
+      label: "POINTS",
+      value: balance,
+      changeMessage: "You now have %@ points",
+    });
 
-  // POINTS as the big primary number (over the strip) — easiest to read.
-  pass.primaryFields.push({ key: "points", label: "POINTS", value: balance });
+    // POINTS as the big primary number (over the strip) — easiest to read.
+    pass.primaryFields.push({ key: "points", label: "POINTS", value: balance });
+  }
 
   const rewards = rewardsFor(merchant?.redeem_template);
   if (customerName && customerName.trim()) {
     pass.secondaryFields.push({ key: "member", label: "MEMBER", value: customerName.trim() });
   }
-  pass.secondaryFields.push({
-    key: "next",
-    label: "NEXT REWARD",
-    value: nextReward(points, rewards),
-  });
+  pass.secondaryFields.push(
+    stamps
+      ? { key: "next", label: "REWARD", value: points >= goal ? `Ready: ${reward}` : `${reward} at ${goal}` }
+      : { key: "next", label: "NEXT REWARD", value: nextReward(points, rewards) }
+  );
 
   // Back of the card. Win-back offer first when a campaign set one — passive:
   // it shows when the customer opens the card, no lockscreen marketing.
@@ -207,13 +233,13 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     {
       key: "earn",
       label: "HOW TO EARN",
-      value: `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
+      value: stamps
+        ? `1 stamp per visit or item, added by staff at the counter. Collect ${goal} for ${reward}.`
+        : `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
     },
-    {
-      key: "rewards",
-      label: "REWARDS",
-      value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n"),
-    },
+    stamps
+      ? { key: "rewards", label: "REWARD", value: `${reward} when you collect ${goal} stamps` }
+      : { key: "rewards", label: "REWARDS", value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n") },
     // A Date, not a pre-formatted string: Wallet formats it on the device in
     // the customer's own time zone and locale (a server-side string showed the
     // server's day in dd/mm/yyyy).
@@ -227,7 +253,9 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     {
       key: "terms",
       label: "TERMS",
-      value: `Points have no cash value and cannot be transferred. ${orgName} may change rewards and point values at any time.`,
+      value: stamps
+        ? `Stamps have no cash value and cannot be transferred. ${orgName} may change the reward at any time.`
+        : `Points have no cash value and cannot be transferred. ${orgName} may change rewards and point values at any time.`,
     }
   );
 

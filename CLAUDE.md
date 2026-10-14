@@ -6,12 +6,14 @@ scope, gaps, code patterns, acceptance criteria). Task prompts are in
 
 ## What this is
 A multi-tenant Apple Wallet loyalty product for restaurants/cafés. Customers add
-a branded card to Apple Wallet, earn/redeem points via QR scan at the counter,
+a branded card to Apple Wallet, earn/redeem points (or stamps) via QR scan at the counter,
 and the card updates live. Sold per-merchant.
 
 ## Locked decisions — do not change, do not ask
-- **Earn model** = points-per-dollar with a per-merchant `earn_rate`.
-- **Redeem buttons** come from per-merchant templates in `src/lib/config.ts` (`REDEEM_TEMPLATES`: `restaurant` = the original 4 and the default, `cafe`, `retail`), stored in `merchants.redeem_template`. Each template is exactly 4 buttons. Validate a redeem with `redemptionsFor(merchant.redeem_template)`, never against all templates.
+- **Earn model** (Ayaan, 2026-10-14): each merchant runs EITHER points OR a stamp card, per `merchants.loyalty_mode` (`points` = default).
+  - **Points** = points-per-dollar with a per-merchant `earn_rate` (unchanged).
+  - **Stamps** = "buy N, get one free": staff add +1..+3 stamps per tap (`earn:stamp`, no bill); one reward named `stamp_reward` costs `stamp_goal` (3-20) stamps (`redeem:stamp_reward`). Same ledger: a stamp is one unit in `apply_points`. Mode and goal are fixed once a merchant has a transaction.
+- **Redeem buttons**: a points merchant's come from per-merchant templates in `src/lib/config.ts` (`REDEEM_TEMPLATES`: `restaurant` = the original 4 and the default, `cafe`, `retail`), stored in `merchants.redeem_template`; each template is exactly 4 buttons. A stamp card has the one reward button instead (its template only picks colours and default art). Validate a redeem with `merchantRedemptions(merchant)` (= `redemptionsFor(merchant.redeem_template)` for points), never against all templates.
 - **One Pass Type ID** for all merchants; branding (logo/strip/colors) is per-merchant, loaded from Supabase storage at issue time.
 - **Apple Wallet only** for now. Keep the pass/points layer provider-agnostic so Google Wallet can drop in later — but do not build it.
 - **Roles**: `owner` and `cashier`. Dashboard is owner-only.

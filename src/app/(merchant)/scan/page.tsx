@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { Action } from "@/lib/config";
+import { STAMP_EARN_MAX, unitLabel, type Action, type LoyaltyMode } from "@/lib/config";
 import SendCardPanel from "@/components/SendCardPanel";
 import { formatMoney } from "@/lib/format";
 import { parseBill } from "./bill";
@@ -34,6 +34,9 @@ export default function ScanPage() {
   const [earnRate, setEarnRate] = useState(1);
   const [maxBill, setMaxBill] = useState<number | null>(null); // null until /me answers
   const [redemptions, setRedemptions] = useState<Action[]>([]);
+  // a stamp card shows stamp buttons instead of the bill box (/me says which)
+  const [mode, setMode] = useState<LoyaltyMode>("points");
+  const [stampGoal, setStampGoal] = useState(10);
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [today, setToday] = useState<Today | null>(null);
@@ -54,6 +57,8 @@ export default function ScanPage() {
       if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
       if (typeof me.maxBill === "number") setMaxBill(me.maxBill);
       if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
+      setMode(me.mode === "stamps" ? "stamps" : "points");
+      if (typeof me.stampGoal === "number") setStampGoal(me.stampGoal);
     }
   }
   useEffect(() => {
@@ -197,7 +202,7 @@ export default function ScanPage() {
     setPhone("");
   }
 
-  async function apply(body: { actionId: string } | { amount: number; confirm?: true }, okMsg: string) {
+  async function apply(body: { actionId: string } | { amount: number; confirm?: true } | { stamps: number }, okMsg: string) {
     if (!customer || busy) return; // busy guard: no double-tap
     setBusy(true);
     setToast(null); // an old toast must never read as this tap's result
@@ -219,7 +224,7 @@ export default function ScanPage() {
         return;
       }
       if (!res.ok) {
-        // "Not enough points" carries the real balance: show it, so the reward
+        // "Not enough points/stamps" carries the real balance: show it, so the reward
         // buttons re-dim if another terminal spent points in the meantime
         if (typeof data.balance === "number") setCustomer({ ...customer, points: data.balance });
         setToast({ kind: "bad", msg: data.error || "Failed" });
@@ -336,7 +341,7 @@ export default function ScanPage() {
               {matches.map((m) => (
                 <button key={m.serial} className={styles.pick} onClick={() => pick(m)}>
                   <span className={styles.pickName}>{m.name || "Customer"}</span>
-                  <span className={styles.pickMeta}>{m.phone} · {m.points} pts</span>
+                  <span className={styles.pickMeta}>{m.phone} · {m.points} {unitLabel(mode, m.points, true)}</span>
                 </button>
               ))}
             </div>
@@ -351,13 +356,14 @@ export default function ScanPage() {
   // over the shop's cap: the server would refuse it, so say so now instead of
   // previewing points it won't credit
   const overCap = billAmt !== null && maxBill !== null && billAmt > maxBill;
+  const stamps = mode === "stamps";
   return (
     <div className="wrap">
       <div className="card stack">
         <div>
           <div className="label">{customer.name || "Customer"}</div>
           <div className={`balance ${flash ? "flash" : ""}`}>{customer.points}</div>
-          <div className="label" style={{ marginTop: 4 }}>points</div>
+          <div className="label" style={{ marginTop: 4 }}>{stamps ? `of ${stampGoal} stamps` : "points"}</div>
         </div>
 
         {toast && (
@@ -369,57 +375,78 @@ export default function ScanPage() {
           </div>
         )}
 
-        <div className="label" style={{ marginTop: 6 }}>Redeem</div>
-        <div className="grid2">
+        {stamps && (
+          <>
+            <div className="label" style={{ marginTop: 6 }}>Add stamps — one per item</div>
+            <div className={styles.stampBtns}>
+              {Array.from({ length: STAMP_EARN_MAX }, (_, i) => i + 1).map((n) => {
+                const what = `+${n} ${unitLabel(mode, n)}`;
+                return (
+                  <button key={n} className={`btn ${n === 1 ? "btn-primary" : "btn-ghost"}`} disabled={busy}
+                    aria-label={what} onClick={() => apply({ stamps: n }, what)}>
+                    {n === 1 ? what : `+${n}`}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <div className="label" style={{ marginTop: 6 }}>{stamps ? "Reward" : "Redeem"}</div>
+        <div className={stamps ? styles.one : "grid2"}>
           {redemptions.map((a) => {
             const short = customer.points < -a.points; // a.points is the (negative) delta
             return (
               <button key={a.id} className={`redeem-btn ${short ? styles.short : ""}`} disabled={busy || short}
                 onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
                 <div className="rl">{a.label}</div>
-                <div className="rp">{a.points} pts</div>
+                <div className="rp">{a.points} {unitLabel(mode, -a.points, true)}</div>
                 {short && <div className={styles.need}>needs {-a.points} · has {customer.points}</div>}
               </button>
             );
           })}
         </div>
 
-        <div className="label" style={{ marginTop: 6 }}>Earn — enter the bill amount</div>
-        <div className="row">
-          <input value={bill} onChange={(e) => { setBill(e.target.value); setBillErr(false); setPending(null); }}
-            inputMode="decimal" placeholder="bill amount" aria-invalid={billErr} />
-          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy || addLocked}
-            onClick={earn}>
-            Add
-          </button>
-        </div>
-        {billErr && <div className={styles.billErr} role="alert">Enter an amount like 12.50</div>}
-        {overCap && (
-          <div className={styles.billErr} role="alert">
-            Over this shop&apos;s limit of {formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings
-          </div>
-        )}
-        {billAmt !== null && !overCap && (
-          <div className="label">
-            = {Math.round(earnRate * billAmt)} pts ({earnRate}× rate)
-          </div>
-        )}
-        {pending && (
-          <div className={styles.confirm} role="alert">
-            <div>
-              Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
-            </div>
+        {!stamps && (
+          <>
+            <div className="label" style={{ marginTop: 6 }}>Earn — enter the bill amount</div>
             <div className="row">
-              <button className="btn btn-primary" disabled={busy}
-                onClick={() => apply({ amount: pending.amount, confirm: true }, `+${pending.points} pts`)}>
-                Add +{pending.points} pts
-              </button>
-              <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
-                onClick={() => setPending(null)}>
-                Cancel
+              <input value={bill} onChange={(e) => { setBill(e.target.value); setBillErr(false); setPending(null); }}
+                inputMode="decimal" placeholder="bill amount" aria-invalid={billErr} />
+              <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy || addLocked}
+                onClick={earn}>
+                Add
               </button>
             </div>
-          </div>
+            {billErr && <div className={styles.billErr} role="alert">Enter an amount like 12.50</div>}
+            {overCap && (
+              <div className={styles.billErr} role="alert">
+                Over this shop&apos;s limit of {formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings
+              </div>
+            )}
+            {billAmt !== null && !overCap && (
+              <div className="label">
+                = {Math.round(earnRate * billAmt)} pts ({earnRate}× rate)
+              </div>
+            )}
+            {pending && (
+              <div className={styles.confirm} role="alert">
+                <div>
+                  Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
+                </div>
+                <div className="row">
+                  <button className="btn btn-primary" disabled={busy}
+                    onClick={() => apply({ amount: pending.amount, confirm: true }, `+${pending.points} pts`)}>
+                    Add +{pending.points} pts
+                  </button>
+                  <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
+                    onClick={() => setPending(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <SendCardPanel key={customer.serial} serial={customer.serial} />

@@ -707,3 +707,14 @@ alter table merchants add column if not exists redeem_template text not null def
 -- /settings (10 - 100000). Code that reads it falls back to 1000 when the
 -- column is missing, so an un-migrated database behaves like this default.
 alter table merchants add column if not exists max_bill numeric not null default 1000;
+
+-- --- Stamp cards (per merchant) — 2026-10-14 ---------------------------------
+-- A merchant runs either points (points-per-dollar, earn_rate + redeem_template)
+-- or a stamp card ("buy 9, get the 10th free"). The ledger is the same: a stamp
+-- is one unit in transactions/apply_points (reasons earn:stamp and
+-- redeem:stamp_reward). stamp_goal is what the one reward costs; stamp_reward is
+-- its label on /scan and the card. Code reading these falls back to the same
+-- defaults when the columns are missing (an un-migrated database).
+alter table merchants add column if not exists loyalty_mode text not null default 'points' check (loyalty_mode in ('points','stamps'));
+alter table merchants add column if not exists stamp_goal int not null default 10 check (stamp_goal between 3 and 20);
+alter table merchants add column if not exists stamp_reward text not null default 'Free coffee' check (char_length(stamp_reward) between 1 and 30);

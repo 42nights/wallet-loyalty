@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, STAMP_REWARD_MAX, type LoyaltyMode, type TemplateKey } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
 import styles from "./settings.module.css";
 
@@ -12,6 +12,9 @@ type Settings = {
   earnRate: number;
   maxBill: number;
   enrollUrl: string | null;
+  mode: LoyaltyMode;
+  stampGoal: number;
+  stampReward: string;
 };
 type Msg = { kind: "ok" | "bad"; text: string } | null;
 
@@ -22,6 +25,7 @@ export default function SettingsForm() {
   const [s, setS] = useState<Settings | null>(null);
   const [rate, setRate] = useState("");
   const [limit, setLimit] = useState("");
+  const [reward, setReward] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [linkMsg, setLinkMsg] = useState<Msg>(null);
@@ -36,11 +40,12 @@ export default function SettingsForm() {
       setS(data);
       setRate(String(data.earnRate));
       setLimit(String(data.maxBill));
+      setReward(data.stampReward);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function save(patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill">>, okText: string) {
+  async function save(patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill" | "stampReward">>, okText: string) {
     if (busy) return;
     setBusy(true);
     setMsg(null);
@@ -56,6 +61,7 @@ export default function SettingsForm() {
       setS(data);
       setRate(String(data.earnRate));
       setLimit(String(data.maxBill));
+      setReward(data.stampReward);
       setMsg({ kind: "ok", text: okText });
     } finally {
       setBusy(false);
@@ -72,6 +78,11 @@ export default function SettingsForm() {
     save({ maxBill: Number(limit) }, `Bill limit saved: ${formatMoney(Number(limit))}`);
   }
 
+  function saveReward(e: FormEvent) {
+    e.preventDefault();
+    save({ stampReward: reward.trim() }, `Reward renamed to ${reward.trim()}. Customers' cards update in Wallet.`);
+  }
+
   async function copyLink() {
     if (!s?.enrollUrl) return;
     await navigator.clipboard.writeText(s.enrollUrl).then(
@@ -84,6 +95,8 @@ export default function SettingsForm() {
   const rateValid = rate.trim() !== "" && rateNum >= EARN_RATE.min && rateNum <= EARN_RATE.max;
   const limitNum = Number(limit);
   const limitValid = limit.trim() !== "" && limitNum >= 10 && limitNum <= 100000;
+  // A stamp card has no bill rules or reward template: those sections are hidden.
+  const stamps = s?.mode === "stamps";
 
   return (
     <div className="wrap">
@@ -98,7 +111,44 @@ export default function SettingsForm() {
         <div className="stack">
           {msg && <div className={`toast ${msg.kind}`} role="status" style={{ marginTop: 0 }}>{msg.text}</div>}
 
-          <section className="card stack" aria-labelledby="tpl-h">
+          <section className="card stack" aria-labelledby="mode-h">
+            <div>
+              <div className="label" id="mode-h">Loyalty card</div>
+              <div className={styles.example}>
+                {stamps ? (
+                  <>Stamp card: <b>{s.stampGoal}</b> stamps earn <b>{s.stampReward}</b></>
+                ) : (
+                  <>Points: customers earn points on every {formatMoney(1)} they spend</>
+                )}
+              </div>
+              <div className={styles.help} style={{ marginTop: 8 }}>
+                Set up by 42nights.{" "}
+                {stamps
+                  ? "The number of stamps stays fixed once customers have stamps, so every card keeps its value. You can rename the reward."
+                  : "The earn rate and rewards are below."}
+              </div>
+            </div>
+            {stamps && (
+              <>
+                <form className="row" onSubmit={saveReward}>
+                  <input value={reward} onChange={(e) => setReward(e.target.value)} maxLength={STAMP_REWARD_MAX} aria-label="Reward name" />
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: "auto", padding: "0 20px" }}
+                    type="submit"
+                    disabled={busy || !reward.trim() || reward.trim() === s.stampReward}
+                  >
+                    Save
+                  </button>
+                </form>
+                <div className={styles.help}>
+                  What cashiers tap and customers see on their card, up to {STAMP_REWARD_MAX} characters. Saving updates every card in Wallet.
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="card stack" aria-labelledby="tpl-h" hidden={stamps}>
             <div>
               <div className="label" id="tpl-h">Redeem buttons</div>
               <div className={styles.help}>
@@ -136,7 +186,7 @@ export default function SettingsForm() {
             </div>
           </section>
 
-          <section className="card stack" aria-labelledby="rate-h">
+          <section className="card stack" aria-labelledby="rate-h" hidden={stamps}>
             <div>
               <div className="label" id="rate-h">Earn rate</div>
               <div className={styles.help}>Points per {formatMoney(1)} spent ({EARN_RATE.min} – {EARN_RATE.max}).</div>
@@ -170,7 +220,7 @@ export default function SettingsForm() {
             </div>
           </section>
 
-          <section className="card stack" aria-labelledby="limit-h">
+          <section className="card stack" aria-labelledby="limit-h" hidden={stamps}>
             <div>
               <div className="label" id="limit-h">Bill limit</div>
               <div className={styles.help}>

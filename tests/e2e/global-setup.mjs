@@ -20,9 +20,15 @@ export default async function globalSetup(config) {
       name: `Findable ${run}`,
       phone: "+1555" + String(Date.now()).slice(-7),
     });
+    // A stamp card shop (goal 5) with its own card per project, for stamps.spec.
+    const st = await createMerchant(db, run, { key: "e2e-stamps", template: "cafe", earnRate: 10, stamps: { goal: 5, reward: "Free latte" } });
+    const stampCards = {};
+    for (const p of config.projects)
+      stampCards[p.name] = await createCard(db, st.id, { name: `Stamps ${p.name}` });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
       run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard,
+      stamps: { cashier: st.cashier, cards: stampCards },
     });
 
     // Compile every route the specs touch, one at a time, before the parallel

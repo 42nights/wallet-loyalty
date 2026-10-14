@@ -10,8 +10,9 @@
 import { chromium } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { PASS_THEMES } from "../src/lib/passThemes.ts";
+import { pngChunk } from "../src/lib/wallet/apple/stampStrip.ts";
 import { WALLET_ASSETS } from "../src/lib/wallet/apple/assets.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -159,14 +160,6 @@ function draw(template, kind, w, h) {
 // Same pixels, smaller file. The IDAT chunks together hold one zlib stream, so
 // inflate it and deflate it again at level 9; every other chunk is kept.
 function recompress(png) {
-  const chunk = (type, data) => {
-    const out = Buffer.alloc(12 + data.length);
-    out.writeUInt32BE(data.length, 0);
-    out.write(type, 4, "latin1");
-    data.copy(out, 8);
-    out.writeUInt32BE(crc32(data, crc32(type)), 8 + data.length);
-    return out;
-  };
   const parts = [png.subarray(0, 8)];
   const idat = [];
   for (let i = 8; i < png.length; ) {
@@ -176,11 +169,11 @@ function recompress(png) {
     if (type === "IDAT") {
       if (!idat.length) parts.push("IDAT");
       idat.push(data);
-    } else parts.push(chunk(type, data));
+    } else parts.push(pngChunk(type, data));
     i += 12 + len;
   }
   const z = deflateSync(inflateSync(Buffer.concat(idat)), { level: 9, memLevel: 9 });
-  const out = Buffer.concat(parts.map((p) => (p === "IDAT" ? chunk("IDAT", z) : p)));
+  const out = Buffer.concat(parts.map((p) => (p === "IDAT" ? pngChunk("IDAT", z) : p)));
   return out.length < png.length ? out : png;
 }
 

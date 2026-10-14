@@ -2,7 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { findAction } from "@/lib/config";
+import { STAMP_REWARD_ID, findAction, loyaltyMode, stampGoal, stampReward, unitLabel } from "@/lib/config";
 import { formatMoney, formatPhone } from "@/lib/format";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
@@ -27,9 +27,12 @@ type Profile = {
   recent: Txn[];
 };
 
-function label(reason: string): string {
-  if (reason.startsWith("undo:")) return `Undo: ${label(reason.slice(5))}`;
+// `reward` names redeem:stamp_reward, the one reward of a stamp card.
+function label(reason: string, reward: string): string {
+  if (reason.startsWith("undo:")) return `Undo: ${label(reason.slice(5), reward)}`;
   if (reason === "earn:purchase") return "Earn";
+  if (reason === "earn:stamp") return "Stamp";
+  if (reason === `redeem:${STAMP_REWARD_ID}`) return reward;
   if (reason === "adjust:manual") return "Adjustment";
   if (reason.startsWith("campaign:")) return "Campaign";
   const id = reason.split(":")[1] ?? reason;
@@ -59,12 +62,18 @@ export default async function CustomerPage({
   if (staff.role !== "owner" || !staff.merchantId) redirect("/scan?denied=1");
 
   const { serial } = await params;
-  const { data } = await db.rpc("customer_profile", {
-    p_merchant: staff.merchantId,
-    p_serial: serial,
-  });
+  const [{ data }, { data: merchant }] = await Promise.all([
+    db.rpc("customer_profile", { p_merchant: staff.merchantId, p_serial: serial }),
+    // "*": the stamp card columns may not exist yet (then it's points)
+    db.from("merchants").select("*").eq("id", staff.merchantId).maybeSingle(),
+  ]);
   const p = data as Profile | null;
   if (!p) notFound();
+  // A stamp card has no bills, so "spend" would be made up: it shows how far
+  // the next reward is instead.
+  const mode = loyaltyMode(merchant?.loyalty_mode);
+  const goal = stampGoal(merchant?.stamp_goal);
+  const reward = stampReward(merchant?.stamp_reward);
 
   return (
     <div className="wrap">
@@ -76,7 +85,7 @@ export default async function CustomerPage({
         <div>
           <div className="label">{p.name || "Customer"}</div>
           <div className="balance">{nf(p.points)}</div>
-          <div className="label">points · {formatPhone(p.phone) || "no phone"}</div>
+          <div className="label">{unitLabel(mode, p.points)} · {formatPhone(p.phone) || "no phone"}</div>
         </div>
       </div>
 
@@ -84,16 +93,20 @@ export default async function CustomerPage({
         <Stat k="Visits" v={nf(p.visits)} />
         <Stat k="Lifetime earned" v={nf(p.lifetime_earned)} />
         <Stat k="Lifetime redeemed" v={nf(p.lifetime_redeemed)} />
-        <Stat
-          k="Est. spend"
-          v={p.estimated_spend != null ? `~${formatMoney(p.estimated_spend)}` : "—"}
-        />
+        {mode === "stamps" ? (
+          <Stat k="Next reward" v={p.points >= goal ? `${reward}: ready` : `${goal - p.points} to go`} />
+        ) : (
+          <Stat
+            k="Est. spend"
+            v={p.estimated_spend != null ? `~${formatMoney(p.estimated_spend)}` : "—"}
+          />
+        )}
         <Stat k="First seen" v={d(p.first_seen)} />
         <Stat k="Last seen" v={d(p.last_seen)} />
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <AdjustPoints serial={p.serial} balance={p.points} />
+        <AdjustPoints serial={p.serial} balance={p.points} mode={mode} />
       </div>
 
       <div className="card stack" style={{ marginTop: 12 }}>
@@ -110,7 +123,7 @@ export default async function CustomerPage({
         {p.recent.length === 0 && <div className="label">No activity yet</div>}
         {p.recent.map((t, i) => (
           <div key={i} className="row" style={{ justifyContent: "space-between" }}>
-            <div>{label(t.reason)}</div>
+            <div>{label(t.reason, reward)}</div>
             <div className="row" style={{ gap: 10 }}>
               <span style={{ fontWeight: 700, color: t.delta >= 0 ? "var(--ok)" : "var(--bad)" }}>
                 {t.delta >= 0 ? "+" : ""}{nf(t.delta)}
@@ -120,9 +133,11 @@ export default async function CustomerPage({
           </div>
         ))}
       </div>
-      <div className="label" style={{ marginTop: 8, fontSize: 11 }}>
-        Est. spend is inferred from points ÷ earn rate until exact bill amounts are stored.
-      </div>
+      {mode === "points" && (
+        <div className="label" style={{ marginTop: 8, fontSize: 11 }}>
+          Est. spend is inferred from points ÷ earn rate until exact bill amounts are stored.
+        </div>
+      )}
     </div>
   );
 }
