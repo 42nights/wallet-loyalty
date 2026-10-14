@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { redemptionsFor } from "@/lib/config";
-import { applyTransaction } from "@/lib/points";
+import { applyTransaction, VOIDED_ERROR } from "@/lib/points";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
 import { formatMoney } from "@/lib/format";
@@ -112,6 +112,8 @@ export async function POST(req: NextRequest) {
     );
   if (result.status === "not_found")
     return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (result.status === "voided")
+    return NextResponse.json({ error: VOIDED_ERROR }, { status: 409 });
 
   console.error("redeem failed:", result.error);
   return NextResponse.json({ error: "Could not apply points" }, { status: 500 });

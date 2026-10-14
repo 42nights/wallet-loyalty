@@ -82,6 +82,9 @@ export async function POST(req: NextRequest) {
     console.error("enroll duplicate check failed:", tailError.message);
     return NextResponse.json({ error: "Could not create card" }, { status: 500 });
   }
+  // A deactivated card still holds its number (the unique index counts it
+  // too), so it blocks a second card on purpose: staff find it by phone on
+  // /scan, where it reads as deactivated, and the owner can reactivate it.
   if (sameTail.some((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone))
     return alreadyEnrolled();
 
@@ -125,6 +128,9 @@ export async function GET(req: NextRequest) {
 
   const { data: pass } = await db.from("passes").select("*").eq("serial", serial).single();
   if (!pass) return new NextResponse("Card not found", { status: 404 });
+  // a link minted before the owner deactivated the card stops working too
+  if (pass.voided_at)
+    return new NextResponse("This card has been deactivated. Ask a team member for help.", { status: 410 });
 
   const { buffer, contentType } = await wallet.buildPass({
     serial,

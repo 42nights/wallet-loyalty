@@ -509,6 +509,68 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("it names the cashier and what they issued",
     `${flagged[0]?.detail?.staff}:${flagged[0]?.detail?.issued}`, `${an.cashier.username}:1001650`);
 
+  // --- card void: the owner deactivates a card. Every balance change, the card
+  //     link and a link minted earlier refuse it, the Wallet card says so and
+  //     the balance stays; reactivating makes all of it work again ---------------
+  console.log("card void");
+  const restOwn = jar();
+  await login(restOwn, rest.owner);
+  const vPhone = "+1555" + String(Date.now() + 7).slice(-7);
+  const vc = await createCard(db, cafe.id, { name: "Void Card", phone: vPhone });
+  const setVoid = (j, body) => req("/api/merchant/void", { method: "POST", body, j });
+  const reactivate = (j, s) => req("/api/merchant/void", { method: "DELETE", body: { serial: s }, j });
+  const adjust = (j, s, delta) =>
+    req("/api/merchant/adjust", { method: "POST", body: { serial: s, delta }, headers: { "Idempotency-Key": randomUUID() }, j });
+  const cardLink = (j, s) => req("/api/merchant/card-link", { method: "POST", body: { serial: s }, j });
+  const vk = randomUUID();
+  chk("earn $10 @10x before the void", await balanceOf(await redeem(cash, { serial: vc.serial, amount: 10 }, vk)), 100);
+  const { url: earlyLink = "" } = await (await cardLink(own, vc.serial)).json();
+  const devV = `t-${run}-dev-void`;
+  const tokV = `t-${run}-tok-void`;
+  chk("register device on the card", (await register(devV, vc, tokV)).status, 201);
+  chk("a cashier cannot deactivate → 403", (await setVoid(cash, { serial: vc.serial, reason: "fraud" })).status, 403);
+  chk("another shop's owner cannot deactivate → 404", (await setVoid(restOwn, { serial: vc.serial, reason: "fraud" })).status, 404);
+  chk("no reason → 400", (await setVoid(own, { serial: vc.serial })).status, 400);
+  chk("unknown reason → 400", (await setVoid(own, { serial: vc.serial, reason: "bored" })).status, 400);
+  mock.clear();
+  chk("owner deactivates the card", (await setVoid(own, { serial: vc.serial, reason: "fraud" })).status, 200);
+  chk("deactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  const [vRow] = await rows(db.from("passes").select("points, voided_at, void_reason").eq("serial", vc.serial));
+  chk("the row keeps its balance and records when and why", `${vRow?.points}:${Boolean(vRow?.voided_at)}:${vRow?.void_reason}`, "100:true:fraud");
+  chk("lookup by serial says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { serial: vc.serial }, j: cash })).json()).voided, true);
+  chk("lookup by phone says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { phone: vPhone }, j: cash })).json()).matches?.[0]?.voided, true);
+  chk("earn refused → 409", (await redeem(cash, { serial: vc.serial, amount: 5 })).status, 409);
+  chk("reward refused → 409", (await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })).status, 409);
+  chk("owner adjustment refused → 409", (await adjust(own, vc.serial, 10)).status, 409);
+  chk("undo of the earn made before the void refused → 409", (await undo(cash, vk)).status, 409);
+  chk("send-card link refused → 409", (await cardLink(own, vc.serial)).status, 409);
+  chk("a card link minted before the void stops working → 410", (await req(earlyLink.slice(B.length))).status, 410);
+  chk("re-enrolling the same number is still refused (decision: the card holds it) → 409",
+    (await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } })).status, 409);
+  const vPass = await latestPass(vc);
+  chk("Wallet card reads DEACTIVATED (header | primary)",
+    `${field(vPass, "headerFields", "balance")}|${field(vPass, "primaryFields", "points")}`, "DEACTIVATED|Deactivated");
+  chk("deactivated card has no QR and no change message",
+    `${(vPass.barcodes ?? []).length}:${vPass.storeCard?.headerFields?.[0]?.changeMessage ?? "none"}`, "0:none");
+  const vLedger = await rows(db.from("transactions").select("delta").eq("serial", vc.serial));
+  chk("refusals wrote nothing: one ledger row, +100", vLedger.map((t) => t.delta).join(","), "100");
+  chk("another shop's owner cannot reactivate → 404", (await reactivate(restOwn, vc.serial)).status, 404);
+  chk("a cashier cannot reactivate → 403", (await reactivate(cash, vc.serial)).status, 403);
+  mock.clear();
+  chk("owner reactivates the card", (await reactivate(own, vc.serial)).status, 200);
+  chk("reactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  const vk2 = randomUUID();
+  chk("after reactivating: earn works", await balanceOf(await redeem(cash, { serial: vc.serial, amount: 5 }, vk2)), 150);
+  chk("after reactivating: reward works", await balanceOf(await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })), 70);
+  chk("after reactivating: undo works", `${(await undo(cash, vk2)).status}`, "200");
+  chk("after reactivating: adjustment works", (await adjust(own, vc.serial, 10)).status, 200);
+  chk("after reactivating: card link works", (await cardLink(own, vc.serial)).status, 200);
+  const rPass = await latestPass(vc);
+  chk("re-downloaded card shows the balance, QR and change message again",
+    `${field(rPass, "primaryFields", "points")}:${(rPass.barcodes ?? []).length}:${Boolean(rPass.storeCard?.headerFields?.[0]?.changeMessage)}`, "30:1:true");
+
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
   //     redeem route's 1,000,000-point cap ---------------------------------------

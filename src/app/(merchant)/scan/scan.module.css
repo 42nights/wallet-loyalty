@@ -69,3 +69,15 @@
   cursor: pointer;
 }
 .undo:disabled { opacity: .5; cursor: default; }
+
+/* a card the owner deactivated: said plainly, no buttons but "next" */
+.voided {
+  margin-top: 8px;
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bad) 10%, var(--surface-2));
+  font-size: 15px;
+  line-height: 1.5;
+}
+.voided b { font-family: var(--display); color: var(--bad); }

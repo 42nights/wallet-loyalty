@@ -7,7 +7,7 @@ import { formatMoney } from "@/lib/format";
 import { parseBill } from "./bill";
 import styles from "./scan.module.css";
 
-type Customer = { serial: string; name: string | null; points: number };
+type Customer = { serial: string; name: string | null; points: number; voided?: boolean };
 type PhoneMatch = Customer & { phone: string }; // phone is masked: "••• 1234"
 // undoKey: the Idempotency-Key of the tap this success toast reports, while its
 // Undo button is still offered
@@ -160,7 +160,7 @@ export default function ScanPage() {
   }
 
   function pick(m: PhoneMatch) {
-    setCustomer({ serial: m.serial, name: m.name, points: m.points }); // effect cleanup stops the camera
+    setCustomer({ serial: m.serial, name: m.name, points: m.points, voided: m.voided }); // effect cleanup stops the camera
     setMatches(null);
     setPhone("");
   }
@@ -283,11 +283,29 @@ export default function ScanPage() {
               {matches.map((m) => (
                 <button key={m.serial} className={styles.pick} onClick={() => pick(m)}>
                   <span className={styles.pickName}>{m.name || "Customer"}</span>
-                  <span className={styles.pickMeta}>{m.phone} · {m.points} pts</span>
+                  <span className={styles.pickMeta}>{m.phone} · {m.voided ? "deactivated" : `${m.points} pts`}</span>
                 </button>
               ))}
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- deactivated card: nothing to earn, redeem or re-send ----
+  if (customer.voided) {
+    return (
+      <div className="wrap">
+        <div className="card stack">
+          <div>
+            <div className="label">{customer.name || "Customer"}</div>
+            <div className={styles.voided} role="status">
+              <b>This card is deactivated.</b> No points can be added or used. The owner can reactivate it on the
+              customer&apos;s page.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={reset}>Scan next customer</button>
         </div>
       </div>
     );

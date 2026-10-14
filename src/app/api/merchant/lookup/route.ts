@@ -7,8 +7,8 @@ import { MIN_PHONE_DIGITS, digitsOf, maskPhone, phoneMatches, phoneSuffixPattern
 export const runtime = "nodejs";
 
 // POST /api/merchant/lookup
-//   body: { serial } → { serial, name, points }            (QR scan / manual serial)
-//   body: { phone }  → { matches: [{ serial, name, phone, points }] }  (≤ 5, phone masked)
+//   body: { serial } → { serial, name, points, voided }            (QR scan / manual serial)
+//   body: { phone }  → { matches: [{ serial, name, phone, points, voided }] }  (≤ 5, phone masked)
 export async function POST(req: NextRequest) {
   const staff = await getStaff();
   if (!staff) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     // of cards per merchant — then store a digits-only phone column + index.
     const { data, error } = await db
       .from("passes")
-      .select("serial, customer_name, customer_phone, points")
+      .select("*") // "*": a database without passes.voided_at still answers
       .eq("merchant_id", staff.merchantId)
       .regexMatch("customer_phone", phoneSuffixPattern(typed))
       .order("updated_at", { ascending: false })
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
         name: p.customer_name,
         phone: maskPhone(p.customer_phone),
         points: p.points,
+        voided: Boolean(p.voided_at),
       }));
     return NextResponse.json({ matches });
   }
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
   // same as a non-existent card, so we never leak its existence (no IDOR).
   const { data } = await db
     .from("passes")
-    .select("serial, customer_name, points")
+    .select("*")
     .eq("serial", serial)
     .eq("merchant_id", staff.merchantId)
     .single();
@@ -74,5 +75,6 @@ export async function POST(req: NextRequest) {
     serial: data.serial,
     name: data.customer_name,
     points: data.points,
+    voided: Boolean(data.voided_at), // /scan shows it as deactivated, no buttons
   });
 }

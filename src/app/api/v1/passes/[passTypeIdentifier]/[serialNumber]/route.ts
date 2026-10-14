@@ -20,27 +20,21 @@ type PassRow = {
   updated_at: string;
   customer_name: string | null;
   offer_text?: string | null;
+  voided_at?: string | null;
 };
 
 export async function GET(req: NextRequest, { params }: Params) {
   const { serialNumber } = await params;
 
-  // offer_text is a Phase-4 column. Select it, but if the DB hasn't run that
-  // migration yet, fall back to the base columns — a missing column must NEVER
-  // break the live-update path (this is the lifeline that keeps cards fresh).
-  const base = "serial, merchant_id, points, auth_token, updated_at, customer_name";
-  let { data: pass, error } = await db
+  // select("*"): offer_text and voided_at are later columns, and a database
+  // that hasn't run those migrations must NEVER break the live-update path
+  // (this is the lifeline that keeps cards fresh). A missing column is simply
+  // absent from the row.
+  const { data: pass } = await db
     .from("passes")
-    .select(`${base}, offer_text`)
+    .select("*")
     .eq("serial", serialNumber)
     .single<PassRow>();
-  if (error && /offer_text/i.test(error.message ?? "")) {
-    ({ data: pass } = await db
-      .from("passes")
-      .select(base)
-      .eq("serial", serialNumber)
-      .single<PassRow>());
-  }
   if (!pass) return new NextResponse("Not found", { status: 404 });
 
   const header = req.headers.get("authorization") || "";
@@ -60,6 +54,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     updatedAt: new Date(pass.updated_at),
     offerText: pass.offer_text ?? null,
     customerName: pass.customer_name,
+    voided: Boolean(pass.voided_at),
   });
 
   return new NextResponse(new Uint8Array(buffer), {

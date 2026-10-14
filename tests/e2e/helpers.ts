@@ -10,6 +10,7 @@ export const fx: {
   owner: Login;
   cashier: Login;
   scanCards: Record<string, Card>;
+  voidCards: Record<string, Card>;
   searchCard: Card;
 } = JSON.parse(process.env.E2E_FIXTURE ?? "null");
 

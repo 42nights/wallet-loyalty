@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
-import { applyTransaction } from "@/lib/points";
+import { applyTransaction, VOIDED_ERROR } from "@/lib/points";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2)
 
@@ -33,5 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Would go negative", balance: result.balance }, { status: 422 });
   if (result.status === "not_found")
     return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (result.status === "voided")
+    return NextResponse.json({ error: VOIDED_ERROR }, { status: 409 });
   return NextResponse.json({ error: "Could not adjust" }, { status: 500 });
 }

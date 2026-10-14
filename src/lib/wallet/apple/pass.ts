@@ -104,6 +104,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     updatedAt = new Date(),
     offerText,
     customerName,
+    voided = false,
   } = data;
 
   let merchant: MerchantRow | null = null;
@@ -175,30 +176,36 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // Header: stays visible while the card is collapsed in the Wallet stack. This
   // is the ONE field with a changeMessage, so a balance change shows a single
   // notification. Never put one on the OFFER (the HIG forbids change messages
-  // for marketing).
-  pass.headerFields.push({
-    key: "balance",
-    label: "POINTS",
-    value: balance,
-    changeMessage: "You now have %@ points",
-  });
+  // for marketing). A deactivated card (owner, /customers/<serial>) says so
+  // here and in the primary field instead of the balance, with no change
+  // message ("You now have DEACTIVATED points"); the balance itself stays in
+  // the ledger and comes back if the owner reactivates the card.
+  pass.headerFields.push(
+    voided
+      ? { key: "balance", label: "CARD", value: "DEACTIVATED" }
+      : { key: "balance", label: "POINTS", value: balance, changeMessage: "You now have %@ points" }
+  );
 
   // POINTS as the big primary number (over the strip) — easiest to read.
-  pass.primaryFields.push({ key: "points", label: "POINTS", value: balance });
+  pass.primaryFields.push(
+    voided
+      ? { key: "points", label: "STATUS", value: "Deactivated" }
+      : { key: "points", label: "POINTS", value: balance }
+  );
 
   const rewards = rewardsFor(merchant?.redeem_template);
   if (customerName && customerName.trim()) {
     pass.secondaryFields.push({ key: "member", label: "MEMBER", value: customerName.trim() });
   }
-  pass.secondaryFields.push({
-    key: "next",
-    label: "NEXT REWARD",
-    value: nextReward(points, rewards),
-  });
+  pass.secondaryFields.push(
+    voided
+      ? { key: "next", label: "QUESTIONS?", value: `Ask the team at ${orgName}` }
+      : { key: "next", label: "NEXT REWARD", value: nextReward(points, rewards) }
+  );
 
   // Back of the card. Win-back offer first when a campaign set one — passive:
   // it shows when the customer opens the card, no lockscreen marketing.
-  if (offerText && offerText.trim()) {
+  if (!voided && offerText && offerText.trim()) {
     pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
   }
   const parsedRate = Number(merchant?.earn_rate ?? 1);
@@ -234,12 +241,14 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // The QR the merchant scans — encodes the serial for counter lookup. No
   // altText: a 36-character serial printed under the code is noise on the card,
   // and when the camera cannot read it the cashier finds the customer by phone
-  // on /scan instead.
-  pass.setBarcodes({
-    format: "PKBarcodeFormatQR",
-    message: serial,
-    messageEncoding: "iso-8859-1",
-  });
+  // on /scan instead. A deactivated card has nothing to scan for.
+  if (!voided) {
+    pass.setBarcodes({
+      format: "PKBarcodeFormatQR",
+      message: serial,
+      messageEncoding: "iso-8859-1",
+    });
+  }
 
   return pass.getAsBuffer();
 }
