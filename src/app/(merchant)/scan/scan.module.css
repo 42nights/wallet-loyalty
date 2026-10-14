@@ -69,3 +69,9 @@
   cursor: pointer;
 }
 .undo:disabled { opacity: .5; cursor: default; }
+
+/* stamp card: "+1 stamp" is the everyday tap, +2/+3 for several items at once */
+.stampBtns { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+.stampBtns > button { padding: 18px 8px; }
+/* the one stamp reward, full width */
+.one { display: grid; }

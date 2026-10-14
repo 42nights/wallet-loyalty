@@ -11,7 +11,7 @@ export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) —
 const UNDO_WINDOW_MS = 2 * 60 * 1000;
 
 // POST /api/merchant/undo  body: { idempotencyKey }
-// Reverses one counter tap — an earn (earn:purchase) or a reward (redeem:*) —
+// Reverses one counter tap — an earn (earn:purchase, earn:stamp) or a reward (redeem:*) —
 // identified by the Idempotency-Key that tap was sent with. The ledger row is
 // never edited: the reversal is a new apply_points row with the opposite delta,
 // reason "undo:<original reason>" and key "undo:<original key>", so a
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       { status: 403 }
     );
   const reason = String(txn.reason ?? "");
-  if (reason !== "earn:purchase" && !reason.startsWith("redeem:"))
+  if (reason !== "earn:purchase" && reason !== "earn:stamp" && !reason.startsWith("redeem:"))
     return NextResponse.json({ error: "Only an earn or a reward can be undone" }, { status: 400 });
   // Already undone → answer as a replay, even past the window, so a retried
   // undo never reads as a failure and invites a second, manual reversal. The
