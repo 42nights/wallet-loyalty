@@ -327,6 +327,20 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("createTag on another merchant's card → 404",
     (await req("/api/merchant/crm", { method: "POST", body: { action: "createTag", serial: rc.serial, label: `x-${run}` }, j: own })).status, 404);
 
+  // --- staff removal: the owner removes a cashier who is signed in; their
+  //     still-valid cookie stops working on the next request ------------------
+  console.log("staff removal");
+  const gone = { username: `t-${run}-gone`, password: `pw-${run}` };
+  chk("owner adds a cashier", (await req("/api/merchant/staff", { method: "POST", body: gone, j: own })).status, 200);
+  const goneJar = jar();
+  chk("the new cashier signs in", (await login(goneJar, gone)).status, 200);
+  chk("their session works", (await req("/api/merchant/me", { j: goneJar })).status, 200);
+  const [goneRow] = await rows(db.from("staff").select("id").eq("username", gone.username));
+  chk("owner removes them", (await req(`/api/merchant/staff/${goneRow?.id}`, { method: "DELETE", j: own })).status, 200);
+  chk("removed cashier's cookie: /api/merchant/me → 401", (await req("/api/merchant/me", { j: goneJar })).status, 401);
+  chk("removed cashier's cookie: lookup → 401",
+    (await req("/api/merchant/lookup", { method: "POST", body: { serial }, j: goneJar })).status, 401);
+
   // --- card link (owner re-send) ---------------------------------------------
   console.log("card link");
   chk("GET /api/enroll?card=garbage → 410", (await req("/api/enroll?card=garbage")).status, 410);

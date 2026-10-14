@@ -66,6 +66,11 @@ export async function getStaff(): Promise<Staff | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretKey());
+    // The staff row, not the 12h cookie, decides: a cashier the owner removed
+    // is signed out on their next request instead of keeping /scan until the
+    // cookie expires.
+    const { data: row } = await db.from("staff").select("id").eq("id", payload.id as string).maybeSingle();
+    if (!row) return null;
     return {
       id: payload.id as string,
       username: payload.username as string,
