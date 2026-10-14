@@ -284,6 +284,7 @@ export default function ScanPage() {
     setPending(null);
     setPhone("");
     setMatches(null);
+    setManual("");
   }
 
   // ---- scan view ----

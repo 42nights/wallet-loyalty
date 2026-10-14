@@ -78,13 +78,13 @@ export default function CustomersTable() {
       {/* Plain links: the route's Content-Disposition names the file. Exports
           are always everyone, whatever the search box holds. */}
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="label">Download CSV</div>
+        <div className="label">Download for Excel or Google Sheets</div>
         <div className="row">
           <a className="btn btn-ghost" href="/api/merchant/export?type=customers" download style={EXPORT_BTN}>
-            Customers
+            Customer list
           </a>
           <a className="btn btn-ghost" href="/api/merchant/export?type=transactions" download style={EXPORT_BTN}>
-            Transactions
+            Every visit &amp; reward
           </a>
         </div>
       </div>

@@ -126,7 +126,6 @@ export default async function PosterPage({
           <header className={s.band}>
             <img className={s.logo} src={logo} alt="" />
             <span className={s.name}>{m.name}</span>
-            <span className={s.kicker}>Rewards card</span>
           </header>
 
           <h1 className={s.headline} style={{ fontSize: `${headlineSize}cqw` }}>{headline}</h1>
@@ -139,7 +138,7 @@ export default async function PosterPage({
             />
           </div>
           <p className={s.lead}>
-            Scan with your iPhone camera — it goes straight into Apple Wallet. No app, no paper card.
+            Scan with your iPhone camera, add your name, and the card is in Apple Wallet. No app, no paper card.
           </p>
 
           <div className={s.earn}>

@@ -105,9 +105,10 @@ const MOTIFS = {
       `<path d="M${cx - half + 4} ${cy}H${cx + half - 4}" stroke="${t.label}" stroke-opacity=".4" stroke-width=".8"/>` +
       `<g fill="${t.label}" fill-opacity=".55">${diamond(cx - half)}${diamond(cx + half)}</g>`;
   },
-  // A till receipt: torn zigzag ends, printed rows, a dashed rule above the
-  // total and a barcode, so the dotted line belongs to it. The tag appears
-  // only in the icon and logo.
+  // A till receipt: torn zigzag ends, printed rows and a dashed rule above the
+  // total, so the dotted line belongs to it. No barcode: the card's real QR sits
+  // just below, and two codes on one card is noise. The tag appears only in the
+  // icon and logo.
   retail: (t) => {
     const [x0, x1, y0, y1, tooth] = [272, 332, 26, 114, 7.5];
     const zig = (y, dir) => Array.from({ length: 8 }, (_, i) => {
@@ -118,18 +119,12 @@ const MOTIFS = {
     const rows = [[58, 22, 8], [65, 17, 8], [72, 25, 6]]
       .map(([y, w, p]) => bar(x0 + 8, y, w) + bar(x1 - 8 - p, y, p)).join("");
     const dashes = Array.from({ length: 11 }, (_, i) => bar(x0 + 8 + i * 4.2, 81, 2.2, 1.1)).join("");
-    let x = 286.8;
-    const barcode = [1.6, .8, .8, 2.4, .8, 1.6, .8, 2.4, .8, .8, 1.6].map((w) => {
-      const r = `<rect x="${x.toFixed(1)}" y="96" width="${w}" height="10"/>`;
-      x += w + 1.6;
-      return r;
-    }).join("");
     return `
       <path d="M${x0} ${y0}${zig(y0, 1)}V${y1}${zig(y1, -1)}Z" fill="${t.label}" fill-opacity=".06"
         stroke="${t.label}" stroke-opacity=".5" stroke-width="1.2" stroke-linejoin="round"/>
       <g fill="${t.label}" fill-opacity=".5">
         ${bar(292, 36, 20, 3)}${bar(296, 43, 12, 1.4)}${rows}${dashes}
-        ${bar(x0 + 8, 88, 18, 2.6)}${bar(x1 - 20, 88, 12, 2.6)}${barcode}
+        ${bar(x0 + 8, 88, 18, 2.6)}${bar(x1 - 20, 88, 12, 2.6)}
       </g>`;
   },
 };

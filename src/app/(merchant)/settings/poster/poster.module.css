@@ -44,13 +44,11 @@
   print-color-adjust: exact;
 }
 .logo { height: 8cqw; width: auto; flex: none; }
+/* One line at most: the headline below carries the full name, so a long name
+   is cut here instead of growing the band and squeezing the QR. */
 .name {
   font-family: var(--display); font-weight: 800; font-size: 4.4cqw; letter-spacing: -.03em; line-height: 1.05;
-  min-width: 0; overflow-wrap: anywhere;
-}
-.kicker {
-  margin-left: auto; flex: none; color: var(--pl);
-  font-family: var(--mono); font-size: 1.5cqw; text-transform: uppercase; letter-spacing: .2em;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* font-size is set inline (page.tsx scales it down for long shop names). */
@@ -63,9 +61,11 @@
 /* The QR gets whatever height the rest of the sheet leaves (a size container
    sized only by the flex layout), capped at about half the sheet's width — so a
    long shop name (a three-line headline) shrinks the code instead of pushing
-   it off the page. Inside here, cqw/cqh are this box's, not the sheet's. */
+   it off the page. The floor (36% of the sheet's width, about 3 in on paper)
+   keeps it scannable from a table whatever the name; the headline's scaling
+   leaves room for it. Inside here, cqw/cqh are this box's, not the sheet's. */
 .qrWrap {
-  flex: 1 1 0; min-height: 0; container-type: size;
+  flex: 1 1 0; min-height: 36cqw; container-type: size;
   display: flex; justify-content: center; align-items: center; margin-top: 4cqw;
 }
 .qr {
@@ -74,7 +74,7 @@
 }
 
 .lead {
-  margin: 4cqw auto 0; max-width: 72cqw;
+  margin: 4cqw auto 0; max-width: 72cqw; font-family: var(--display); font-weight: 500;
   font-size: 2.55cqw; line-height: 1.45; text-align: center; text-wrap: balance;
 }
 

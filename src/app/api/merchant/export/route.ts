@@ -42,35 +42,33 @@ function cell(v: Cell): string {
 // Sheets read as a date-time.
 const utc = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 19).replace("T", " ") : null);
 
+const csvLines = (rows: Cell[][]) => rows.map((r) => r.map(cell).join(",") + "\r\n").join("");
+
+// The file goes out in chunks (one per page of rows) instead of one buffered
+// string: Vercel refuses a buffered function response over 4.5 MB, which a busy
+// shop's ledger passes within a year (about 55k rows); a streamed one has no
+// size cap.
+
 // Only what /customers and a customer's page already show the owner — no
-// email, birthday or consent columns.
-async function customers(m: string): Promise<Cell[][] | null> {
-  const out: Cell[][] = [["Name", "Phone", "Points", "Lifetime earned", "Lifetime redeemed", "Visits", "Last seen (UTC)"]];
-  // A customer enrolling mid-export shifts the offset by one; skip the repeat.
-  const seen = new Set<string>();
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await db.rpc("merchant_customers", {
-      p_merchant: m, p_search: null, p_sort: "name", p_limit: PAGE, p_offset: offset,
-    });
-    if (error) {
-      console.error("export customers failed:", error.message);
-      return null;
-    }
-    const page = (data as { customers?: Customer[] } | null)?.customers ?? [];
-    for (const c of page) {
-      if (seen.has(c.serial)) continue;
-      seen.add(c.serial);
-      out.push([c.customer_name, formatPhone(c.customer_phone), c.points, c.lifetime_earned, c.lifetime_redeemed, c.visits, utc(c.last_seen)]);
-    }
-    if (page.length < PAGE) return out;
-  }
+// email, birthday or consent columns. merchant_customers returns one jsonb
+// value, so PostgREST's max_rows does not cut it: one call, every card.
+async function* customers(m: string): AsyncGenerator<string> {
+  const { data, error } = await db.rpc("merchant_customers", {
+    p_merchant: m, p_search: null, p_sort: "name", p_limit: 1_000_000, p_offset: 0,
+  });
+  if (error) throw new Error(`export customers failed: ${error.message}`);
+  const list = (data as { customers?: Customer[] } | null)?.customers ?? [];
+  yield csvLines([
+    ["Name", "Phone", "Points", "Lifetime earned", "Lifetime redeemed", "Visits", "Last seen (UTC)"],
+    ...list.map((c) => [c.customer_name, formatPhone(c.customer_phone), c.points, c.lifetime_earned, c.lifetime_redeemed, c.visits, utc(c.last_seen)]),
+  ]);
 }
 
 // The whole ledger in id (insert) order: a unique key, so offset pages never
 // overlap, and a row added mid-export lands at the end. Stops on an empty page
 // rather than a short one, so a lower max_rows can't silently cut the file.
-async function transactions(m: string): Promise<Cell[][] | null> {
-  const out: Cell[][] = [["Date (UTC)", "Customer", "Phone", "Kind", "Reason", "Points", "Bill ($)", "Staff"]];
+async function* transactions(m: string): AsyncGenerator<string> {
+  let chunk: Cell[][] = [["Date (UTC)", "Customer", "Phone", "Kind", "Reason", "Points", "Bill ($)", "Staff"]];
   for (let from = 0; ; ) {
     const { data, error } = await db
       .from("transactions")
@@ -78,16 +76,15 @@ async function transactions(m: string): Promise<Cell[][] | null> {
       .eq("merchant_id", m)
       .order("id")
       .range(from, from + PAGE - 1);
-    if (error) {
-      console.error("export transactions failed:", error.message);
-      return null;
-    }
-    if (!data.length) return out;
+    if (error) throw new Error(`export transactions failed: ${error.message}`);
     for (const t of data as unknown as Txn[])
-      out.push([
+      chunk.push([
         utc(t.created_at), t.passes?.customer_name ?? null, formatPhone(t.passes?.customer_phone ?? null),
         t.reason?.split(":")[0] ?? null, t.reason, t.delta, t.amount, t.staff?.username ?? null,
       ]);
+    if (chunk.length) yield csvLines(chunk);
+    if (!data.length) return;
+    chunk = [];
     from += data.length;
   }
 }
@@ -107,16 +104,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Slow down" }, { status: 429 });
 
   const m = staff.merchantId;
-  const [rows, { data: merchant }] = await Promise.all([
-    type === "customers" ? customers(m) : transactions(m),
+  const chunks = type === "customers" ? customers(m) : transactions(m);
+  const [first, { data: merchant }] = await Promise.all([
+    // The first chunk is read before any byte is sent, so a failing query
+    // still answers 500 instead of a file cut short.
+    chunks.next().catch((e: Error) => (console.error(e.message), null)),
     db.from("merchants").select("slug").eq("id", m).maybeSingle(),
   ]);
-  if (!rows) return NextResponse.json({ error: "Export failed" }, { status: 500 });
+  if (!first) return NextResponse.json({ error: "Export failed" }, { status: 500 });
 
   const slug = String(merchant?.slug ?? "").replace(/[^\w-]/g, "") || "shop";
   const day = new Date().toISOString().slice(0, 10);
-  // The BOM makes Excel read the file as UTF-8 (accented names stay intact).
-  const body = "\uFEFF" + rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    // The BOM makes Excel read the file as UTF-8 (accented names stay intact).
+    start: (c) => c.enqueue(enc.encode("\uFEFF" + (first.value ?? ""))),
+    async pull(c) {
+      try {
+        const { value, done } = await chunks.next();
+        if (done) c.close();
+        else c.enqueue(enc.encode(value));
+      } catch (e) {
+        // Headers are already out: erroring the stream makes the browser mark
+        // the download as failed rather than save a silently short file.
+        console.error((e as Error).message);
+        c.error(e);
+      }
+    },
+  });
   return new Response(body, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
