@@ -498,19 +498,33 @@ create or replace function detect_anomalies(
                               'avg', round((select mu from rstats))::int) as detail
       from daily_redeem, rstats
      where sd > 0 and pts > mu + 2 * sd
-  ), staff_iss as (
-    select st.username,
-           coalesce(sum(t.delta) filter (where t.delta > 0), 0) as issued
-      from staff st
-      left join transactions t on t.staff_id = st.id and t.merchant_id = p_merchant and t.created_at >= p_from
-     where st.merchant_id = p_merchant
-     group by st.id, st.username
-  ), sstats as (select avg(issued) mu, coalesce(stddev_pop(issued), 0) sd from staff_iss),
-  over_issue as (
+  ),
+  -- Staff over-issue, built for shops with 1-5 staff. (The old rule, a z-score
+  -- across staff, could never fire there: with population stddev no value can
+  -- exceed mu + sqrt(n-1)*sd, so it needed 6+ staff.) Instead: flag a staff
+  -- member when any single earn they rang up in the window is more than 5x the
+  -- merchant's median earn. The median covers the window plus the 90 days
+  -- before it and needs at least 10 earns, so a new shop's first sales can't
+  -- flag anyone. 'issued' is everything that staff member issued in the window
+  -- (same number as staff_activity.points_issued).
+  earn_base as (
+    select percentile_cont(0.5) within group (order by delta) as med, count(*) as n
+      from transactions
+     where merchant_id = p_merchant and reason like 'earn:%' and delta > 0
+       and created_at >= p_from - interval '90 days'
+  ), flagged as (
+    select distinct t.staff_id
+      from transactions t, earn_base b
+     where t.merchant_id = p_merchant and t.reason like 'earn:%' and t.created_at >= p_from
+       and b.n >= 10 and t.delta > 5 * b.med
+  ), over_issue as (
     select 'staff_over_issue' as kind, 'warn' as severity,
-           jsonb_build_object('staff', username, 'issued', issued::int) as detail
-      from staff_iss, sstats
-     where sd > 0 and issued > mu + 2 * sd and issued > 0
+           jsonb_build_object('staff', st.username, 'issued',
+             (select coalesce(sum(t.delta), 0)::int from transactions t
+               where t.staff_id = st.id and t.merchant_id = p_merchant
+                 and t.delta > 0 and t.created_at >= p_from)) as detail
+      from staff st join flagged f on f.staff_id = st.id
+     where st.merchant_id = p_merchant
   )
   select coalesce(jsonb_agg(row_to_json(a)), '[]'::jsonb)
     from (select * from spikes union all select * from over_issue) a;
@@ -682,3 +696,10 @@ grant execute on all functions in schema public to service_role;
 -- Which set of 4 redeem buttons this merchant's /scan shows (config.ts
 -- REDEEM_TEMPLATES). Existing rows default to 'restaurant' = the original set.
 alter table merchants add column if not exists redeem_template text not null default 'restaurant';
+
+-- --- Bill cap (per merchant) -------------------------------------------------
+-- Largest bill one earn may carry. /api/merchant/redeem refuses anything above
+-- it and makes /scan confirm bills of half or more; owners change it on
+-- /settings (10 - 100000). Code that reads it falls back to 1000 when the
+-- column is missing, so an un-migrated database behaves like this default.
+alter table merchants add column if not exists max_bill numeric not null default 1000;
