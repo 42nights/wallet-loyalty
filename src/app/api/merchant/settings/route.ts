@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { refreshMerchantCards } from "@/lib/wallet";
+import { cardVisibleChange, refreshMerchantCards } from "@/lib/wallet";
 import {
   EARN_RATE, PUBLIC_BASE_URL, REDEEM_TEMPLATES, STAMP_REWARD_MAX, birthdayBonus, happyHourOf, loyaltyMode,
   parseHappyHour, stampGoal, stampReward, templateKey, timezoneOf, type HappyHour,
@@ -178,7 +178,8 @@ export async function PATCH(req: NextRequest) {
     console.error("settings update failed:", error?.message);
     return NextResponse.json({ error: "Could not save settings" }, { status: 500 });
   }
-  // Everything but the bill limit shows on the card, so refresh the cards.
-  if (Object.keys(update).some((k) => k !== "max_bill")) await refreshMerchantCards(owner.merchantId);
+  // A change the cards show (not the bill limit, not a value saved unchanged)
+  // refreshes them, after the response so the save never waits on APNs.
+  if (cardVisibleChange(cur, data)) after(() => refreshMerchantCards(owner.merchantId));
   return NextResponse.json(settings(data));
 }

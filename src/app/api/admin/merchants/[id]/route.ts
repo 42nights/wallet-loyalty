@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { merchantFields, UUID_RE } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
 import { happyHourOf, loyaltyMode, stampGoal } from "@/lib/config";
-import { refreshMerchantCards } from "@/lib/wallet";
+import { cardVisibleChange, refreshMerchantCards } from "@/lib/wallet";
 
 export const runtime = "nodejs"; // refreshMerchantCards pushes via APNs (http2)
 
@@ -14,7 +14,7 @@ type Params = { params: Promise<{ id: string }> };
 // body: any of { name, earnRate, template, bgColor, fgColor, labelColor, timezone,
 //                loyaltyMode, stampGoal, stampReward, reviewUrl, location }.
 // loyaltyMode / stampGoal changes are refused (409) once the shop has a transaction.
-// A save pushes the merchant's cards to re-fetch.
+// A save that changes what the cards show pushes them to re-fetch.
 // The slug is deliberately not editable: it is printed on counter posters and
 // baked into links customers already have.
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -28,14 +28,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (typeof patch === "string") return NextResponse.json({ error: patch }, { status: 400 });
   if (!Object.keys(patch).length) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
 
-  const stampChange =
-    patch.loyalty_mode !== undefined || patch.stamp_goal !== undefined || patch.stamp_reward !== undefined;
-  const { data: cur } =
-    patch.earn_rate !== undefined || stampChange
-      ? await db.from("merchants").select("*").eq("id", id).maybeSingle()
-      : { data: null };
-  if ((patch.earn_rate !== undefined || stampChange) && !cur)
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // the row before the save: the stamp lock, the rate check and "did the card change" read it
+  const { data: cur } = await db.from("merchants").select("*").eq("id", id).maybeSingle();
+  if (!cur) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Points vs stamps, and how many stamps the reward takes, decide what every
   // balance on the ledger means: 300 points would become 300 stamps, and a new
@@ -44,8 +39,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // ponytail: count-then-update, not one statement; a tap landing in between
   // would keep its old meaning. Only Ayaan switches, before the shop opens.
   if (
-    (patch.loyalty_mode !== undefined && patch.loyalty_mode !== loyaltyMode(cur?.loyalty_mode)) ||
-    (patch.stamp_goal !== undefined && patch.stamp_goal !== stampGoal(cur?.stamp_goal))
+    (patch.loyalty_mode !== undefined && patch.loyalty_mode !== loyaltyMode(cur.loyalty_mode)) ||
+    (patch.stamp_goal !== undefined && patch.stamp_goal !== stampGoal(cur.stamp_goal))
   ) {
     const { count, error } = await db
       .from("transactions")
@@ -68,7 +63,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // or the counter would accept bills it then rejects. The bill limit is the
   // owner's to set (Settings), so name the highest rate that fits instead.
   // The owner's happy-hour multiplier counts: the cap is on what's credited.
-  if (patch.earn_rate !== undefined && cur) {
+  if (patch.earn_rate !== undefined) {
     const bill = Number(cur.max_bill ?? 1000); // 1000 = schema default (un-migrated database)
     const mult = happyHourOf(cur.happy_hour)?.multiplier ?? 1;
     if (Math.round(patch.earn_rate * bill * mult) > 1_000_000)
@@ -83,13 +78,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       );
   }
 
-  const { data, error } = await db.from("merchants").update(patch).eq("id", id).select("id");
+  const { data, error } = await db.from("merchants").update(patch).eq("id", id).select("*");
   if (error) {
     console.error("admin merchant update failed:", error.message);
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
   if (!data?.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  // every field this route edits is printed on the card
-  await refreshMerchantCards(id);
+  // A change the cards show refreshes them (a time-zone-only or unchanged save
+  // does not), after the response so the save never waits on APNs.
+  if (cardVisibleChange(cur, data[0])) after(() => refreshMerchantCards(id));
   return NextResponse.json({ ok: true });
 }

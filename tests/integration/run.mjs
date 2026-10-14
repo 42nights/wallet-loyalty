@@ -163,6 +163,17 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   };
   const field = (pass, area, key) => pass.storeCard?.[area]?.find((f) => f.key === key)?.value;
   const pushesTo = (token) => mock.requests.filter((r) => r.path === `/3/device/${token}`);
+  // Settings and admin saves refresh cards in next/server's after(), i.e. once
+  // the response is sent: wait (up to 5 s) for the push before counting, and
+  // give a save that must push nothing 1 s to prove it.
+  const pushedTo = async (token) => {
+    for (let i = 0; i < 50 && !pushesTo(token).length; i++) await new Promise((r) => setTimeout(r, 100));
+    return pushesTo(token).length;
+  };
+  const quietFor = async (token) => {
+    await new Promise((r) => setTimeout(r, 1000));
+    return pushesTo(token).length;
+  };
 
   const cafe = await createMerchant(db, run, { key: "cafe", template: "cafe", earnRate: 10 });
   const rest = await createMerchant(db, run, { key: "rest", template: "restaurant", earnRate: 10 });
@@ -563,8 +574,8 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   mock.clear();
   const renamed = await setReward(stOwn, "  Free flat white  ");
   chk("owner renames the reward (trimmed)", renamed.status === 200 ? (await renamed.json()).stampReward : renamed.status, "Free flat white");
+  chk("rename: one push to the card's device", await pushedTo(tokS), 1);
   chk("rename: the card appears in passesUpdatedSince", await listed(await updatable(devS, tagS), sc.serial), true);
-  chk("rename: one push to the card's device", pushesTo(tokS).length, 1);
   chk("rename: re-downloaded pass shows the new reward", field(await latestPass(sc), "secondaryFields", "next"), "Ready: Free flat white");
   chk("reward name over 30 characters → 400", (await setReward(stOwn, "x".repeat(31))).status, 400);
   chk("blank reward name → 400", (await setReward(stOwn, "   ")).status, 400);
@@ -695,7 +706,7 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const reviewUrl = `https://g.page/r/${run}/review?a=1&b=2`;
   const sv = await settingsPatch(rvOwn, { reviewUrl });
   chk("owner saves an https review link", `${sv.status}:${(await sv.json()).reviewUrl}`, `200:${reviewUrl}`);
-  chk("saving pushes the merchant's card", pushesTo(tokR).length, 1);
+  chk("saving pushes the merchant's card", await pushedTo(tokR), 1);
   chk("the card appears in passesUpdatedSince", await listed(await updatable(devR, tagR), reg.serial), true);
   const second = field(await latestPass(reg), "backFields", "review");
   await redeem(rvCash, { serial: reg.serial, amount: 5 });
@@ -715,6 +726,14 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
     loc.map((l) => `${l.latitude},${l.longitude},${l.relevantText}`).join("|"), `37.77493,-122.41942,Show your Test rev ${run} card`);
   const cleared = (await settingsPatch(rvOwn, { location: "" })).status;
   chk("clearing the location → 200 and the pass has none", `${cleared}:${JSON.stringify((await latestPass(reg)).locations ?? null)}`, "200:null");
+  // one card refresh per save, and only when something the card shows changed
+  await pushedTo(tokR);
+  mock.clear();
+  chk("saving the same review link again → 200, no push", `${(await settingsPatch(rvOwn, { reviewUrl })).status}:${await quietFor(tokR)}`, "200:0");
+  chk("a bill-limit-only save → 200, no push", `${(await settingsPatch(rvOwn, { maxBill: 500 })).status}:${await quietFor(tokR)}`, "200:0");
+  const both = await settingsPatch(rvOwn, { reviewUrl: `${reviewUrl}&c=3`, location: "37.7, -122.4" });
+  await pushedTo(tokR);
+  chk("a review link and a location in one save → one push", `${both.status}:${await quietFor(tokR)}`, "200:1");
 
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
@@ -978,7 +997,7 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   mock.clear();
   const on = await setHh(allDay([wd]));
   chk("owner saves a 2× window covering now", `${on.status}:${JSON.stringify((await on.json()).happyHour)}`, `200:${JSON.stringify(allDay([wd]))}`);
-  chk("the settings change pushed the card", pushesTo(tokH).length, 1);
+  chk("the settings change pushed the card", await pushedTo(tokH), 1);
   chk("/me tells /scan happy hour is on", (await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour, 2);
   const inWin = await (await redeem(hmCash, { serial: hc.serial, amount: 10 })).json();
   const bigIn = await (await redeem(hmCash, { serial: hc.serial, amount: 600 })).json();
@@ -1005,6 +1024,13 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("admin saves a review link and a location", (await admPatch({ reviewUrl: "https://example.com/r", location: "40.7128, -74.006" })).status, 200);
   const [admRow] = await rows(db.from("merchants").select("review_url, latitude, longitude").eq("id", adm.id));
   chk("stored as given", `${admRow?.review_url}|${admRow?.latitude}|${admRow?.longitude}`, "https://example.com/r|40.7128|-74.006");
+  // an admin save refreshes the shop's cards only when they change (rv's card is registered as tokR)
+  const rvPatch = (body) => req(`/api/admin/merchants/${rv.id}`, { method: "PATCH", body, j: admin });
+  mock.clear();
+  chk("admin time-zone-only save → 200, no push", `${(await rvPatch({ timezone: "America/Chicago" })).status}:${await quietFor(tokR)}`, "200:0");
+  const renamedRv = await rvPatch({ name: `Test rev ${run} 2` });
+  await pushedTo(tokR);
+  chk("admin rename → 200, one push", `${renamedRv.status}:${await quietFor(tokR)}`, "200:1");
 }
 
 // ---------------------------------------------------------------------------

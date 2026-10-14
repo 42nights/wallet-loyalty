@@ -43,8 +43,9 @@ export default function MerchantEditor({
     e.preventDefault();
     if (busy) return;
     setBusy(true);
-    // Stamp card fields go only when changed: an unchanged points merchant never
-    // writes them, and an unchanged mode/goal is never refused for having sales.
+    // Stamp card fields and the time zone go only when changed: an unchanged
+    // merchant never writes the later columns, and an unchanged mode/goal is
+    // never refused for having sales.
     const l = v.loyalty;
     const was = initial.loyalty;
     const res = await fetch(`/api/admin/merchants/${id}`, {
@@ -53,7 +54,7 @@ export default function MerchantEditor({
       body: JSON.stringify({
         name: v.name,
         earnRate: Number(v.earnRate),
-        timezone: v.timezone,
+        ...(v.timezone !== initial.timezone ? { timezone: v.timezone } : {}),
         template: v.template,
         ...colorBody(v.colors, v.template),
         ...(l.mode !== was.mode ? { loyaltyMode: l.mode } : {}),

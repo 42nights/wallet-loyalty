@@ -93,7 +93,9 @@ export default function NewMerchant() {
       body: JSON.stringify({
         name,
         slug,
-        timezone,
+        // the column defaults to Pacific: send it only when picked, so a create
+        // works on a database without the column yet
+        ...(timezone !== DEFAULT_TIMEZONE ? { timezone } : {}),
         template,
         earnRate: Number(earnRate),
         // only a stamp card writes the stamp columns (points = the schema defaults)
