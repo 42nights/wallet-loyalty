@@ -533,6 +533,44 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+
+  // --- today summary: GET /api/merchant/today is the signed-in staff member's
+  //     own taps since the local midnight /scan sends (clamped to 36 h back) ---
+  console.log("today summary");
+  const td = await createMerchant(db, run, { key: "today", template: "cafe", earnRate: 10 });
+  const tdCash = jar();
+  const tdOwn = jar();
+  const tdCash2 = jar();
+  await login(tdCash, td.cashier);
+  await login(tdOwn, td.owner);
+  const tdC2 = { username: `t-${run}-today-cashier2`, password: randomUUID() };
+  chk("today: owner adds a second cashier", (await req("/api/merchant/staff", { method: "POST", body: tdC2, j: tdOwn })).status, 200);
+  await login(tdCash2, tdC2);
+  const tc = await createCard(db, td.id, { name: "Today Card" });
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const today = (j, since = midnight.toISOString()) =>
+    req(`/api/merchant/today?since=${encodeURIComponent(since)}`, { j });
+  const tally = async (j) => {
+    const t = await (await today(j)).json();
+    return `${t.customers}/${t.points}/${t.rewards}/${t.undos}`;
+  };
+  chk("since that isn't a date → 400", (await today(tdCash, "yesterday")).status, 400);
+  chk("cashier earns $12 @10x", await balanceOf(await redeem(tdCash, { serial: tc.serial, amount: 12 })), 120);
+  chk("their summary counts it (customers/points/rewards/undos)", await tally(tdCash), "1/120/0/0");
+  chk("the other cashier's summary does not", await tally(tdCash2), "0/0/0/0");
+  const kt = randomUUID();
+  chk("cashier redeems extra_shot (80)", await balanceOf(await redeem(tdCash, { serial: tc.serial, actionId: "extra_shot" }, kt)), 40);
+  chk("…and undoes it", (await undo(tdCash, kt)).status, 200);
+  chk("an undone reward counts only as an undo", await tally(tdCash), "1/120/0/1");
+  // the reversal row carries the owner's staff_id, yet it is the cashier's tap that was undone
+  const ko = randomUUID();
+  chk("cashier earns $5 @10x", await balanceOf(await redeem(tdCash, { serial: tc.serial, amount: 5 }, ko)), 170);
+  chk("…and the owner undoes it", (await undo(tdOwn, ko)).status, 200);
+  chk("the owner's undo shows in the cashier's numbers", await tally(tdCash), "1/120/0/2");
+  const hoursBack = async (since) => Math.round((Date.now() - Date.parse((await (await today(tdCash, since)).json()).since)) / 3_600_000);
+  chk("since 3 days back is clamped to 36 h", await hoursBack(new Date(Date.now() - 3 * 86_400_000).toISOString()), 36);
+  chk("since tomorrow is clamped to now", await hoursBack(new Date(Date.now() + 86_400_000).toISOString()), 0);
 }
 
 // ---------------------------------------------------------------------------

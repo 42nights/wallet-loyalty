@@ -12,8 +12,11 @@ type PhoneMatch = Customer & { phone: string }; // phone is masked: "••• 1
 // undoKey: the Idempotency-Key of the tap this success toast reports, while its
 // Undo button is still offered
 type Toast = { kind: "ok" | "bad"; msg: string; undoKey?: string };
+// GET /api/merchant/today: this staff member's own taps since local midnight
+type Today = { customers: number; points: number; rewards: number; undos: number };
 
 const UNDO_MS = 10_000; // how long a success toast offers Undo
+const nf = (n?: number) => (n === undefined ? "–" : n.toLocaleString("en-US")); // "–" until loaded
 
 export default function ScanPage() {
   const router = useRouter();
@@ -33,6 +36,9 @@ export default function ScanPage() {
   const [redemptions, setRedemptions] = useState<Action[]>([]);
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState(false);
+  const [today, setToday] = useState<Today | null>(null);
+  const [todayOpen, setTodayOpen] = useState(false);
+  const todaySeq = useRef(0);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
 
@@ -55,6 +61,32 @@ export default function ScanPage() {
     // owner-only pages send a cashier here with ?denied=1 instead of a silent bounce
     if (new URLSearchParams(window.location.search).get("denied") === "1")
       setToast({ kind: "bad", msg: "That page is for owners" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The "Today" panel's numbers. Merchants have no time zone, so the browser
+  // sends its own local midnight (the server clamps it). Refreshed after every
+  // earn/redeem/undo; only the latest call may set them, so a slow answer to an
+  // earlier refresh can't overwrite a newer one.
+  async function loadToday() {
+    const n = ++todaySeq.current;
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    try {
+      const res = await fetch(`/api/merchant/today?since=${encodeURIComponent(midnight.toISOString())}`);
+      if (!res.ok) return;
+      const t = await res.json();
+      if (n === todaySeq.current) setToday(t);
+    } catch {} // a failed refresh keeps the last numbers
+  }
+  // Open on wide screens, closed on phones so it never pushes the scanner down.
+  // Re-read when the tablet wakes, so yesterday's numbers don't sit under "Today".
+  useEffect(() => {
+    setTodayOpen(window.matchMedia("(min-width: 641px)").matches);
+    loadToday();
+    const onShow = () => { if (document.visibilityState === "visible") loadToday(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,6 +229,7 @@ export default function ScanPage() {
       setFlash(true);
       setTimeout(() => setFlash(false), 400);
       setToast({ kind: "ok", msg: okMsg, undoKey: key });
+      loadToday();
       if ("amount" in body) {
         // a bill left in the box invites a second tap, i.e. a double credit
         setBill("");
@@ -229,6 +262,7 @@ export default function ScanPage() {
       }
       setCustomer({ ...customer, points: data.newBalance });
       setToast({ kind: "ok", msg: `Undone: ${t.msg}` });
+      loadToday();
     } finally {
       setBusy(false);
     }
@@ -256,6 +290,24 @@ export default function ScanPage() {
   if (!customer) {
     return (
       <div className="wrap">
+        {/* Scan view only: above a customer it would push "Scan next customer"
+            off a laptop screen. Its numbers still refresh after every tap. */}
+        <details className={styles.today} open={todayOpen} onToggle={(e) => setTodayOpen(e.currentTarget.open)}>
+          <summary>
+            <span className={styles.todayTitle}>Today</span>
+            {/* closed, the headline numbers still show */}
+            <span className={styles.todayPeek}>
+              {todayOpen ? "your taps since midnight" : `${nf(today?.customers)} served · ${nf(today?.points)} pts`}
+            </span>
+          </summary>
+          <dl className={styles.todayGrid}>
+            <div><dt>Customers</dt><dd>{nf(today?.customers)}</dd></div>
+            <div><dt>Points given</dt><dd>{nf(today?.points)}</dd></div>
+            <div><dt>Rewards</dt><dd>{nf(today?.rewards)}</dd></div>
+            <div><dt>Undos</dt><dd>{nf(today?.undos)}</dd></div>
+          </dl>
+          <div className={styles.todayNote}>An undone tap counts only under Undos.</div>
+        </details>
         <div className="card stack">
           <div className="label">Scan the customer's Wallet QR</div>
           <div id="reader" />
