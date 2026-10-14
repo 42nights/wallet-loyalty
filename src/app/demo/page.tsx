@@ -32,7 +32,7 @@ export default function DemoPage() {
           <span className="dot" aria-hidden="true" /> 42nights
         </Link>
         <span className={s.pill}>Demo — sample data</span>
-        <Link href="/login" className={s.staff}>
+        <Link href="/scan" className={s.staff}>
           Staff login
         </Link>
       </header>

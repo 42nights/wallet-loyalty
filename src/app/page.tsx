@@ -159,7 +159,7 @@ export default async function Landing() {
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
         </nav>
-        <Link href="/login" className={s.staff}>
+        <Link href="/scan" className={s.staff}>
           Staff login
         </Link>
         <ThemeToggle initial={theme} />
@@ -175,7 +175,7 @@ export default async function Landing() {
             </p>
             {ctas}
             <p className={s.small}>
-              For restaurants, cafés and shops. Already set up? <Link href="/login">Staff login</Link>
+              For restaurants, cafés and shops. Already set up? <Link href="/scan">Staff login</Link>
             </p>
           </div>
 
@@ -422,7 +422,7 @@ export default async function Landing() {
 
       <footer className={s.footer}>
         <span>© {new Date().getFullYear()} 42nights</span>
-        <Link href="/login">Staff login</Link>
+        <Link href="/scan">Staff login</Link>
         <Link href="/demo">Demo</Link>
         <p>Apple, Apple Wallet and iPhone are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
       </footer>
