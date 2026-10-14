@@ -33,7 +33,7 @@ export default async function globalSetup(config) {
     for (const p of [
       "/login", `/enroll/${m.slug}`, "/scan", "/dashboard", "/customers", `/customers/${searchCard.serial}`,
       "/api/merchant/login", "/api/enroll", "/api/merchant/me", "/api/merchant/lookup",
-      "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/customers",
+      "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/today", "/api/merchant/customers",
       "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
       "/settings", "/api/merchant/settings", "/settings/poster",
     ])

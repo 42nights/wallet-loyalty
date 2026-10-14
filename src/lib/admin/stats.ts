@@ -20,7 +20,8 @@ type Page<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null
 
 // Fetch every row of a query, one page at a time. Throws instead of returning
 // a partial list: a wrong number on the dashboard is worse than an error.
-async function allRows<T>(page: (from: number, to: number) => Page<T>): Promise<T[]> {
+// Also used by /api/merchant/today (a cashier's day can pass max_rows).
+export async function allRows<T>(page: (from: number, to: number) => Page<T>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await page(from, from + PAGE - 1);
