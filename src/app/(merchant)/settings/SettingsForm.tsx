@@ -311,7 +311,8 @@ export default function SettingsForm() {
             <div>
               <div className="label" id="hh-h">Happy hour</div>
               <div className={styles.help}>
-                Bills added at /scan inside this weekly window earn extra points, and the window shows on every card.
+                Bills added at the counter inside this weekly window earn extra points, and the window shows on every
+                card.
                 It runs on your shop&apos;s clock: <b>{timezoneLabel(s.timezone)}</b> (42nights sets this).
               </div>
             </div>

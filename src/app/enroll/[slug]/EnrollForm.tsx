@@ -236,6 +236,7 @@ export default function EnrollForm({
                 id="enroll-birthday"
                 aria-label="Month"
                 aria-invalid={errors.birthday ? true : undefined}
+                aria-describedby={errors.birthday ? "enroll-birthday-error" : undefined}
                 value={bMonth}
                 onChange={(e) => {
                   setBMonth(e.target.value);
@@ -250,6 +251,7 @@ export default function EnrollForm({
               <select
                 aria-label="Day"
                 aria-invalid={errors.birthday ? true : undefined}
+                aria-describedby={errors.birthday ? "enroll-birthday-error" : undefined}
                 value={bDay}
                 onChange={(e) => {
                   setBDay(e.target.value);
@@ -263,9 +265,14 @@ export default function EnrollForm({
               </select>
             </fieldset>
             <div id="enroll-birthday-why" className={s.hint}>
-              {merchantName} adds a birthday treat to your card on the day. No year needed.
+              {merchantName} adds a birthday treat to your card on the day, once the card is a month old. No year
+              needed.
             </div>
-            {errors.birthday && <div className={s.error}>{errors.birthday}</div>}
+            {errors.birthday && (
+              <div id="enroll-birthday-error" className={s.error}>
+                {errors.birthday}
+              </div>
+            )}
           </div>
         )}
         <label className="row" style={{ gap: 8, alignItems: "center", cursor: "pointer" }}>
