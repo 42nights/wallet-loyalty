@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import QRCode from "qrcode";
 import { getStaff, isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { PUBLIC_BASE_URL, redemptionsFor, templateKey, type TemplateKey } from "@/lib/config";
+import {
+  PUBLIC_BASE_URL, loyaltyMode, redemptionsFor, stampGoal, stampReward, templateKey, type TemplateKey,
+} from "@/lib/config";
 import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { defaultAssetBuffer } from "@/lib/passDefaults";
 import PrintButton from "./PrintButton";
@@ -20,6 +22,9 @@ type MerchantRow = {
   bg_color: string | null;
   fg_color: string | null;
   label_color: string | null;
+  loyalty_mode?: string | null; // stamp card columns: absent on an un-migrated database
+  stamp_goal?: number | null;
+  stamp_reward?: string | null;
 };
 
 // The logo the merchant's Wallet card shows: their own upload (largest first,
@@ -65,7 +70,7 @@ export default async function PosterPage({
 
   const { data: m } = await db
     .from("merchants")
-    .select("id, name, slug, earn_rate, redeem_template, bg_color, fg_color, label_color")
+    .select("*") // "*": the stamp card columns may not exist yet (then it's points)
     .eq("id", merchantId)
     .maybeSingle<MerchantRow>();
   if (!m) notFound();
@@ -141,22 +146,37 @@ export default async function PosterPage({
             Scan with your iPhone camera, add your name, and the card is in Apple Wallet. No app, no paper card.
           </p>
 
-          <div className={s.earn}>
-            <div className={s.tile}>
-              <div className={s.tileLabel}>Earn</div>
-              <div className={s.tileValue}>
-                {rate.toLocaleString("en-US")} point{rate === 1 ? "" : "s"}
+          {loyaltyMode(m.loyalty_mode) === "stamps" ? (
+            <div className={s.earn}>
+              <div className={s.tile}>
+                <div className={s.tileLabel}>Earn</div>
+                <div className={s.tileValue}>1 stamp</div>
+                <div className={s.tileSub}>per item, added at the counter</div>
               </div>
-              <div className={s.tileSub}>for every $1 you spend</div>
-            </div>
-            <div className={s.tile}>
-              <div className={s.tileLabel}>First reward</div>
-              <div className={s.tileValue}>{first.label}</div>
-              <div className={s.tileSub}>
-                at {cost.toLocaleString("en-US")} points — about ${spend} spent
+              <div className={s.tile}>
+                <div className={s.tileLabel}>Reward</div>
+                <div className={s.tileValue}>{stampReward(m.stamp_reward)}</div>
+                <div className={s.tileSub}>after {stampGoal(m.stamp_goal)} stamps</div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className={s.earn}>
+              <div className={s.tile}>
+                <div className={s.tileLabel}>Earn</div>
+                <div className={s.tileValue}>
+                  {rate.toLocaleString("en-US")} point{rate === 1 ? "" : "s"}
+                </div>
+                <div className={s.tileSub}>for every $1 you spend</div>
+              </div>
+              <div className={s.tile}>
+                <div className={s.tileLabel}>First reward</div>
+                <div className={s.tileValue}>{first.label}</div>
+                <div className={s.tileSub}>
+                  at {cost.toLocaleString("en-US")} points — about ${spend} spent
+                </div>
+              </div>
+            </div>
+          )}
 
           <footer className={s.url}>Or open {enrollUrl.replace(/^https?:\/\//, "")} in Safari</footer>
         </div>

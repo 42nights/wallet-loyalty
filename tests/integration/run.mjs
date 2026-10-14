@@ -597,6 +597,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const stCsv = await req("/api/merchant/export?type=customers", { j: stOwn });
   chk("stamp card CSV heads its balance column Stamps",
     (await stCsv.text()).replace(/^\uFEFF/, "").split("\r\n")[0], "Name,Phone,Stamps,Lifetime earned,Lifetime redeemed,Visits,Last seen (UTC)");
+  const poster = (await (await req("/settings/poster", { j: stOwn })).text()).replace(/<!-- -->/g, "");
+  chk("stamp card poster: earn 1 stamp per item, the reward after the goal",
+    ["1 stamp", "per item, added at the counter", "Free flat white", "after 5 stamps"].every((t) => poster.includes(t)), true);
 
   // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
   //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and
