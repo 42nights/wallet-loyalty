@@ -1,21 +1,30 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Action } from "@/lib/config";
+import { formatMoney } from "@/lib/format";
 import { TrendChart } from "@/app/(merchant)/dashboard/charts";
+import { parseBill } from "@/app/(merchant)/scan/bill";
+import scan from "@/app/(merchant)/scan/scan.module.css";
 import { LockBanner, Phone, WalletCard } from "./WalletCard";
 import type { QR, Sample } from "./samples";
 import s from "./demo.module.css";
 
 // The interactive /demo: a sample card in a phone, a counter that works like
-// /scan, and the owner's dashboard. All client-side, nothing is saved. The math
-// mirrors the real server: earn = round(earn_rate × bill), a reward deducts its
-// template cost and is refused with "Not enough points" when the balance is short.
+// /scan, and the owner's dashboard. All client-side, nothing is saved. It
+// behaves like the shipped terminal (F17): the same bill parser and dimmed
+// "needs N · has M" rewards as /scan (shared code and classes), and the redeem
+// route's math and limit: earn = round(earn_rate × bill), a bill over the
+// shop's limit is refused, a reward deducts its template cost.
 
 export type DemoMerchant = Sample & { actions: Action[] };
 
 const nf = (n: number) => n.toLocaleString("en-US");
 const CARD_DELAY_MS = 600; // the terminal answers first, then Wallet refreshes the card
 const BANNER_MS = 3800;
+// merchants.max_bill schema default: the limit every new shop starts with.
+// The big-bill confirm that /scan shows at half this is left out: the guided
+// demo bills are a few dollars.
+const MAX_BILL = 1000;
 
 // Balance count-up. Interruptible (starts from whatever is on screen) and
 // instant when the visitor prefers reduced motion.
@@ -115,18 +124,19 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
     later(() => setCardFlash(false), CARD_DELAY_MS + 450);
   }
 
-  const amount = Number(bill.trim().replace(",", "."));
-  const earn = Number.isFinite(amount) && amount > 0 && amount <= 10_000 ? Math.round(m.earnRate * amount) : 0;
+  const amount = parseBill(bill);
+  const overLimit = amount !== null && amount > MAX_BILL;
+  const earn = amount !== null && !overLimit ? Math.round(m.earnRate * amount) : 0;
 
   function addBill() {
-    if (earn <= 0) return setToast({ kind: "bad", msg: "Enter a bill amount like 12.50" });
+    if (amount === null) return setToast({ kind: "bad", msg: "Enter an amount like 12.50" });
+    if (overLimit)
+      return setToast({
+        kind: "bad",
+        msg: `Bill is over this shop's limit of ${formatMoney(MAX_BILL)} — check the amount, or ask the owner to raise the limit in Settings`,
+      });
     apply(earn, `+${earn} pts`);
     setBill("");
-  }
-
-  function redeem(a: Action) {
-    if (points + a.points < 0) return setToast({ kind: "bad", msg: "Not enough points" });
-    apply(a.points, `${a.label} redeemed`);
   }
 
   // The guide's suggested reward: the biggest one the pre-filled bill unlocks.
@@ -171,12 +181,17 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
 
         <div className="label" style={{ marginTop: 18 }}>Redeem</div>
         <div className="grid2">
-          {m.actions.map((a) => (
-            <button key={a.id} type="button" className="redeem-btn" onClick={() => redeem(a)}>
-              <div className="rl">{a.label}</div>
-              <div className="rp">{a.points} pts</div>
-            </button>
-          ))}
+          {m.actions.map((a) => {
+            const short = points < -a.points; // the /scan rule; a.points is the (negative) delta
+            return (
+              <button key={a.id} type="button" className={`redeem-btn ${short ? scan.short : ""}`} disabled={short}
+                onClick={() => apply(a.points, `${a.label} redeemed`)}>
+                <div className="rl">{a.label}</div>
+                <div className="rp">{a.points} pts</div>
+                {short && <div className={scan.need}>needs {-a.points} · has {points}</div>}
+              </button>
+            );
+          })}
         </div>
 
         <label className="label" htmlFor="demo-bill" style={{ display: "block", marginTop: 18 }}>
