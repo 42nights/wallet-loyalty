@@ -9,7 +9,7 @@ import s from "./admin.module.css";
 export const runtime = "nodejs";
 
 // Needs-attention first: a quiet merchant is the one about to churn.
-const ORDER: Health[] = ["quiet", "empty", "new", "active"];
+const ORDER: Health[] = ["quiet", "empty", "new", "newActive", "active"];
 
 export default async function AdminOverview() {
   if (!(await isAdmin())) redirect("/admin/login");
@@ -33,7 +33,11 @@ export default async function AdminOverview() {
 
       <KpiTiles
         k={kpis}
-        lead={{ k: "Merchants", v: nf(merchantCount), sub: `${merchants.filter((m) => m.health === "active").length} active` }}
+        lead={{
+          k: "Merchants",
+          v: nf(merchantCount),
+          sub: `${merchants.filter((m) => m.health === "active" || m.health === "newActive").length} active · 30d`,
+        }}
       />
       <DailyCharts daily={daily} />
 

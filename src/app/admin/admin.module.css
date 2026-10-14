@@ -46,7 +46,7 @@
 }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .new { color: #6fb6ee; }
-.active { color: var(--ok); }
+.active, .newActive { color: var(--ok); }
 .quiet { color: var(--c-redeemed); }
 .empty { color: var(--muted); }
 :global(html[data-theme="light"]) .new { color: #2c74b3; }

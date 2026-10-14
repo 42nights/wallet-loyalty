@@ -22,11 +22,18 @@ export function ago(iso: string | null): string {
   return `${Math.round(mins / 1440)}d ago`;
 }
 
-export const HEALTH_LABEL: Record<Health, string> = { new: "New", active: "Active", quiet: "Quiet", empty: "Empty" };
+export const HEALTH_LABEL: Record<Health, string> = {
+  new: "New",
+  newActive: "New · active",
+  active: "Active",
+  quiet: "Quiet",
+  empty: "Empty",
+};
 export const HEALTH_HELP: Record<Health, string> = {
-  new: "Created less than 7 days ago",
-  active: "Activity in the last 14 days",
-  quiet: "No activity for 14+ days",
+  new: "Created less than 7 days ago, no activity yet",
+  newActive: "Created less than 7 days ago, with activity in the last 30 days",
+  active: "Activity in the last 30 days",
+  quiet: "No activity for 30+ days",
   empty: "No cards issued yet",
 };
 

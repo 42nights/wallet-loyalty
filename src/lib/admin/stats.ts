@@ -59,7 +59,7 @@ export type Kpis = {
   newCards30: number;
 };
 export type Daily = { days: string[]; newCards: number[]; txns: number[] };
-export type Health = "new" | "active" | "quiet" | "empty";
+export type Health = "new" | "newActive" | "active" | "quiet" | "empty";
 export type MerchantSummary = {
   id: string;
   name: string;
@@ -172,10 +172,15 @@ function kpis(a: Acc, cards: number, inWallet: number): Kpis {
   };
 }
 
+// Activity (a transaction or a new card) in the last 30 days is "active" at any
+// age; a merchant under 7 days old shows "new" until it has some, then
+// "newActive" ("New · active"). Both active states count as active on the
+// overview, so its headline matches the badges.
 export function health(createdAt: string | null, cards: number, last: number, now = Date.now()): Health {
-  if (createdAt && now - Date.parse(createdAt) < 7 * DAY) return "new";
+  const active = last > 0 && now - last < 30 * DAY;
+  if (createdAt && now - Date.parse(createdAt) < 7 * DAY) return active ? "newActive" : "new";
   if (cards === 0) return "empty";
-  return last && now - last < 14 * DAY ? "active" : "quiet";
+  return active ? "active" : "quiet";
 }
 
 type MerchantRow = {
