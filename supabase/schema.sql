@@ -707,3 +707,21 @@ alter table merchants add column if not exists redeem_template text not null def
 -- /settings (10 - 100000). Code that reads it falls back to 1000 when the
 -- column is missing, so an un-migrated database behaves like this default.
 alter table merchants add column if not exists max_bill numeric not null default 1000;
+
+-- --- 2026-10-14: card deactivation, review link, shop location -------------
+-- Additive only; code reads these through select("*") with a default, so an
+-- un-migrated database behaves as before (no card deactivated, no review link,
+-- no location).
+-- A deactivated card keeps its balance and ledger; points.ts refuses any
+-- balance change while voided_at is set (owner: /customers/<serial>).
+alter table passes add column if not exists voided_at timestamptz;
+alter table passes add column if not exists void_reason text
+  check (void_reason in ('lost', 'fraud', 'customer', 'other'));
+-- Back-of-card "Leave us a review" link, shown from the 3rd earn visit.
+alter table merchants add column if not exists review_url text
+  check (review_url ~ '^https://' and char_length(review_url) <= 500);
+-- Shop coordinates for the pass's lock-screen location relevance.
+alter table merchants add column if not exists latitude numeric
+  check (latitude between -90 and 90);
+alter table merchants add column if not exists longitude numeric
+  check (longitude between -180 and 180);
