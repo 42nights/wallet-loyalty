@@ -15,6 +15,16 @@ export const MIN_PASSWORD = 8;
 // 22P02 error there; here it is simply "not found").
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// "Manage as owner" in /admin signs the creator in to a shop as that shop's
+// own owner row named 42nights-<slug>, which has no usable password. The
+// prefix is reserved (no other login may start with it, any case), so the
+// name alone marks a support login: the banner, the staff lists, no resets.
+const SUPPORT_PREFIX = "42nights-";
+export const SUPPORT_RESERVED = `Usernames starting with "${SUPPORT_PREFIX}" are reserved for 42nights support`;
+export const SUPPORT_NO_PASSWORD = "This is the 42nights support login — it has no password.";
+export const isSupportUsername = (username: string) => username.toLowerCase().startsWith(SUPPORT_PREFIX);
+export const supportUsername = (m: { id: string; slug: string | null }) => SUPPORT_PREFIX + (m.slug ?? m.id.slice(0, 8));
+
 export function slugify(name: string): string {
   return name
     .normalize("NFKD")

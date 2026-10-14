@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Role } from "@/lib/auth";
+import { isSupportUsername } from "@/lib/admin/merchant";
 
 // Owners see every staff page; cashiers only the counter. The server pages
 // enforce this too — the nav just doesn't offer links a role can't open.
@@ -20,10 +21,12 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
 // The one header on every logged-in staff page, rendered by (merchant)/layout.
 // Client-side only for usePathname (current-page highlight).
 export default function StaffHeader({
+  merchantId,
   merchantName,
   username,
   role,
 }: {
+  merchantId: string;
   merchantName: string;
   username: string;
   role: Role;
@@ -35,6 +38,14 @@ export default function StaffHeader({
 
   return (
     <header className="staff-top">
+      {/* The creator signed in through /admin's "Manage as owner": say so on
+          every page, so nobody mistakes this session for the owner's. */}
+      {isSupportUsername(username) && (
+        <div className="staff-support" role="note">
+          <span>42nights support — managing {merchantName}</span>
+          <Link href={`/admin/merchants/${merchantId}`}>Back to admin</Link>
+        </div>
+      )}
       <div className="staff-brand">
         <span className="dot" />
         <span className="staff-merchant">{merchantName}</span>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner, hashPassword } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { SUPPORT_RESERVED, isSupportUsername } from "@/lib/admin/merchant";
 
 export const runtime = "nodejs"; // bcrypt hashing — keep off edge
 
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
   const { username, password } = await req.json().catch(() => ({}));
   if (!username || !password)
     return NextResponse.json({ error: "Missing username or password" }, { status: 400 });
+  if (isSupportUsername(String(username).trim()))
+    return NextResponse.json({ error: SUPPORT_RESERVED }, { status: 400 });
 
   const password_hash = await hashPassword(password);
   const { error } = await db.from("staff").insert({

@@ -1107,6 +1107,70 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const renamedRv = await rvPatch({ name: `Test rev ${run} 2` });
   await pushedTo(tokR);
   chk("admin rename → 200, one push", `${renamedRv.status}:${await quietFor(tokR)}`, "200:1");
+
+  // --- manage as owner: /admin's button signs the creator in to a shop as its
+  //     42nights support login (an owner row of that shop with no usable
+  //     password), and what's done there carries that row's staff id ----------
+  console.log("manage as owner");
+  const RESERVED = 'Usernames starting with "42nights-" are reserved for 42nights support';
+  const NO_PW = "This is the 42nights support login — it has no password.";
+  const mg = await createMerchant(db, run, { key: "mg", template: "cafe", earnRate: 10 });
+  const supName = `42nights-${mg.slug}`;
+  const manage = (id, j) => req(`/api/admin/merchants/${id}/manage`, { method: "POST", j });
+  // a copy of the admin jar per click: the 303's staff cookie replaces a jar's cookies
+  const asAdmin = () => ({ cookie: admin.cookie });
+  const supRows = () => rows(db.from("staff").select("id, role").eq("merchant_id", mg.id).eq("username", supName));
+  chk("manage without the admin cookie (an owner's) → 401", (await manage(mg.id, own)).status, 401);
+  chk("manage a malformed id → 404", (await manage("not-a-uuid", asAdmin())).status, 404);
+  chk("manage an unknown merchant → 404", (await manage(randomUUID(), asAdmin())).status, 404);
+  const sup = asAdmin();
+  // the first click is a double-click: two posts at once, before the row exists
+  const [mr, twin] = await Promise.all([manage(mg.id, sup), manage(mg.id, asAdmin())]);
+  chk("manage → 303 to /dashboard", `${mr.status}:${new URL(mr.headers.get("location") ?? "/", B).pathname}`, "303:/dashboard");
+  chk("…and its double-click twin → 303 too", twin.status, 303);
+  chk("…setting only the staff cookie (the admin one stays)",
+    (mr.headers.getSetCookie?.() ?? []).map((c) => c.split("=")[0]).join(","), "staff_session");
+  const supMe = await (await req("/api/merchant/me", { j: sup })).json();
+  chk("/me: owner of that shop, as the support login", `${supMe.role}|${supMe.merchantName}|${supMe.username}`, `owner|Test mg ${run}|${supName}`);
+  chk("…and of that shop only (another shop's card → 404)",
+    (await req("/api/merchant/lookup", { method: "POST", body: { serial }, j: sup })).status, 404);
+  chk("a second click → 303", (await manage(mg.id, asAdmin())).status, 303);
+  const firstRows = await supRows();
+  const sup1 = firstRows[0];
+  chk("…reuses the one support row, an owner row", `${firstRows.length}:${sup1?.role}`, "1:owner");
+  const mgOwn = jar();
+  await login(mgOwn, mg.owner);
+  chk("owner resets the support login's password → 400",
+    await answer(await req(`/api/merchant/staff/${sup1?.id}`, { method: "PATCH", body: { password: `pw-${run}-new` }, j: mgOwn })), `400:${NO_PW}`);
+  chk("admin resets it → 400", await answer(await req(`/api/admin/staff/${sup1?.id}/password`, { method: "POST", j: admin })), `400:${NO_PW}`);
+  const addStaff = (username) => req("/api/merchant/staff", { method: "POST", body: { username, password: `pw-${run}-new` }, j: mgOwn });
+  chk("owner adds a 42nights-… login → 400", await answer(await addStaff(`42nights-t-${run}-x`)), `400:${RESERVED}`);
+  chk("…in any case (42NIGHTS-…) → 400", (await addStaff(`42NIGHTS-t-${run}-y`)).status, 400);
+  const resv = await req("/api/admin/merchants", {
+    method: "POST", j: admin,
+    body: {
+      name: "Reserved", slug: `t-${run}-resv`, template: "cafe", earnRate: 10, bgColor: null, fgColor: null, labelColor: null,
+      owner: { username: `42nights-t-${run}`, password: `pw-${run}-new` },
+    },
+  });
+  chk("the admin wizard refuses a 42nights-… owner → 400", await answer(resv), `400:${RESERVED}`);
+  chk("the owner removes the support login", (await req(`/api/merchant/staff/${sup1?.id}`, { method: "DELETE", j: mgOwn })).status, 200);
+  chk("…which signs that session out", (await req("/api/merchant/me", { j: sup })).status, 401);
+  const sup2 = asAdmin();
+  chk("the next click → 303", (await manage(mg.id, sup2)).status, 303);
+  const nextRows = await supRows();
+  const sup2Row = nextRows[0];
+  chk("…made a new support row", `${nextRows.length}:${!!sup2Row && sup2Row.id !== sup1?.id}`, "1:true");
+  const mgCard = await createCard(db, mg.id, { name: "Managed" });
+  chk("an earn made as support", await balanceOf(await redeem(sup2, { serial: mgCard.serial, amount: 3 })), 30);
+  const [mgTx] = await rows(db.from("transactions").select("staff_id").eq("serial", mgCard.serial));
+  chk("…records the support row's staff id, not the owner's", `${!!mgTx && mgTx.staff_id === sup2Row?.id}:${mgTx?.staff_id === mg.owner.id}`, "true:false");
+  // another shop's row already holds the support name: never sign in as it
+  const taken = await createMerchant(db, run, { key: "cl", template: "cafe", earnRate: 10 });
+  await rows(db.from("staff").insert({ merchant_id: rest.id, username: `42nights-${taken.slug}`, password_hash: "x", role: "cashier" }).select("id"));
+  const clash = await manage(taken.id, asAdmin());
+  chk("support name held by another shop's row → 409, no session",
+    `${clash.status}:${(clash.headers.getSetCookie?.() ?? []).length}`, "409:0");
 }
 
 // ---------------------------------------------------------------------------

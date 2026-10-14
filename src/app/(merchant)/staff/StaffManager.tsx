@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { MIN_PASSWORD } from "@/lib/admin/merchant";
+import { MIN_PASSWORD, isSupportUsername } from "@/lib/admin/merchant";
 
 type Member = { id: string; username: string; role: string; created_at: string };
 type Msg = { kind: "ok" | "bad"; text: string } | null;
@@ -139,18 +139,21 @@ export default function StaffManager() {
                 <div>
                   {m.username} {m.id === selfId && <small>(you)</small>}
                 </div>
-                <div className="label">{m.role}</div>
+                {/* the creator's "Manage as owner" login: no password, removable */}
+                <div className="label">{isSupportUsername(m.username) ? "42nights support" : m.role}</div>
               </div>
               <div className="row" style={{ gap: 8 }}>
-                <button
-                  className="btn btn-ghost"
-                  style={{ width: "auto", padding: "8px 12px", fontSize: 15 }}
-                  disabled={resetId === m.id}
-                  onClick={() => startReset(m.id)}
-                >
-                  Reset password
-                </button>
-                {m.role === "cashier" && m.id !== selfId && (
+                {!isSupportUsername(m.username) && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ width: "auto", padding: "8px 12px", fontSize: 15 }}
+                    disabled={resetId === m.id}
+                    onClick={() => startReset(m.id)}
+                  >
+                    Reset password
+                  </button>
+                )}
+                {(m.role === "cashier" || isSupportUsername(m.username)) && m.id !== selfId && (
                   <button
                     className="btn btn-ghost"
                     style={{ width: "auto", padding: "8px 12px", fontSize: 15 }}
