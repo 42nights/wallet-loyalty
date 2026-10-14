@@ -70,12 +70,14 @@ function must({ data, error }, what) {
 
 // A merchant with an owner and a cashier. Passwords are bcrypt-hashed exactly
 // like scripts/seed.ts does (cost 4 — test-only, keeps setup fast).
-export async function createMerchant(db, run, { key, template, earnRate }) {
+// `stamps: { goal, reward }` makes it a stamp card (loyalty_mode = 'stamps').
+export async function createMerchant(db, run, { key, template, earnRate, stamps }) {
   const slug = `t-${run}-${key}`;
+  const stampCols = stamps ? { loyalty_mode: "stamps", stamp_goal: stamps.goal, stamp_reward: stamps.reward } : {};
   const m = must(
     await db
       .from("merchants")
-      .insert({ name: `Test ${key} ${run}`, slug, earn_rate: earnRate, redeem_template: template })
+      .insert({ name: `Test ${key} ${run}`, slug, earn_rate: earnRate, redeem_template: template, ...stampCols })
       .select("id")
       .single(),
     `merchant ${slug}`
@@ -94,7 +96,7 @@ export async function createMerchant(db, run, { key, template, earnRate }) {
     );
     staff[role] = { id: row.id, username, password };
   }
-  return { id: m.id, slug, template, earnRate, ...staff };
+  return { id: m.id, slug, template, earnRate, stamps, ...staff };
 }
 
 // A card with a zero balance. Points only ever arrive through the app

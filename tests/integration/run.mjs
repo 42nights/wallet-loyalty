@@ -480,6 +480,92 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("undo card: ledger sum equals the cached balance",
     `${uLedger.reduce((a, t) => a + t.delta, 0)}=${uCached}`, "160=160");
 
+  // --- stamp cards: a stamps merchant (loyalty_mode) earns +1..+3 stamps per
+  //     tap and spends stamp_goal on its one reward; each mode refuses the
+  //     other's earn and buttons; the card shows STAMPS "n of goal" + a grid ----
+  console.log("stamp cards");
+  const st = await createMerchant(db, run, { key: "stamps", template: "cafe", earnRate: 10, stamps: { goal: 5, reward: "Free latte" } });
+  const stCash = jar();
+  const stOwn = jar();
+  await login(stCash, st.cashier);
+  await login(stOwn, st.owner);
+  const sc = await createCard(db, st.id, { name: "Stamp Card" });
+  const stMe = await (await req("/api/merchant/me", { j: stCash })).json();
+  chk("stamps /me: mode and goal", `${stMe.mode}:${stMe.stampGoal}`, "stamps:5");
+  chk("stamps /me: the one reward button, costing the goal",
+    JSON.stringify(stMe.redemptions), JSON.stringify([{ id: "stamp_reward", label: "Free latte", points: -5, kind: "redeem" }]));
+  chk("points /me says points", me.mode, "points");
+  const devS = `t-${run}-dev-stamps`;
+  const tokS = `t-${run}-tok-stamps`;
+  chk("register device on the stamp card", (await register(devS, sc, tokS)).status, 201);
+  mock.clear();
+  const ks = randomUUID();
+  chk("+1 stamp", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 1 }, ks)), 1);
+  chk("a stamp pushes to the card's device", pushesTo(tokS).length, 1);
+  const ksr = await (await redeem(stCash, { serial: sc.serial, stamps: 1 }, ks)).json();
+  chk("the same tap retried is a replay", `${ksr.newBalance}:${ksr.replay}`, "1:true");
+  chk("+3 stamps (several items)", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 3 })), 4);
+  const below = await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" });
+  const belowJ = await below.json();
+  chk("reward below the goal (4 of 5) → 422 with the balance", `${below.status}:${belowJ.error}:${belowJ.balance}`, "422:Not enough stamps:4");
+  for (const [what, body] of [
+    ["a bill amount", { amount: 12 }],
+    ["a points template button (free_coffee)", { actionId: "free_coffee" }],
+    ["+4 stamps (over 3 per tap)", { stamps: 4 }],
+    ["0 stamps", { stamps: 0 }],
+    ["1.5 stamps", { stamps: 1.5 }],
+    ["stamps as a string", { stamps: "1" }],
+  ])
+    chk(`stamp card refuses ${what} → 400`, (await redeem(stCash, { serial: sc.serial, ...body })).status, 400);
+  chk("points card refuses stamps → 400", (await redeem(cash, { serial, stamps: 1 })).status, 400);
+  chk("points card refuses the stamp reward → 400", (await redeem(cash, { serial, actionId: "stamp_reward" })).status, 400);
+  chk("+1 stamp reaches the goal", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 1 })), 5);
+  const kr = randomUUID();
+  chk("reward at the goal spends 5", await balanceOf(await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" }, kr)), 0);
+  const ku = randomUUID();
+  chk("+2 stamps", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 2 }, ku)), 2);
+  const us = await undo(stCash, ku);
+  chk("a stamp tap can be undone", `${us.status}:${(await us.json()).newBalance}`, "200:0");
+  const ur = await undo(stCash, kr);
+  chk("the reward can be undone (stamps come back)", `${ur.status}:${(await ur.json()).newBalance}`, "200:5");
+  const sLedger = await rows(db.from("transactions").select("delta, reason, amount").eq("serial", sc.serial).order("id"));
+  chk("ledger: stamps are units, no bill amounts",
+    sLedger.map((t) => `${t.delta}:${t.reason}:${t.amount}`).join(","),
+    "1:earn:stamp:null,3:earn:stamp:null,1:earn:stamp:null,-5:redeem:stamp_reward:null,2:earn:stamp:null,-2:undo:earn:stamp:null,5:undo:redeem:stamp_reward:null");
+  chk("stamp card: cached balance equals the ledger",
+    `${sLedger.reduce((a, t) => a + t.delta, 0)}=${(await rows(db.from("passes").select("points").eq("serial", sc.serial)))[0]?.points}`, "5=5");
+
+  const stampPass = async (card) => {
+    const r = await req(`/api/v1/passes/${PTI}/${card.serial}`, { headers: { Authorization: `ApplePass ${card.authToken}` } });
+    return { status: r.status, ...unzipPass(Buffer.from(await r.arrayBuffer())) };
+  };
+  const sp = await stampPass(sc);
+  const head = sp.pass.storeCard?.headerFields?.[0] ?? {};
+  chk("stamp pass header: STAMPS 5 of 5 with a changeMessage", `${sp.status}:${head.label}:${head.value}:${head.changeMessage}`, "200:STAMPS:5 of 5:Stamps: %@");
+  chk("stamp pass: no primary points number", (sp.pass.storeCard?.primaryFields ?? []).length, 0);
+  chk("stamp pass: REWARD says it is ready", field(sp.pass, "secondaryFields", "next"), "Ready: Free latte");
+  chk("stamp pass carries the drawn strip at 1x/2x/3x",
+    ["strip.png", "strip@2x.png", "strip@3x.png"].every((f) => sp.list.includes(f)), true);
+  chk("stamp pass back: how to earn in stamps", /1 stamp per visit or item.*Collect 5 for Free latte/.test(field(sp.pass, "backFields", "earn") ?? ""), true);
+  chk("points pass keeps its POINTS header", (await latestPass(smokeCard)).storeCard?.headerFields?.[0]?.label, "POINTS");
+
+  // owner Settings: the mode is read-only, the reward can be renamed, and the
+  // rename reaches every card in Wallet (passesUpdatedSince + one push)
+  const stSet = await (await req("/api/merchant/settings", { j: stOwn })).json();
+  chk("settings GET: stamp card, goal, reward", `${stSet.mode}:${stSet.stampGoal}:${stSet.stampReward}`, "stamps:5:Free latte");
+  const setReward = (j, stampReward) => req("/api/merchant/settings", { method: "PATCH", body: { stampReward }, j });
+  const tagS = (await (await updatable(devS)).json()).lastUpdated;
+  mock.clear();
+  const renamed = await setReward(stOwn, "  Free flat white  ");
+  chk("owner renames the reward (trimmed)", renamed.status === 200 ? (await renamed.json()).stampReward : renamed.status, "Free flat white");
+  chk("rename: the card appears in passesUpdatedSince", await listed(await updatable(devS, tagS), sc.serial), true);
+  chk("rename: one push to the card's device", pushesTo(tokS).length, 1);
+  chk("rename: re-downloaded pass shows the new reward", field(await latestPass(sc), "secondaryFields", "next"), "Ready: Free flat white");
+  chk("reward name over 30 characters → 400", (await setReward(stOwn, "x".repeat(31))).status, 400);
+  chk("blank reward name → 400", (await setReward(stOwn, "   ")).status, 400);
+  chk("cashier cannot rename the reward → 403", (await setReward(stCash, "Free tea")).status, 403);
+  chk("a points shop has no stamp reward to rename → 400", (await setReward(own, "Free tea")).status, 400);
+
   // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
   //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and
   //     stays quiet on normal earns ------------------------------------------
@@ -533,6 +619,41 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+
+  // --- admin stamp cards: the wizard creates one; mode and goal change only
+  //     while the shop has no transactions; the reward name changes any time --
+  console.log("admin stamp cards");
+  const patchM = (id, body) => req(`/api/admin/merchants/${id}`, { method: "PATCH", body, j: admin });
+  const modeOf = async (id) => {
+    const [m] = await rows(db.from("merchants").select("loyalty_mode, stamp_goal, stamp_reward").eq("id", id));
+    return `${m?.loyalty_mode}:${m?.stamp_goal}:${m?.stamp_reward}`;
+  };
+  const toPoints = await patchM(st.id, { loyaltyMode: "points" });
+  chk("switching a shop with transactions to points → 409", toPoints.status, 409);
+  chk("409 says why", /already has \d+ transactions/.test((await toPoints.json()).error ?? ""), true);
+  chk("changing its goal → 409", (await patchM(st.id, { stampGoal: 8 })).status, 409);
+  chk("sending its unchanged goal is fine → 200", (await patchM(st.id, { stampGoal: 5 })).status, 200);
+  chk("renaming its reward is fine → 200", (await patchM(st.id, { stampReward: "Free cortado" })).status, 200);
+  chk("…and nothing else moved", await modeOf(st.id), "stamps:5:Free cortado");
+  const fresh0 = await createMerchant(db, run, { key: "tostamps", template: "retail", earnRate: 10 });
+  chk("a new merchant is points by default", await modeOf(fresh0.id), "points:10:Free coffee");
+  chk("goal 21 → 400", (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 21 })).status, 400);
+  chk("goal 2 → 400", (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 2 })).status, 400);
+  chk("unknown mode → 400", (await patchM(fresh0.id, { loyaltyMode: "visits" })).status, 400);
+  chk("no transactions yet: switch to stamps with goal 6 → 200",
+    (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 6, stampReward: "Free gift" })).status, 200);
+  chk("the row is a 6-stamp card", await modeOf(fresh0.id), "stamps:6:Free gift");
+  const wiz = await req("/api/admin/merchants", {
+    method: "POST", j: admin,
+    body: {
+      name: "Stamp Wizard", slug: `t-${run}-stampwiz`, template: "cafe", earnRate: 10,
+      bgColor: null, fgColor: null, labelColor: null,
+      owner: { username: `t-${run}-stampwiz-owner`, password: randomUUID() },
+      loyaltyMode: "stamps", stampGoal: 8, stampReward: "Free bagel",
+    },
+  });
+  chk("wizard creates a stamp card merchant → 201", wiz.status, 201);
+  if (wiz.status === 201) chk("…with its goal and reward", await modeOf((await wiz.json()).id), "stamps:8:Free bagel");
 }
 
 // ---------------------------------------------------------------------------
