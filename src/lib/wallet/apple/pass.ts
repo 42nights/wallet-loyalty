@@ -231,14 +231,14 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     }
   );
 
-  // The QR the merchant scans — encodes the serial for counter lookup. altText
-  // prints the serial under it, so a cashier can type it into /scan's manual
-  // box when the camera cannot read the code.
+  // The QR the merchant scans — encodes the serial for counter lookup. No
+  // altText: a 36-character serial printed under the code is noise on the card,
+  // and when the camera cannot read it the cashier finds the customer by phone
+  // on /scan instead.
   pass.setBarcodes({
     format: "PKBarcodeFormatQR",
     message: serial,
     messageEncoding: "iso-8859-1",
-    altText: serial,
   });
 
   return pass.getAsBuffer();
