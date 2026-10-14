@@ -20,5 +20,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid login" }, { status: 401 });
 
   await createSession(staff);
-  return NextResponse.json({ ok: true, username: staff.username });
+  // role lets the login page send owners to /dashboard and cashiers to /scan
+  return NextResponse.json({ ok: true, username: staff.username, role: staff.role });
 }

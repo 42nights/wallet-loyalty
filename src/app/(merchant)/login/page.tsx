@@ -1,15 +1,15 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [username, setU] = useState("");
   const [password, setP] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function submit() {
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setErr("");
     const res = await fetch("/api/merchant/login", {
@@ -17,9 +17,15 @@ export default function LoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    setBusy(false);
-    if (res.ok) router.push("/scan");
-    else setErr((await res.json()).error || "Login failed");
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setBusy(false);
+      return setErr(d.error || "Login failed");
+    }
+    // Owners start on their dashboard, cashiers at the counter. A full page load
+    // (not router.push) so the shared staff layout re-renders with the header —
+    // the App Router keeps layouts as-is across client-side navigations.
+    window.location.assign(d.role === "owner" ? "/dashboard" : "/scan");
   }
 
   return (
@@ -27,21 +33,20 @@ export default function LoginPage() {
       <div className="brand">
         <span className="dot" /> 42nights <small>terminal</small>
       </div>
-      <div className="card stack">
+      <form className="card stack" onSubmit={submit}>
         <div>
           <div className="label">Username</div>
-          <input value={username} onChange={(e) => setU(e.target.value)} autoCapitalize="none" />
+          <input value={username} onChange={(e) => setU(e.target.value)} autoCapitalize="none" autoComplete="username" />
         </div>
         <div>
           <div className="label">Password</div>
-          <input type="password" value={password} onChange={(e) => setP(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <input type="password" value={password} onChange={(e) => setP(e.target.value)} autoComplete="current-password" />
         </div>
         {err && <div className="toast bad">{err}</div>}
-        <button className="btn btn-primary" disabled={busy} onClick={submit}>
+        <button className="btn btn-primary" type="submit" disabled={busy}>
           {busy ? "…" : "Sign in"}
         </button>
-      </div>
+      </form>
     </div>
   );
 }
