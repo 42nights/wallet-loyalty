@@ -202,12 +202,18 @@ export function birthdaysOn(t: { year: number; month: number; day: number }): st
   return md === "02-28" && !leap ? ["2000-02-28", "2000-02-29"] : [`2000-${md}`];
 }
 
-// The birthday treat, in points: what the merchant's cheapest reward costs,
-// i.e. one free treat whatever template they run. The ONE place the bonus is
-// decided (the cron credits it, Settings and the card show it).
-export function birthdayBonus(merchant: { redeem_template?: unknown }): number {
-  return Math.min(...redemptionsFor(merchant.redeem_template).map((a) => -a.points));
+// The birthday treat is one free reward, whichever mode the shop runs: on a
+// points card the cheapest reward's cost in points, on a stamp card a full card
+// (stamp_goal stamps). The ONE place the treat is decided (the cron credits
+// `bonus`, Settings and the card show it with the reward it pays for).
+export function birthdayTreat(m: MerchantRules): { bonus: number; reward: string } {
+  const [cheapest] = [...merchantRedemptions(m)].sort((a, b) => b.points - a.points);
+  return { bonus: -cheapest.points, reward: cheapest.label };
 }
+
+// Birthday credits skip cards younger than this on the day: a phone number
+// joined on its "birthday" would otherwise be a free reward on the spot.
+export const BIRTHDAY_MIN_CARD_AGE_DAYS = 30;
 
 // merchants.happy_hour: one weekly window, [start, end) on the shop clock and
 // within one day (no overnight windows). Bill earns inside it are multiplied.
@@ -242,10 +248,13 @@ export function happyHourOf(stored: unknown): HappyHour | null {
 const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
 
 // The earn multiplier in force at `now` for this merchant: 1 outside the window.
+// Happy hour is a points-card booster: a stamp card is always 1 (stamps are
+// per item, and x3 would break STAMP_EARN_MAX).
 export function happyHourMultiplier(
-  merchant: { happy_hour?: unknown; timezone?: unknown },
+  merchant: { happy_hour?: unknown; timezone?: unknown; loyalty_mode?: unknown },
   now = new Date()
 ): number {
+  if (loyaltyMode(merchant.loyalty_mode) === "stamps") return 1;
   const h = happyHourOf(merchant.happy_hour);
   if (!h) return 1;
   const t = localTime(timezoneOf(merchant.timezone), now);

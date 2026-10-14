@@ -11,9 +11,10 @@ import {
   loyaltyMode,
   stampGoal,
   stampReward,
-  birthdayBonus,
+  birthdayTreat,
   describeHappyHour,
   happyHourOf,
+  unitLabel,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
 import { PASS_THEMES } from "@/lib/passThemes";
@@ -283,14 +284,20 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   });
   // The earn boosters, under the earn line. The window is the shop's own wall
   // clock ("3-5 pm"), which is the customer's too: they shop there.
-  const happyHour = happyHourOf(merchant?.happy_hour);
+  // Happy hour is a points-card booster (happyHourMultiplier is 1 on a stamp card).
+  const happyHour = stamps ? null : happyHourOf(merchant?.happy_hour);
   if (happyHour) {
     pass.backFields.push({ key: "happyhour", label: "HAPPY HOUR", value: describeHappyHour(happyHour) });
   }
   // Only on cards that gave a birthday: a member without one would never get it.
   if (merchant?.birthday_reward === true && birthday) {
     const on = new Date(`${birthday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
-    pass.backFields.push({ key: "birthday", label: "BIRTHDAY", value: `${birthdayBonus(merchant)} bonus points on ${on}` });
+    const { bonus, reward: treat } = birthdayTreat(merchant);
+    pass.backFields.push({
+      key: "birthday",
+      label: "BIRTHDAY",
+      value: `${on}: ${bonus} bonus ${unitLabel(merchant.loyalty_mode, bonus)}, enough for ${treat} (once your card is a month old)`,
+    });
   }
   pass.backFields.push(
     stamps

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { applyTransaction } from "@/lib/points";
 import { safeEqual } from "@/lib/safeEqual";
-import { birthdayBonus, birthdaysOn, localTime, timezoneOf } from "@/lib/config";
+import { BIRTHDAY_MIN_CARD_AGE_DAYS, birthdayTreat, birthdaysOn, localTime, timezoneOf } from "@/lib/config";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2)
 
 const PAGE = 500;
+const CATCH_UP_DAYS = 3; // today and the 2 days before, on the shop's clock
 
 // GET /api/cron/birthday — Vercel Cron, once a day (vercel.json; Hobby allows
 // one run per day). Vercel sends "Authorization: Bearer $CRON_SECRET"; with no
@@ -17,12 +18,15 @@ const PAGE = 500;
 // calendar day then.
 //
 // For each merchant with the birthday treat on, every card whose birthday is
-// TODAY on the shop's clock gets birthdayBonus() points: reason bonus:birthday,
-// idempotency key birthday:<year>:<serial>. A second run the same day (or a
-// retry) replays instead of crediting twice, so it is safe at any hour; the
-// redeem/adjust routes refuse client keys starting "birthday:", so nobody can
-// plant one. applyTransaction pushes each credited card.
-// A missed day (Vercel did not run it) is not caught up: the birthday passes.
+// today or one of the 2 days before on the shop's clock (so a day Vercel
+// skipped is caught up) gets birthdayTreat().bonus: reason bonus:birthday,
+// idempotency key birthday:<year of that birthday>:<serial>. A later run, a
+// retry or the catch-up days replay instead of crediting twice, so it is safe
+// at any hour; the redeem/adjust routes refuse client keys starting
+// "birthday:", so nobody can plant one. Only cards created at least
+// BIRTHDAY_MIN_CARD_AGE_DAYS before the birthday count: a number that joins on
+// its birthday gets the treat next year, not today. applyTransaction pushes
+// each credited card.
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!secret || !safeEqual(req.headers.get("authorization") ?? "", `Bearer ${secret}`))
@@ -39,33 +43,41 @@ export async function GET(req: NextRequest) {
   let credited = 0;
   let failed = 0;
   for (const m of merchants ?? []) {
-    const today = localTime(timezoneOf(m.timezone));
-    const bonus = birthdayBonus(m);
-    // keyset pages by serial, so a big merchant is read PAGE cards at a time
-    for (let last = ""; ; ) {
-      const { data: cards, error: cardsErr } = await db
-        .from("passes")
-        .select("serial")
-        .eq("merchant_id", m.id)
-        .in("birthday", birthdaysOn(today))
-        .gt("serial", last)
-        .order("serial")
-        .limit(PAGE);
-      if (cardsErr) {
-        failed++;
-        console.error(`birthday cron: cards of ${m.id}:`, cardsErr.message);
-        break;
-      }
-      if (!cards.length) break;
-      for (const { serial } of cards) {
-        const r = await applyTransaction(serial, bonus, "bonus:birthday", null, m.id, `birthday:${today.year}:${serial}`);
-        if (r.ok && !r.replay) credited++;
-        else if (!r.ok && r.status === "error") {
+    const now = localTime(timezoneOf(m.timezone));
+    const { bonus } = birthdayTreat(m);
+    for (let back = 0; back < CATCH_UP_DAYS; back++) {
+      // calendar days on the shop's date (Date.UTC rolls day 0 into the month,
+      // and January into December, before it)
+      const at = new Date(Date.UTC(now.year, now.month - 1, now.day - back));
+      const day = { year: at.getUTCFullYear(), month: at.getUTCMonth() + 1, day: at.getUTCDate() };
+      const joinedBy = new Date(Date.UTC(day.year, day.month - 1, day.day - BIRTHDAY_MIN_CARD_AGE_DAYS)).toISOString();
+      // keyset pages by serial, so a big merchant is read PAGE cards at a time
+      for (let last = ""; ; ) {
+        const { data: cards, error: cardsErr } = await db
+          .from("passes")
+          .select("serial")
+          .eq("merchant_id", m.id)
+          .in("birthday", birthdaysOn(day))
+          .lte("created_at", joinedBy)
+          .gt("serial", last)
+          .order("serial")
+          .limit(PAGE);
+        if (cardsErr) {
           failed++;
-          console.error(`birthday cron: ${serial}:`, r.error);
+          console.error(`birthday cron: cards of ${m.id}:`, cardsErr.message);
+          break;
         }
+        if (!cards.length) break;
+        for (const { serial } of cards) {
+          const r = await applyTransaction(serial, bonus, "bonus:birthday", null, m.id, `birthday:${day.year}:${serial}`);
+          if (r.ok && !r.replay) credited++;
+          else if (!r.ok && r.status === "error") {
+            failed++;
+            console.error(`birthday cron: ${serial}:`, r.error);
+          }
+        }
+        last = cards[cards.length - 1].serial;
       }
-      last = cards[cards.length - 1].serial;
     }
   }
 

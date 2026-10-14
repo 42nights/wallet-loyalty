@@ -3,7 +3,7 @@ import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { cardVisibleChange, refreshMerchantCards } from "@/lib/wallet";
 import {
-  EARN_RATE, PUBLIC_BASE_URL, REDEEM_TEMPLATES, STAMP_REWARD_MAX, birthdayBonus, happyHourOf, loyaltyMode,
+  EARN_RATE, PUBLIC_BASE_URL, REDEEM_TEMPLATES, STAMP_REWARD_MAX, birthdayTreat, happyHourOf, loyaltyMode,
   parseHappyHour, stampGoal, stampReward, templateKey, timezoneOf, type HappyHour,
 } from "@/lib/config";
 import { formatLocation, parseLocation, parseReviewUrl } from "@/lib/admin/merchant";
@@ -48,7 +48,9 @@ function settings(m: MerchantRow) {
     // set by 42nights in /admin; shown here because happy hour runs on it
     timezone: timezoneOf(m.timezone),
     birthdayReward: m.birthday_reward === true,
-    birthdayBonus: birthdayBonus(m),
+    // the one free reward a birthday credits (points: cheapest reward; stamps: a full card)
+    birthdayBonus: birthdayTreat(m).bonus,
+    birthdayTreat: birthdayTreat(m).reward,
     happyHour: happyHourOf(m.happy_hour),
     reviewUrl: m.review_url ?? "",
     location: formatLocation(m.latitude, m.longitude),
@@ -147,6 +149,9 @@ export async function PATCH(req: NextRequest) {
   const { data: cur } = await db.from("merchants").select("*").eq("id", owner.merchantId).single();
   if (update.stamp_reward !== undefined && loyaltyMode(cur?.loyalty_mode) !== "stamps")
     return NextResponse.json({ error: "This shop runs points, so there is no stamp reward to rename" }, { status: 400 });
+  // Happy hour multiplies bill points; a stamp card has no bills (null, off, is fine)
+  if (update.happy_hour && loyaltyMode(cur?.loyalty_mode) === "stamps")
+    return NextResponse.json({ error: "Happy hour is for points cards: a stamp card adds one stamp per item" }, { status: 400 });
 
   // The redeem route refuses any single earn above 1,000,000 points, so a
   // rate x limit (x happy-hour multiplier) combination above that would let the

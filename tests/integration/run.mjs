@@ -944,7 +944,18 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
     `${bToday.status}:${bToday.birthday}|${bOff.status}:${bOff.birthday}`, `200:2000-${bdToday}|200:null`);
   // the toggle-off shop's card gets a birthday that IS today, so skipping it means something
   await rows(db.from("passes").update({ birthday: `2000-${mmdd(LA)}` }).eq("serial", bOff.serial).select("serial"));
-  const year = new Intl.DateTimeFormat("en-US", { timeZone: KIRI, year: "numeric" }).format(new Date());
+  const daysAgo = (n) => new Date(Date.now() - n * 86_400_000);
+  // Only cards at least a month old on the day are credited: these were "made" 40 days ago...
+  await rows(db.from("passes").update({ created_at: daysAgo(40).toISOString() })
+    .in("serial", [bToday.serial, bOther.serial, bOff.serial]).select("serial"));
+  // ...this one 5 days ago, birthday today (joined for the treat: skipped), and
+  // this one is old but its birthday was 3 days ago (outside the 2-day catch-up)
+  const bNew = await createCard(db, bd.id, { name: "Birthday New" });
+  await rows(db.from("passes").update({ birthday: `2000-${bdToday}`, created_at: daysAgo(5).toISOString() }).eq("serial", bNew.serial).select("serial"));
+  const bOld = await createCard(db, bd.id, { name: "Birthday Gone" });
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(KIRI, daysAgo(3))}`, created_at: daysAgo(40).toISOString() }).eq("serial", bOld.serial).select("serial"));
+  const yearOf = (d) => new Intl.DateTimeFormat("en-US", { timeZone: KIRI, year: "numeric" }).format(d);
+  const year = yearOf(new Date());
   const planted = `birthday:${year}:${bOther.serial}`;
   chk("the cron's key prefix is refused from clients (redeem, adjust)", [
     (await redeem(bdCash, { serial: bOther.serial, amount: 1 }, planted)).status,
@@ -956,19 +967,31 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const devB = `t-${run}-dev-bday`;
   const tokB = `t-${run}-tok-bday`;
   chk("register device on the birthday card", (await register(devB, bToday, tokB)).status, 201);
+  // a stamp card shop's treat is one full card (its goal, 5), on its own (LA) clock
+  await rows(db.from("merchants").update({ birthday_reward: true }).eq("id", st.id).select("id"));
+  const bStamp = await createCard(db, st.id, { name: "Stamp Birthday" });
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(LA)}`, created_at: daysAgo(40).toISOString() }).eq("serial", bStamp.serial).select("serial"));
   mock.clear();
   const run1 = await cron(`Bearer ${CRON_PW}`);
   const run2 = await cron(`Bearer ${CRON_PW}`);
   chk("cron runs twice the same day", `${run1.status},${run2.status}`, "200,200");
   const bLedger = await rows(db.from("transactions").select("serial, delta, staff_id, idempotency_key")
-    .eq("reason", "bonus:birthday").in("serial", [bToday.serial, bOther.serial, bOff.serial]));
-  chk("one credit across both runs, only to the card whose birthday is today on the shop's clock (+80 = cafe's cheapest reward, no staff, key birthday:<year>:<serial>)",
-    bLedger.map((t) => `${t.serial === bToday.serial}:${t.delta}:${t.staff_id}:${t.idempotency_key === `birthday:${year}:${bToday.serial}`}`).join(","),
-    "true:80:null:true");
+    .eq("reason", "bonus:birthday").in("serial", [bToday.serial, bOther.serial, bOff.serial, bNew.serial, bOld.serial]));
+  const bName = { [bToday.serial]: "today", [bOther.serial]: "yesterday", [bOff.serial]: "off", [bNew.serial]: "new", [bOld.serial]: "3 days ago" };
+  const bKey = { [bToday.serial]: `birthday:${year}:${bToday.serial}`, [bOther.serial]: `birthday:${yearOf(daysAgo(1))}:${bOther.serial}` };
+  chk("one credit each across both runs, to today's and yesterday's birthday on the shop's clock (+80 = cafe's cheapest reward, no staff, key birthday:<year>:<serial>); the 5-day-old card, the 3-days-ago birthday and the toggle-off shop get nothing",
+    bLedger.map((t) => `${bName[t.serial]}:${t.delta}:${t.staff_id}:${t.idempotency_key === bKey[t.serial]}`).sort().join(","),
+    "today:80:null:true,yesterday:80:null:true");
   chk("birthday card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", bToday.serial)))[0]?.points, 80);
   chk("the credit pushed the card once; the replay pushed nothing", pushesTo(tokB).length, 1);
   const onDay = new Date(`2000-${bdToday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
-  chk("card back: BIRTHDAY line", field(await latestPass(bToday), "backFields", "birthday"), `80 bonus points on ${onDay}`);
+  chk("card back: BIRTHDAY line", field(await latestPass(bToday), "backFields", "birthday"),
+    `${onDay}: 80 bonus points, enough for Extra Shot (once your card is a month old)`);
+  const bsLedger = await rows(db.from("transactions").select("delta").eq("reason", "bonus:birthday").eq("serial", bStamp.serial));
+  const onLa = new Date(`2000-${mmdd(LA)}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+  chk("stamp card: the birthday credits one full card (5 stamps), and the back says so in stamps",
+    `${bsLedger.map((t) => t.delta).join(",")}|${field(await latestPass(bStamp), "backFields", "birthday")}`,
+    `5|${onLa}: 5 bonus stamps, enough for Free flat white (once your card is a month old)`);
 
   // --- happy hour: a weekly window on the shop's clock multiplies bill earns
   //     at the counter; the ledger keeps earn:purchase and the raw bill ---------
@@ -1012,6 +1035,17 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
     hLedger.map((t) => `${t.reason}:${Number(t.amount)}:${t.delta}`).join(","), "earn:purchase:10:200,earn:purchase:10:100");
   chk("happy-hour card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", hc.serial)))[0]?.points, 300);
   chk("happy hour off", `${(await setHh(null)).status}:${(await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour}`, "200:null");
+  // happy hour is a points-card booster: a stamp card refuses a window, and even
+  // a stored one (say, from before a switch to stamps) never touches a stamp
+  chk("a stamp card refuses a happy-hour window → 400 saying why",
+    await answer(await req("/api/merchant/settings", { method: "PATCH", body: { happyHour: allDay([wd]) }, j: stOwn })),
+    "400:Happy hour is for points cards: a stamp card adds one stamp per item");
+  await rows(db.from("merchants").update({ happy_hour: allDay([wd]) }).eq("id", st.id).select("id"));
+  const stTap = await (await redeem(stCash, { serial: sc.serial, stamps: 1 })).json();
+  chk("…and a stored window never multiplies a stamp (tap points:happyHour | /me | card back)",
+    `${stTap.points}:${stTap.happyHour}|${(await (await req("/api/merchant/me", { j: stCash })).json()).happyHour}|${field(await latestPass(sc), "backFields", "happyhour") ?? "none"}`,
+    "1:null|null|none");
+  await rows(db.from("merchants").update({ happy_hour: null }).eq("id", st.id).select("id"));
   chk("bill limit 100000 at 10 pts/$1", (await setCap(hmOwn, 100000)).status, 200);
   const tooRich = await setHh(allDay([wd]));
   chk("the 1,000,000 cap counts the multiplier (2× at 10 x 100000 → 400 naming 50000)",

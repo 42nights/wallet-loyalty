@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  EARN_RATE, REDEEM_TEMPLATES, STAMP_REWARD_MAX, describeHappyHour, parseHappyHour, timezoneLabel,
+  EARN_RATE, REDEEM_TEMPLATES, STAMP_REWARD_MAX, describeHappyHour, parseHappyHour, timezoneLabel, unitLabel,
   type HappyHour, type LoyaltyMode, type TemplateKey,
 } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
@@ -21,6 +21,7 @@ type Settings = {
   timezone: string;
   birthdayReward: boolean;
   birthdayBonus: number;
+  birthdayTreat: string; // the reward the birthday bonus pays for
   happyHour: HappyHour | null;
   reviewUrl: string; // "" = none
   location: string; // "lat, lng", "" = none
@@ -306,7 +307,7 @@ export default function SettingsForm() {
             </div>
           </section>
 
-          <section className="card stack" aria-labelledby="hh-h">
+          <section className="card stack" aria-labelledby="hh-h" hidden={stamps}>
             <div>
               <div className="label" id="hh-h">Happy hour</div>
               <div className={styles.help}>
@@ -371,7 +372,9 @@ export default function SettingsForm() {
               <div className="label" id="bday-h">Birthday treat</div>
               <div className={styles.help}>
                 The sign-up page asks for an optional birthday (month and day). On the day, the member&apos;s card gets{" "}
-                <b>{s.birthdayBonus} bonus points</b>, the price of your cheapest reward.
+                <b>{s.birthdayBonus} bonus {unitLabel(s.mode, s.birthdayBonus)}</b>
+                {stamps ? ", a full card" : ", the price of your cheapest reward"}: enough for {s.birthdayTreat}. Cards
+                less than a month old wait until next year.
               </div>
             </div>
             <label className={styles.check}>

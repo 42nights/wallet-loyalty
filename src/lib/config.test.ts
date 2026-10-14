@@ -9,7 +9,7 @@ import {
   redemptionsFor,
   templateKey,
   US_TIMEZONES,
-  birthdayBonus,
+  birthdayTreat,
   birthdaysOn,
   canonicalTimezone,
   describeHappyHour,
@@ -75,6 +75,7 @@ test("happy hour is read on the shop's clock, end exclusive, and strictly valida
   const la = { happy_hour: window, timezone: "America/Los_Angeles" };
   assert.equal(happyHourMultiplier(la, new Date("2026-10-14T22:30:00Z")), 2, "Wed 3:30 pm in LA");
   assert.equal(happyHourMultiplier({ ...la, timezone: "America/New_York" }, new Date("2026-10-14T22:30:00Z")), 1, "6:30 pm in NY");
+  assert.equal(happyHourMultiplier({ ...la, loyalty_mode: "stamps" }, new Date("2026-10-14T22:30:00Z")), 1, "never on a stamp card");
   assert.equal(happyHourMultiplier(la, new Date("2026-10-15T00:00:00Z")), 1, "5:00 pm sharp is outside");
   assert.equal(happyHourMultiplier(la, new Date("2026-10-18T22:30:00Z")), 1, "Sunday");
   assert.equal(happyHourMultiplier({ happy_hour: undefined }, new Date()), 1, "column missing");
@@ -104,7 +105,9 @@ test("birthdays: today on the shop's clock, Feb 29 on Feb 28 in common years, bo
   assert.deepEqual(birthdaysOn({ year: 2028, month: 2, day: 29 }), ["2000-02-29"]);
   assert.deepEqual(birthdaysOn({ year: 2026, month: 3, day: 1 }), ["2000-03-01"]);
 
-  assert.deepEqual(["cafe", "restaurant", "retail", "nope"].map((k) => birthdayBonus({ redeem_template: k })), [80, 100, 300, 100]);
+  assert.deepEqual(["cafe", "restaurant", "retail", "nope"].map((k) => birthdayTreat({ redeem_template: k }).bonus), [80, 100, 300, 100]);
+  // a stamp card's treat is one full card, not the template's cheapest points
+  assert.deepEqual(birthdayTreat({ loyalty_mode: "stamps", stamp_goal: 8, stamp_reward: "Free bagel", redeem_template: "cafe" }), { bonus: 8, reward: "Free bagel" });
 
   for (const z of US_TIMEZONES) assert.equal(canonicalTimezone(z.id), z.id);
   assert.equal(canonicalTimezone("america/chicago"), "America/Chicago");
