@@ -667,3 +667,13 @@ create table if not exists digests (
   created_at  timestamptz default now()
 );
 create index if not exists digests_merchant_idx on digests (merchant_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Grants. Newer Supabase projects (and the local CLI stack) no longer grant
+-- table access to service_role by default, so the server client gets
+-- "permission denied" without these. Idempotent; service_role stays server-only.
+-- ---------------------------------------------------------------------------
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
