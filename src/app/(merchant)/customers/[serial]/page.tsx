@@ -1,10 +1,11 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { getStaff } from "@/lib/auth";
+import { getStaff, signCardLink } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { findAction } from "@/lib/config";
+import { findAction, PUBLIC_BASE_URL } from "@/lib/config";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
+import ResendCard from "./ResendCard";
 
 export const runtime = "nodejs";
 
@@ -60,6 +61,7 @@ export default async function CustomerPage({
   if (!p) notFound();
 
   const d = (s: string | null) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
+  const cardLink = `${PUBLIC_BASE_URL}/api/enroll?card=${await signCardLink(p.serial)}`;
 
   return (
     <div className="wrap">
@@ -90,6 +92,10 @@ export default async function CustomerPage({
 
       <div style={{ marginTop: 12 }}>
         <AdjustPoints serial={p.serial} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <ResendCard link={cardLink} />
       </div>
 
       <div style={{ marginTop: 12 }}>

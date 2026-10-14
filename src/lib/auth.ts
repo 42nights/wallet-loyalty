@@ -8,14 +8,14 @@ const COOKIE = "staff_session";
 // Resolved lazily (not at import) so `next build` doesn't need the env, but a
 // missing secret in production is a hard error — never sign/verify with a known
 // constant in prod (that would let anyone forge a session).
-function secretKey(): Uint8Array {
+function secretKey(purpose = ""): Uint8Array {
   const s = process.env.SESSION_SECRET;
   if (!s) {
     if (process.env.NODE_ENV === "production")
       throw new Error("SESSION_SECRET is not set");
-    return new TextEncoder().encode("dev-only-insecure-secret");
+    return new TextEncoder().encode("dev-only-insecure-secret" + purpose);
   }
-  return new TextEncoder().encode(s);
+  return new TextEncoder().encode(s + purpose);
 }
 
 export type Role = "owner" | "cashier";
@@ -72,6 +72,23 @@ export async function getStaff(): Promise<Staff | null> {
       merchantId: (payload.merchantId as string) ?? null,
       role: (payload.role as Role) ?? "cashier",
     };
+  } catch {
+    return null;
+  }
+}
+
+export async function signCardLink(serial: string): Promise<string> {
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(serial)
+    .setExpirationTime("1h")
+    .sign(secretKey(":card-link"));
+}
+
+export async function verifyCardLink(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, secretKey(":card-link"));
+    return payload.sub ?? null;
   } catch {
     return null;
   }

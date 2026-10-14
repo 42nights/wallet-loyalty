@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID, randomBytes } from "node:crypto";
 import { db } from "@/lib/supabase";
-import { wallet } from "@/lib/wallet";
+import { wallet, type PassData } from "@/lib/wallet";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
+import { verifyCardLink } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -61,18 +62,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not create card" }, { status: 500 });
   }
 
-  const { buffer, contentType } = await wallet.buildPass({
-    serial,
-    merchantId: merchant.id,
-    points: 0,
-    authToken,
-  });
+  return passResponse({ serial, merchantId: merchant.id, points: 0, authToken });
+}
 
+export async function GET(req: NextRequest) {
+  const serial = await verifyCardLink(req.nextUrl.searchParams.get("card") ?? "");
+  if (!serial)
+    return new NextResponse("This card link has expired. Ask staff for a new one.", { status: 410 });
+
+  const { data: pass } = await db.from("passes").select("*").eq("serial", serial).single();
+  if (!pass) return new NextResponse("Card not found", { status: 404 });
+
+  return passResponse({
+    serial,
+    merchantId: pass.merchant_id,
+    points: pass.points,
+    authToken: pass.auth_token,
+    updatedAt: new Date(pass.updated_at),
+    offerText: pass.offer_text ?? null,
+  });
+}
+
+async function passResponse(data: PassData) {
+  const { buffer, contentType } = await wallet.buildPass(data);
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="loyalty-${serial}.pkpass"`,
+      "Content-Disposition": `attachment; filename="loyalty-${data.serial}.pkpass"`,
     },
   });
 }
