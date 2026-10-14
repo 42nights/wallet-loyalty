@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
-import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
+import { UUID_RE, formatLocation, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
 import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, day, nf } from "../../ui";
@@ -40,6 +40,9 @@ type MerchantRow = {
   label_color: string | null;
   assets_updated_at: string | null;
   created_at: string | null;
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 export default async function AdminMerchantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,11 +51,9 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
   if (!UUID_RE.test(id)) notFound();
 
   const [{ data: m }, { data: staff }, stats, art] = await Promise.all([
-    db
-      .from("merchants")
-      .select("id, name, slug, earn_rate, redeem_template, bg_color, fg_color, label_color, assets_updated_at, created_at")
-      .eq("id", id)
-      .maybeSingle<MerchantRow>(),
+    // "*": review_url / latitude / longitude may not exist yet on an
+    // un-migrated database, and the editor then shows them empty
+    db.from("merchants").select("*").eq("id", id).maybeSingle<MerchantRow>(),
     db
       .from("staff")
       .select("id, username, role, created_at")
@@ -103,6 +104,8 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
                 fg: rgbToHex(m.fg_color, themeHex(template).fg),
                 label: rgbToHex(m.label_color, themeHex(template).label),
               },
+              reviewUrl: m.review_url ?? "",
+              location: formatLocation(m.latitude, m.longitude),
             }}
             logo={art["logo@2x.png"] ?? art["logo.png"]}
             strip={art["strip@2x.png"] ?? art["strip.png"] ?? art["strip@3x.png"]}

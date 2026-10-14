@@ -571,6 +571,50 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("re-downloaded card shows the balance, QR and change message again",
     `${field(rPass, "primaryFields", "points")}:${(rPass.barcodes ?? []).length}:${Boolean(rPass.storeCard?.headerFields?.[0]?.changeMessage)}`, "30:1:true");
 
+  // --- review link + lock-screen location (owner Settings): https only; the
+  //     back-of-card link appears from the 3rd earn visit; the pass carries the
+  //     shop's coordinates; each save pushes the merchant's cards -------------
+  console.log("review link + location");
+  const rv = await createMerchant(db, run, { key: "rev", template: "cafe", earnRate: 10 });
+  const rvOwn = jar();
+  const rvCash = jar();
+  await login(rvOwn, rv.owner);
+  await login(rvCash, rv.cashier);
+  const settingsPatch = (j, body) => req("/api/merchant/settings", { method: "PATCH", body, j });
+  chk("review link http:// → 400", (await settingsPatch(rvOwn, { reviewUrl: "http://example.com/review" })).status, 400);
+  chk("review link javascript: → 400", (await settingsPatch(rvOwn, { reviewUrl: "javascript:alert(1)" })).status, 400);
+  chk("review link over 500 characters → 400",
+    (await settingsPatch(rvOwn, { reviewUrl: `https://example.com/${"a".repeat(481)}` })).status, 400);
+  chk("a cashier cannot set it → 403", (await settingsPatch(rvCash, { reviewUrl: "https://example.com/r" })).status, 403);
+  const reg = await createCard(db, rv.id, { name: "Regular" });
+  const devR = `t-${run}-dev-review`;
+  const tokR = `t-${run}-tok-review`;
+  chk("register device on the card", (await register(devR, reg, tokR)).status, 201);
+  for (const amount of [4, 6]) await redeem(rvCash, { serial: reg.serial, amount });
+  const tagR = (await (await updatable(devR)).json()).lastUpdated;
+  mock.clear();
+  const reviewUrl = `https://g.page/r/${run}/review?a=1&b=2`;
+  const sv = await settingsPatch(rvOwn, { reviewUrl });
+  chk("owner saves an https review link", `${sv.status}:${(await sv.json()).reviewUrl}`, `200:${reviewUrl}`);
+  chk("saving pushes the merchant's card", pushesTo(tokR).length, 1);
+  chk("the card appears in passesUpdatedSince", await listed(await updatable(devR, tagR), reg.serial), true);
+  chk("2 visits: no review field yet", field(await latestPass(reg), "backFields", "review"), undefined);
+  await redeem(rvCash, { serial: reg.serial, amount: 5 });
+  const third = (await latestPass(reg)).storeCard?.backFields?.find((f) => f.key === "review");
+  chk("3 visits: 'Enjoying <name>?' review field", third?.label, `Enjoying Test rev ${run}?`);
+  chk("its link is the saved URL, HTML-escaped",
+    third?.attributedValue, `<a href='https://g.page/r/${run}/review?a=1&#38;b=2'>Leave us a review</a>`);
+  chk("location that isn't 'lat, lng' → 400", (await settingsPatch(rvOwn, { location: "Main St" })).status, 400);
+  chk("latitude above 90 → 400", (await settingsPatch(rvOwn, { location: "91, 10" })).status, 400);
+  chk("longitude below -180 → 400", (await settingsPatch(rvOwn, { location: "10, -181" })).status, 400);
+  const sl = await settingsPatch(rvOwn, { location: " 37.77493,-122.41942 " });
+  chk("owner saves a pasted location", `${sl.status}:${(await sl.json()).location}`, "200:37.77493, -122.41942");
+  const loc = (await latestPass(reg)).locations ?? [];
+  chk("the pass carries it with relevantText",
+    loc.map((l) => `${l.latitude},${l.longitude},${l.relevantText}`).join("|"), `37.77493,-122.41942,Show your Test rev ${run} card`);
+  chk("clearing the location → 200", (await settingsPatch(rvOwn, { location: "" })).status, 200);
+  chk("cleared: the pass has no locations", JSON.stringify((await latestPass(reg)).locations ?? null), "null");
+
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
   //     redeem route's 1,000,000-point cap ---------------------------------------
@@ -595,6 +639,13 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+  const admPatch = (body) => req(`/api/admin/merchants/${adm.id}`, { method: "PATCH", body, j: admin });
+  chk("admin review link javascript: → 400", (await admPatch({ reviewUrl: "javascript:alert(1)" })).status, 400);
+  chk("admin review link http:// → 400", (await admPatch({ reviewUrl: "http://example.com/r" })).status, 400);
+  chk("admin location out of range → 400", (await admPatch({ location: "40.7, 200" })).status, 400);
+  chk("admin saves a review link and a location", (await admPatch({ reviewUrl: "https://example.com/r", location: "40.7128, -74.006" })).status, 200);
+  const [admRow] = await rows(db.from("merchants").select("review_url, latitude, longitude").eq("id", adm.id));
+  chk("stored as given", `${admRow?.review_url}|${admRow?.latitude}|${admRow?.longitude}`, "https://example.com/r|40.7128|-74.006");
 }
 
 // ---------------------------------------------------------------------------

@@ -3,13 +3,15 @@ import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { merchantFields, UUID_RE } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
+import { refreshMerchantCards } from "@/lib/wallet";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; // refreshMerchantCards pushes via APNs (http2)
 
 type Params = { params: Promise<{ id: string }> };
 
 // PATCH /api/admin/merchants/{id}
-// body: any of { name, earnRate, template, bgColor, fgColor, labelColor }.
+// body: any of { name, earnRate, template, bgColor, fgColor, labelColor,
+// reviewUrl, location }. A save pushes the merchant's cards to re-fetch.
 // The slug is deliberately not editable: it is printed on counter posters and
 // baked into links customers already have.
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -49,5 +51,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
   if (!data?.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // every field this route edits is printed on the card
+  await refreshMerchantCards(id);
   return NextResponse.json({ ok: true });
 }

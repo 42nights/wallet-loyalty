@@ -26,7 +26,8 @@ const STORAGE_BUCKET = "pass-assets";
 
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
-// (earn_rate, redeem_template) are therefore optional here.
+// (earn_rate, redeem_template, review_url, latitude, longitude) are therefore
+// optional here.
 type MerchantRow = {
   id: string;
   name: string;
@@ -36,7 +37,14 @@ type MerchantRow = {
   assets_updated_at: string | null;
   earn_rate?: number | string | null;
   redeem_template?: string | null;
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
+
+// The review link joins the back of the card from this many earn visits on
+// (the same "visits" as the owner's customer page: ledger rows "earn:…").
+const REVIEW_AFTER_VISITS = 3;
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
 // rgb()/hex from the merchant row (normalised to "rgb(r,g,b)" so it compares
@@ -208,6 +216,28 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   if (!voided && offerText && offerText.trim()) {
     pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
   }
+  // The merchant's review link, once the customer is a regular. Only ever a
+  // link: nothing is earned or unlocked by leaving a review.
+  const reviewUrl = merchant?.review_url;
+  if (!voided && merchantId && reviewUrl) {
+    const { count } = await db
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", merchantId)
+      .eq("serial", serial)
+      .like("reason", "earn:%");
+    if ((count ?? 0) >= REVIEW_AFTER_VISITS) {
+      // attributedValue takes HTML (Apple allows <a href> only) and overrides
+      // value; value stays as the plain fallback (watchOS shows that one).
+      const href = reviewUrl.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      pass.backFields.push({
+        key: "review",
+        label: `Enjoying ${orgName}?`,
+        value: `Leave us a review: ${reviewUrl}`,
+        attributedValue: `<a href='${href}'>Leave us a review</a>`,
+      });
+    }
+  }
   const parsedRate = Number(merchant?.earn_rate ?? 1);
   const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
   pass.backFields.push(
@@ -248,6 +278,16 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
       message: serial,
       messageEncoding: "iso-8859-1",
     });
+  }
+
+  // Lock-screen relevance: near the shop, iOS may offer the card on the Lock
+  // Screen with this text (Apple's Pass.locations, up to 10; we send the one
+  // shop). Whether it shows is iOS's call (Location Services, the card's
+  // "Suggest on Lock Screen" switch), so check it in the RUNBOOK §5 device test.
+  const lat = Number(merchant?.latitude ?? NaN);
+  const lng = Number(merchant?.longitude ?? NaN);
+  if (!voided && Number.isFinite(lat) && Number.isFinite(lng)) {
+    pass.setLocations({ latitude: lat, longitude: lng, relevantText: `Show your ${orgName} card` });
   }
 
   return pass.getAsBuffer();

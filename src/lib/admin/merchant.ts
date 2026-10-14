@@ -70,7 +70,50 @@ export type MerchantUpdate = {
   bg_color?: string | null;
   fg_color?: string | null;
   label_color?: string | null;
+  review_url?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
+
+type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
+
+// The "Leave us a review" link on the back of the card (merchants.review_url).
+// https only: Wallet makes it tappable, so javascript:, http: and the like are
+// refused. Empty or null clears it. Stored as the parsed URL (spaces and the
+// like percent-encoded), at most 500 characters.
+export const REVIEW_URL_MAX = 500;
+export function parseReviewUrl(v: unknown): Parsed<string | null> {
+  if (v === null || (typeof v === "string" && !v.trim())) return { ok: true, value: null };
+  let url: URL | null = null;
+  try {
+    url = typeof v === "string" ? new URL(v.trim()) : null;
+  } catch {
+    /* not a URL */
+  }
+  if (!url || url.protocol !== "https:")
+    return { ok: false, error: "Enter the full review link, starting with https://" };
+  if (url.href.length > REVIEW_URL_MAX)
+    return { ok: false, error: `Use a review link of ${REVIEW_URL_MAX} characters or fewer` };
+  return { ok: true, value: url.href };
+}
+
+// The shop's coordinates as Google Maps copies them: right-click the shop,
+// click the "37.77493, -122.41942" line. Empty or null clears both.
+export function parseLocation(v: unknown): Parsed<{ latitude: number; longitude: number } | null> {
+  if (v === null || (typeof v === "string" && !v.trim())) return { ok: true, value: null };
+  const m = typeof v === "string" ? /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(v) : null;
+  if (!m) return { ok: false, error: "Paste the coordinates as lat, lng, like 37.77493, -122.41942" };
+  const latitude = Number(m[1]);
+  const longitude = Number(m[2]);
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180)
+    return { ok: false, error: "Latitude goes from -90 to 90 and longitude from -180 to 180" };
+  return { ok: true, value: { latitude, longitude } };
+}
+
+// Stored coordinates back into the one "lat, lng" box ("" when unset).
+export function formatLocation(lat: unknown, lng: unknown): string {
+  return lat != null && lng != null ? `${Number(lat)}, ${Number(lng)}` : "";
+}
 
 const COLOR_FIELDS = [
   ["bgColor", "bg_color", "Background"],
@@ -108,6 +151,19 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
     const v = b[key];
     if (v !== null && !isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
     out[col] = v;
+  }
+  // Optional even on create, so creating a merchant never writes these
+  // columns (a database without them still works).
+  if (b.reviewUrl !== undefined) {
+    const r = parseReviewUrl(b.reviewUrl);
+    if (!r.ok) return r.error;
+    out.review_url = r.value;
+  }
+  if (b.location !== undefined) {
+    const r = parseLocation(b.location);
+    if (!r.ok) return r.error;
+    out.latitude = r.value?.latitude ?? null;
+    out.longitude = r.value?.longitude ?? null;
   }
 
   // One careless colour pick would otherwise ship an unreadable card to every
