@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { applyTransaction } from "@/lib/points";
+import { applyPoints } from "@/lib/points";
 import { wallet } from "@/lib/wallet";
 
-export const runtime = "nodejs"; // applyTransaction + wallet.notify push via APNs
+export const runtime = "nodejs"; // wallet.notify pushes via APNs
 
 const SEGMENTS = ["vip", "regular", "new", "active", "at_risk", "lapsed", "dormant"] as const;
 const MAX_TARGETS = 2000; // café-scale guard; one APNs push per targeted card
+const APPLY_CONCURRENCY = 10;
+const WRITE_CHUNK = 100;
 
 type SegCustomer = { serial: string; segment: string };
 
@@ -34,7 +36,7 @@ export async function GET() {
   return NextResponse.json({ campaigns });
 }
 
-// POST /api/merchant/campaigns  body: { name, segment, bonusPoints, offerText? }
+// POST /api/merchant/campaigns  body: { id?, name, segment, bonusPoints, offerText? }
 // Creates a campaign and sends it: credits +bonus to every card in the target
 // segment via apply_points (reason campaign:<id>, idempotency <id>:<serial>),
 // optionally sets a Wallet win-back back-field, and notifies devices. The ledger
@@ -45,11 +47,27 @@ export async function POST(req: NextRequest) {
   const m = owner.merchantId;
 
   const b = await req.json().catch(() => ({}));
-  const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) : "";
-  const segment = SEGMENTS.includes(b.segment) ? (b.segment as string) : "";
-  const bonus = Math.trunc(Number(b.bonusPoints));
-  const offerText =
-    typeof b.offerText === "string" && b.offerText.trim()
+  const id = typeof b.id === "string" ? b.id : null;
+
+  const { data: existing } = id
+    ? await db
+        .from("campaigns")
+        .select("id, name, segment, bonus_points, offer_text, targeted, status")
+        .eq("id", id)
+        .eq("merchant_id", m)
+        .maybeSingle()
+    : { data: null };
+  if (existing?.status === "sent")
+    return NextResponse.json({ ok: true, campaignId: existing.id, targeted: existing.targeted });
+
+  const name: string =
+    existing?.name ?? (typeof b.name === "string" ? b.name.trim().slice(0, 80) : "");
+  const segment: string =
+    existing?.segment ?? (SEGMENTS.includes(b.segment) ? (b.segment as string) : "");
+  const bonus: number = existing?.bonus_points ?? Math.trunc(Number(b.bonusPoints));
+  const offerText: string | null = existing
+    ? existing.offer_text
+    : typeof b.offerText === "string" && b.offerText.trim()
       ? b.offerText.trim().slice(0, 120)
       : null;
 
@@ -70,70 +88,67 @@ export async function POST(req: NextRequest) {
   if (serials.length === 0)
     return NextResponse.json({ error: "No customers in that segment" }, { status: 422 });
 
-  // Create the campaign row first so bonuses can reference its id.
-  const { data: campaign, error: cErr } = await db
-    .from("campaigns")
-    .insert({
-      merchant_id: m,
-      name,
-      segment,
-      bonus_points: bonus,
-      offer_text: offerText,
-      targeted: serials.length,
-      created_by: owner.id,
-    })
-    .select("id")
-    .single();
-  if (cErr || !campaign)
-    return NextResponse.json({ error: "Could not create campaign" }, { status: 500 });
-  const campaignId = campaign.id as string;
+  let campaignId: string | undefined = existing?.id;
+  if (!campaignId) {
+    const { data: campaign, error: cErr } = await db
+      .from("campaigns")
+      .insert({
+        ...(id ? { id } : {}),
+        merchant_id: m,
+        name,
+        segment,
+        bonus_points: bonus,
+        offer_text: offerText,
+        targeted: serials.length,
+        created_by: owner.id,
+      })
+      .select("id")
+      .single();
+    if (cErr || !campaign)
+      return NextResponse.json({ error: "Could not create campaign" }, { status: 500 });
+    campaignId = campaign.id as string;
+  }
   const reason = `campaign:${campaignId}`;
 
-  let applied = 0;
-  const offerOnly: string[] = [];
-  for (const serial of serials) {
-    // Set the win-back copy BEFORE notifying, so the device's re-fetch (triggered
-    // by apply_points below, or the batch notify for offer-only) sees the offer.
-    if (offerText) {
+  if (offerText) {
+    const updatedAt = new Date().toISOString();
+    for (let i = 0; i < serials.length; i += WRITE_CHUNK) {
       await db
         .from("passes")
-        .update({ offer_text: offerText, updated_at: new Date().toISOString() })
-        .eq("serial", serial)
-        .eq("merchant_id", m);
+        .update({ offer_text: offerText, updated_at: updatedAt })
+        .eq("merchant_id", m)
+        .in("serial", serials.slice(i, i + WRITE_CHUNK));
     }
-    let pointsApplied = 0;
-    if (bonus > 0) {
-      const r = await applyTransaction(
-        serial,
-        bonus,
-        reason,
-        owner.id,
-        m,
-        `${campaignId}:${serial}`, // idempotent: re-running never double-credits
-        null
-      );
-      if (r.ok) {
-        pointsApplied = r.replay ? 0 : bonus;
-        applied += 1;
-      }
-    } else {
-      offerOnly.push(serial); // offer-only: notify in one batch below
-    }
-    await db
-      .from("campaign_sends")
-      .upsert(
-        { campaign_id: campaignId, merchant_id: m, serial, points_applied: pointsApplied },
-        { onConflict: "campaign_id,serial" }
-      );
   }
 
-  // Offer-only cards got no apply_points push; nudge them to re-fetch the offer.
-  if (offerOnly.length) {
-    try {
-      await wallet.notify(offerOnly);
-    } catch (e) {
-      console.warn("campaign notify failed:", e instanceof Error ? e.message : e);
-    }
+  const credited = new Set<string>();
+  if (bonus > 0) {
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: APPLY_CONCURRENCY }, async () => {
+        while (next < serials.length) {
+          const serial = serials[next++];
+          const r = await applyPoints(serial, bonus, reason, owner.id, m, `${campaignId}:${serial}`, null);
+          if (r.ok) credited.add(serial);
+        }
+      })
+    );
+  }
+
+  await db.from("campaign_sends").upsert(
+    serials.map((serial) => ({
+      campaign_id: campaignId,
+      merchant_id: m,
+      serial,
+      points_applied: credited.has(serial) ? bonus : 0,
+    })),
+    { onConflict: "campaign_id,serial" }
+  );
+
+  try {
+    await wallet.notify(serials);
+  } catch (e) {
+    console.warn("campaign notify failed:", e instanceof Error ? e.message : e);
   }
 
   await db
@@ -146,6 +161,6 @@ export async function POST(req: NextRequest) {
     ok: true,
     campaignId,
     targeted: serials.length,
-    applied: bonus > 0 ? applied : offerOnly.length,
+    applied: bonus > 0 ? credited.size : serials.length,
   });
 }

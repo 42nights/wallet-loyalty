@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Segment = { key: string; label: string; count: number };
 type Lift = { targeted: number; earned_after: number; lift_pct: number };
@@ -24,6 +24,7 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
   const [offer, setOffer] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+  const sendId = useMemo(() => crypto.randomUUID(), [name, segment, bonus, offer]);
 
   const segLabel = (k: string) => segments.find((s) => s.key === k)?.label ?? k;
   const targetCount = segments.find((s) => s.key === segment)?.count ?? 0;
@@ -39,27 +40,38 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
     load();
   }, [load]);
 
-  async function send() {
-    if (busy || !name.trim()) return;
+  async function post(body: object): Promise<boolean> {
     setBusy(true);
     setMsg(null);
     const r = await fetch("/api/merchant/campaigns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        segment,
-        bonusPoints: parseInt(bonus, 10) || 0,
-        offerText: offer.trim() || undefined,
-      }),
+      body: JSON.stringify(body),
     });
     setBusy(false);
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) return setMsg({ kind: "bad", text: d.error || "Failed" });
+    if (!r.ok) {
+      setMsg({ kind: "bad", text: d.error || "Failed" });
+      return false;
+    }
     setMsg({ kind: "ok", text: `Sent to ${d.targeted} customer${d.targeted === 1 ? "" : "s"}.` });
-    setName("");
-    setOffer("");
     await load();
+    return true;
+  }
+
+  async function send() {
+    if (busy || !name.trim()) return;
+    const sent = await post({
+      id: sendId,
+      name: name.trim(),
+      segment,
+      bonusPoints: parseInt(bonus, 10) || 0,
+      offerText: offer.trim() || undefined,
+    });
+    if (sent) {
+      setName("");
+      setOffer("");
+    }
   }
 
   return (
@@ -112,9 +124,15 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
               </div>
             </div>
             <div className="label" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-              {c.lift
-                ? `${c.lift.lift_pct}% came back (${c.lift.earned_after}/${c.lift.targeted})`
-                : c.status}
+              {c.lift ? (
+                `${c.lift.lift_pct}% came back (${c.lift.earned_after}/${c.lift.targeted})`
+              ) : c.status === "draft" ? (
+                <button className="btn btn-ghost" disabled={busy} onClick={() => post({ id: c.id })}>
+                  Finish sending
+                </button>
+              ) : (
+                c.status
+              )}
               <br />
               {c.sent_at ? new Date(c.sent_at).toLocaleDateString("en-GB") : ""}
             </div>
