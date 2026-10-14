@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { findAction } from "@/lib/config";
+import { formatPhone } from "@/lib/format";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
 import SendCardPanel from "@/components/SendCardPanel";
@@ -74,7 +75,7 @@ export default async function CustomerPage({
         <div>
           <div className="label">{p.name || "Customer"}</div>
           <div className="balance">{nf(p.points)}</div>
-          <div className="label">points · {p.phone || "no phone"}</div>
+          <div className="label">points · {formatPhone(p.phone) || "no phone"}</div>
         </div>
       </div>
 
