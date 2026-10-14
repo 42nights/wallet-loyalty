@@ -1033,7 +1033,7 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const onLa = new Date(`2000-${mmdd(LA)}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
   chk("stamp card: the birthday credits one full card (5 stamps), and the back says so in stamps",
     `${bsLedger.map((t) => t.delta).join(",")}|${field(await latestPass(bStamp), "backFields", "birthday")}`,
-    `5|${onLa}: 5 bonus stamps, enough for Free flat white (once your card is a month old)`);
+    `5|${onLa}: 5 bonus stamps, enough for Free cortado (once your card is a month old)`); // renamed in "admin stamp cards"
 
   // --- happy hour: a weekly window on the shop's clock multiplies bill earns
   //     at the counter; the ledger keeps earn:purchase and the raw bill ---------
