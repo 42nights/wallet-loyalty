@@ -15,6 +15,23 @@ export type ApplyResult =
 type ApplyRow = { status: string; balance: number | null };
 
 export async function applyTransaction(
+  ...args: Parameters<typeof applyPoints>
+): Promise<ApplyResult> {
+  const result = await applyPoints(...args);
+  if (result.ok && !result.replay) {
+    // a real change → tell every device holding this card to re-fetch.
+    // Best-effort: the balance is already committed, so a push error must not
+    // turn a successful redeem/earn into a failure response.
+    try {
+      await wallet.notify([args[0]]);
+    } catch (e) {
+      console.warn("wallet.notify failed:", e instanceof Error ? e.message : e);
+    }
+  }
+  return result;
+}
+
+export async function applyPoints(
   serial: string,
   delta: number,
   reason: string,
@@ -41,14 +58,6 @@ export async function applyTransaction(
 
   switch (row.status) {
     case "applied":
-      // a real change → tell every device holding this card to re-fetch.
-      // Best-effort: the balance is already committed, so a push error must not
-      // turn a successful redeem/earn into a failure response.
-      try {
-        await wallet.notify([serial]);
-      } catch (e) {
-        console.warn("wallet.notify failed:", e instanceof Error ? e.message : e);
-      }
       return { ok: true, newBalance: row.balance ?? 0, replay: false };
     case "replay":
       // duplicate (idempotent retry): balance unchanged, no push needed
