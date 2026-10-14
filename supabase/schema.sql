@@ -707,3 +707,19 @@ alter table merchants add column if not exists redeem_template text not null def
 -- /settings (10 - 100000). Code that reads it falls back to 1000 when the
 -- column is missing, so an un-migrated database behaves like this default.
 alter table merchants add column if not exists max_bill numeric not null default 1000;
+
+-- --- Earn boosters: time zone, birthday treat, happy hour (2026-10-14) -------
+-- Additive only. Code reads these with select("*") and falls back to the
+-- defaults below, so a database without them yet behaves as "both off".
+-- timezone: IANA name the shop's clock runs on (happy-hour window, "today" for
+--   birthdays). The API only stores names Intl accepts; /admin offers the US zones.
+-- birthday_reward: owner toggle. When on, enroll asks for an optional month and
+--   day, stored in passes.birthday with the placeholder year 2000 (a leap year,
+--   so Feb 29 fits), and the daily /api/cron/birthday credits the cheapest
+--   reward's cost once per year (key birthday:<year>:<serial>).
+-- happy_hour: null = off, else {"days":[0-6, 0=Sun],"start":"HH:MM","end":"HH:MM",
+--   "multiplier":2|3}, validated by the settings route. Bill earns inside the
+--   window are multiplied; the ledger keeps reason earn:purchase and the raw bill.
+alter table merchants add column if not exists timezone text not null default 'America/Los_Angeles';
+alter table merchants add column if not exists birthday_reward boolean not null default false;
+alter table merchants add column if not exists happy_hour jsonb;
