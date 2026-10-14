@@ -6,19 +6,24 @@ import s from "../../admin.module.css";
 
 const NAMES = Object.keys(WALLET_ASSETS) as WalletAsset[];
 
+type TileMsg = { ok: boolean; text: string };
+
 // One slot per file buildApplePass() reads. Picking a file uploads it right
-// away; the server checks it's a PNG of Apple's size before storing it.
+// away; the server checks it's a PNG of Apple's size before storing it. Each
+// tile reports on itself: the picked file's name, then "uploaded" or the
+// server's reason for refusing it.
 export default function AssetUploader({ merchantId, art }: { merchantId: string; art: Record<string, string> }) {
   const router = useRouter();
   const [busy, setBusy] = useState<WalletAsset | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msgs, setMsgs] = useState<Partial<Record<WalletAsset, TileMsg>>>({});
+  const say = (name: WalletAsset, msg: TileMsg) => setMsgs((m) => ({ ...m, [name]: msg }));
 
   async function upload(name: WalletAsset, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     setBusy(name);
-    setMsg(null);
+    say(name, { ok: true, text: `Uploading ${file.name}…` });
     const form = new FormData();
     form.set("name", name);
     form.set("file", file);
@@ -26,19 +31,22 @@ export default function AssetUploader({ merchantId, art }: { merchantId: string;
     const data = await res.json().catch(() => ({}));
     setBusy(null);
     if (res.status === 401) return router.push("/admin/login");
-    if (!res.ok) return setMsg({ ok: false, text: data.error || "Upload failed" });
-    setMsg({ ok: true, text: `${name} uploaded. New cards get it now; existing cards on their next refresh.` });
+    if (!res.ok) return say(name, { ok: false, text: `${file.name}: ${data.error || "upload failed"}` });
+    say(name, { ok: true, text: `${file.name} uploaded` });
     router.refresh();
   }
 
   return (
     <div className="stack">
       <div className="label" style={{ textTransform: "none", letterSpacing: 0, fontSize: 12 }}>
-        PNG only. Icon and strip must match the size exactly; the logo must fit inside its box. Missing files fall back to the default art. Max 2 MB each.
+        PNG only. Icon and strip must match the size exactly; the logo must fit inside its box. Missing files fall
+        back to the default art. Max 2 MB each. New cards get new art right away; cards already in Wallets on
+        their next refresh.
       </div>
       <div className={s.artGrid}>
         {NAMES.map((name) => {
           const spec = WALLET_ASSETS[name];
+          const msg = msgs[name];
           return (
             <div className={s.artSlot} key={name}>
               <div className={s.artHead}>
@@ -54,19 +62,27 @@ export default function AssetUploader({ merchantId, art }: { merchantId: string;
                   <span>default</span>
                 )}
               </div>
-              <input
-                type="file"
-                accept="image/png"
-                aria-label={`Upload ${name}`}
-                disabled={busy !== null}
-                onChange={(e) => upload(name, e)}
-              />
-              {busy === name && <span className={s.hint}>Uploading…</span>}
+              {/* The native input is visually hidden inside a styled label, so
+                  the label is the button and the input keeps focus + a11y. */}
+              <label className={`btn btn-ghost ${s.upload}`}>
+                {busy === name ? "Uploading…" : "Upload"}
+                <input
+                  type="file"
+                  accept="image/png"
+                  aria-label={`Upload ${name}`}
+                  disabled={busy !== null}
+                  onChange={(e) => upload(name, e)}
+                />
+              </label>
+              {msg && (
+                <span className={`${s.hint} ${msg.ok ? "" : s.bad}`} role={msg.ok ? "status" : "alert"}>
+                  {msg.text}
+                </span>
+              )}
             </div>
           );
         })}
       </div>
-      {msg && <div className={`toast ${msg.ok ? "ok" : "bad"}`} role="status">{msg.text}</div>}
     </div>
   );
 }
