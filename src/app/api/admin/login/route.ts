@@ -12,12 +12,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Admin is disabled: ADMIN_PASSWORD is not set" }, { status: 503 });
 
   // Counted before anything else so malformed attempts also burn the budget.
-  // There is no username, so per-IP is the only key: 5 tries / minute.
-  const allowed = await rateLimit(`admin-login:${clientIp(req)}`, 5, 60);
+  // There is no username, so per-IP is the only per-client key (5 / minute).
+  // clientIp() trusts X-Forwarded-For, which a client can rotate, so a global
+  // bucket caps total guesses at the one secret that controls every merchant.
+  const allowed =
+    (await rateLimit("admin-login", 20, 600)) &&
+    (await rateLimit(`admin-login:${clientIp(req)}`, 5, 60));
   if (!allowed)
-    return NextResponse.json({ error: "Too many attempts, try again in a minute" }, { status: 429 });
+    return NextResponse.json({ error: "Too many attempts, try again later" }, { status: 429 });
 
-  const { password } = await req.json().catch(() => ({}));
+  const body: unknown = await req.json().catch(() => null);
+  const password = body && typeof body === "object" ? (body as { password?: unknown }).password : undefined;
   if (typeof password !== "string" || !password)
     return NextResponse.json({ error: "Missing password" }, { status: 400 });
   if (!safeEqual(password, expected))
