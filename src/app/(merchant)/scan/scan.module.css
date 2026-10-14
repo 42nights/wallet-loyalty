@@ -19,3 +19,33 @@
 .pick:hover, .pick:focus-visible { border-color: var(--accent); }
 .pickName { font-family: var(--display); font-weight: 700; font-size: 16px; }
 .pickMeta { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+/* scanner could not start (no camera / permission / not https) */
+.camera {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+/* a reward the balance can't cover: dimmed, not tappable, shortfall spelled out */
+.short { cursor: not-allowed; border-style: dashed; }
+.short:disabled:hover { border-color: var(--line); }
+.short > :not(.need) { opacity: .45; }
+.need { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+.billErr { font-size: 13px; color: var(--bad); margin-top: 6px; }
+
+/* inline confirm for a big bill (half the merchant's limit or more) */
+.confirm {
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  font-size: 15px;
+  line-height: 1.45;
+}
+.confirm > * + * { margin-top: 12px; }
+.confirm b { font-family: var(--display); }

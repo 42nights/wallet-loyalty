@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Action } from "@/lib/config";
 import SendCardPanel from "@/components/SendCardPanel";
+import { parseBill } from "./bill";
 import styles from "./scan.module.css";
 
 type Customer = { serial: string; name: string | null; points: number };
@@ -18,10 +18,14 @@ export default function ScanPage() {
   const [phone, setPhone] = useState("");
   const [matches, setMatches] = useState<PhoneMatch[] | null>(null);
   const [bill, setBill] = useState("");
+  const [billErr, setBillErr] = useState(false);
+  // a big bill the server wants confirmed (409), with the points it will credit
+  const [pending, setPending] = useState<{ amount: number; points: number } | null>(null);
+  const [addLocked, setAddLocked] = useState(false);
   const [earnRate, setEarnRate] = useState(1);
-  const [role, setRole] = useState<string>("cashier");
   const [redemptions, setRedemptions] = useState<Action[]>([]);
   const [busy, setBusy] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
 
@@ -35,12 +39,14 @@ export default function ScanPage() {
     if (res.ok) {
       const me = await res.json();
       if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
-      if (me.role) setRole(me.role);
       if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
     }
   }
   useEffect(() => {
     loadMe();
+    // owner-only pages send a cashier here with ?denied=1 instead of a silent bounce
+    if (new URLSearchParams(window.location.search).get("denied") === "1")
+      setToast({ kind: "bad", msg: "That page is for owners" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -53,10 +59,11 @@ export default function ScanPage() {
       if (cancelled) return;
       const el = document.getElementById("reader");
       if (!el) return;
-      const scanner = new Html5Qrcode("reader");
-      scannerRef.current = scanner;
-      scanningRef.current = true;
+      setCameraError(false);
       try {
+        const scanner = new Html5Qrcode("reader");
+        scannerRef.current = scanner;
+        scanningRef.current = true;
         await scanner.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: 240 },
@@ -64,7 +71,10 @@ export default function ScanPage() {
           () => {}
         );
       } catch {
-        /* no camera (e.g. desktop dev) — use manual entry below */
+        // no camera, permission denied, or not https: say so, so the cashier
+        // uses the serial / phone lookup below instead of waiting on a blank box
+        scanningRef.current = false;
+        if (!cancelled) setCameraError(true);
       }
     })();
     return () => {
@@ -83,6 +93,7 @@ export default function ScanPage() {
   }
 
   async function lookup(serial: string) {
+    setToast(null);
     await stopScanner();
     const res = await fetch("/api/merchant/lookup", {
       method: "POST",
@@ -99,12 +110,18 @@ export default function ScanPage() {
     setToast(null);
   }
 
+  function findBySerial(e: FormEvent) {
+    e.preventDefault();
+    if (manual.trim()) lookup(manual.trim());
+  }
+
   // Customer forgot their phone / Wallet card: find them by phone number.
   // One match loads the customer; several show a short pick list.
   async function findByPhone(e: FormEvent) {
     e.preventDefault();
     if (!phone.trim() || busy) return;
     setBusy(true);
+    setToast(null);
     setMatches(null);
     try {
       const res = await fetch("/api/merchant/lookup", {
@@ -132,9 +149,11 @@ export default function ScanPage() {
     setPhone("");
   }
 
-  async function apply(body: object, okMsg: string) {
+  async function apply(body: { actionId: string } | { amount: number; confirm?: true }, okMsg: string) {
     if (!customer || busy) return; // busy guard: no double-tap
     setBusy(true);
+    setToast(null); // an old toast must never read as this tap's result
+    setPending(null);
     try {
       const res = await fetch("/api/merchant/redeem", {
         method: "POST",
@@ -147,7 +166,15 @@ export default function ScanPage() {
       });
       if (res.status === 401) return router.push("/login");
       const data = await res.json();
+      // a big bill: the server wrote nothing and wants a confirm first
+      if (res.status === 409 && data.confirm && "amount" in body) {
+        setPending({ amount: body.amount, points: data.confirm.points });
+        return;
+      }
       if (!res.ok) {
+        // "Not enough points" carries the real balance: show it, so the reward
+        // buttons re-dim if another terminal spent points in the meantime
+        if (typeof data.balance === "number") setCustomer({ ...customer, points: data.balance });
         setToast({ kind: "bad", msg: data.error || "Failed" });
         return;
       }
@@ -155,9 +182,22 @@ export default function ScanPage() {
       setFlash(true);
       setTimeout(() => setFlash(false), 400);
       setToast({ kind: "ok", msg: okMsg });
+      if ("amount" in body) {
+        // a bill left in the box invites a second tap, i.e. a double credit
+        setBill("");
+        setAddLocked(true);
+        setTimeout(() => setAddLocked(false), 1500);
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  function earn() {
+    setToast(null);
+    const amt = parseBill(bill);
+    if (amt === null) return setBillErr(true);
+    apply({ amount: amt }, `+${Math.round(earnRate * amt)} pts`);
   }
 
   function reset() {
@@ -165,6 +205,8 @@ export default function ScanPage() {
     setCustomer(null);
     setToast(null);
     setBill("");
+    setBillErr(false);
+    setPending(null);
     setPhone("");
     setMatches(null);
   }
@@ -174,23 +216,20 @@ export default function ScanPage() {
     return (
       <div className="wrap">
         <div className="brand"><span className="dot" /> 42nights <small>scan</small></div>
-        {role === "owner" && (
-          <div className="row" style={{ gap: 12, marginBottom: 12 }}>
-            <Link className="btn btn-ghost" href="/dashboard">Dashboard</Link>
-            <Link className="btn btn-ghost" href="/staff">Staff</Link>
-            <Link className="btn btn-ghost" href="/settings">Settings</Link>
-          </div>
-        )}
         <div className="card stack">
           <div className="label">Scan the customer's Wallet QR</div>
           <div id="reader" />
+          {cameraError && (
+            <div className={styles.camera} role="status">
+              Camera unavailable — allow camera access, or find the customer below
+            </div>
+          )}
           {toast && <div className={`toast ${toast.kind}`}>{toast.msg}</div>}
           <div className="label" style={{ marginTop: 8 }}>or enter serial manually</div>
-          <div className="row">
-            <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="serial…" />
-            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
-              onClick={() => manual && lookup(manual.trim())}>Go</button>
-          </div>
+          <form className="row" onSubmit={findBySerial}>
+            <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="serial…" enterKeyHint="go" />
+            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }} type="submit">Go</button>
+          </form>
           <div className="label" style={{ marginTop: 8 }}>or find by phone</div>
           <form className="row" onSubmit={findByPhone}>
             <input value={phone} onChange={(e) => setPhone(e.target.value)}
@@ -215,6 +254,7 @@ export default function ScanPage() {
   }
 
   // ---- customer / actions view ----
+  const billAmt = parseBill(bill);
   return (
     <div className="wrap">
       <div className="brand"><span className="dot" /> 42nights <small>terminal</small></div>
@@ -229,30 +269,49 @@ export default function ScanPage() {
 
         <div className="label" style={{ marginTop: 6 }}>Redeem</div>
         <div className="grid2">
-          {redemptions.map((a) => (
-            <button key={a.id} className="redeem-btn" disabled={busy}
-              onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
-              <div className="rl">{a.label}</div>
-              <div className="rp">{a.points} pts</div>
-            </button>
-          ))}
+          {redemptions.map((a) => {
+            const short = customer.points < -a.points; // a.points is the (negative) delta
+            return (
+              <button key={a.id} className={`redeem-btn ${short ? styles.short : ""}`} disabled={busy || short}
+                onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
+                <div className="rl">{a.label}</div>
+                <div className="rp">{a.points} pts</div>
+                {short && <div className={styles.need}>needs {-a.points} · has {customer.points}</div>}
+              </button>
+            );
+          })}
         </div>
 
         <div className="label" style={{ marginTop: 6 }}>Earn — enter the bill amount</div>
         <div className="row">
-          <input value={bill} onChange={(e) => setBill(e.target.value)}
-            inputMode="decimal" placeholder="bill amount" />
-          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy}
-            onClick={() => {
-              const amt = parseFloat(bill);
-              if (amt > 0) apply({ amount: amt }, `+${Math.round(earnRate * amt)} pts`);
-            }}>
+          <input value={bill} onChange={(e) => { setBill(e.target.value); setBillErr(false); setPending(null); }}
+            inputMode="decimal" placeholder="bill amount" aria-invalid={billErr} />
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy || addLocked}
+            onClick={earn}>
             Add
           </button>
         </div>
-        {parseFloat(bill) > 0 && (
+        {billErr && <div className={styles.billErr} role="alert">Enter an amount like 12.50</div>}
+        {billAmt !== null && (
           <div className="label">
-            = {Math.round(earnRate * parseFloat(bill))} pts ({earnRate}× rate)
+            = {Math.round(earnRate * billAmt)} pts ({earnRate}× rate)
+          </div>
+        )}
+        {pending && (
+          <div className={styles.confirm} role="alert">
+            <div>
+              Big bill: <b>{pending.amount.toFixed(2)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
+            </div>
+            <div className="row">
+              <button className="btn btn-primary" disabled={busy}
+                onClick={() => apply({ amount: pending.amount, confirm: true }, `+${pending.points} pts`)}>
+                Add +{pending.points} pts
+              </button>
+              <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
+                onClick={() => setPending(null)}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 

@@ -320,6 +320,70 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
     const p = unzipPass(Buffer.from(await reissue.arrayBuffer())).pass;
     chk("re-issued pass is the same card", `${p.serialNumber === serial}:${p.authenticationToken === at}`, "true:true");
   }
+
+  // --- bill cap: merchants.max_bill (default 1000) refuses bigger bills (422),
+  //     and a bill of half the cap or more needs confirm: true (409 otherwise,
+  //     with nothing written) ----------------------------------------------------
+  console.log("bill cap");
+  const cap = await createMerchant(db, run, { key: "cap", template: "cafe", earnRate: 10 });
+  const capCash = jar();
+  const capOwn = jar();
+  await login(capCash, cap.cashier);
+  await login(capOwn, cap.owner);
+  const cc = await createCard(db, cap.id, { name: "Cap Card" });
+  const ledgerRows = async () => (await rows(db.from("transactions").select("id").eq("serial", cc.serial))).length;
+  const setCap = (j, maxBill) => req("/api/merchant/settings", { method: "PATCH", body: { maxBill }, j });
+  chk("settings GET maxBill defaults to 1000", (await (await req("/api/merchant/settings", { j: capOwn })).json()).maxBill, 1000);
+  chk("bill under half the cap (400) earns without a confirm", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 400 })), 4000);
+  const big = await redeem(capCash, { serial: cc.serial, amount: 600 });
+  chk("bill of half the cap or more (600) without confirm → 409", big.status, 409);
+  chk("409 carries the points it would credit", (await big.json()).confirm?.points, 6000);
+  chk("409 wrote nothing to the ledger", await ledgerRows(), 1);
+  chk("same bill with confirm: true earns", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 600, confirm: true })), 10000);
+  chk("bill exactly at the cap (1000, confirmed) earns", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 1000, confirm: true })), 20000);
+  const over = await redeem(capCash, { serial: cc.serial, amount: 1000.01, confirm: true });
+  chk("bill over the cap → 422 even when confirmed", over.status, 422);
+  chk("422 message names the limit", /limit of 1000\b/.test((await over.json()).error ?? ""), true);
+  chk("422 wrote nothing to the ledger", await ledgerRows(), 3);
+  chk("cashier cannot change the cap", (await setCap(capCash, 5000)).status, 403);
+  chk("cap below 10 → 400", (await setCap(capOwn, 9.99)).status, 400);
+  chk("cap above 100000 → 400", (await setCap(capOwn, 100001)).status, 400);
+  chk("cap as a string → 400", (await setCap(capOwn, "5000")).status, 400);
+  const raised = await setCap(capOwn, 2000);
+  chk("owner raises the cap to 2000", raised.status === 200 ? (await raised.json()).maxBill : raised.status, 2000);
+  chk("1500 (half of 2000 is 1000) still needs a confirm → 409", (await redeem(capCash, { serial: cc.serial, amount: 1500 })).status, 409);
+  chk("1500 confirmed now earns", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 1500, confirm: true })), 35000);
+  chk("cap card: cached balance equals the ledger",
+    (await rows(db.from("passes").select("points").eq("serial", cc.serial)))[0]?.points, 35000);
+
+  // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
+  //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and
+  //     stays quiet on normal earns ------------------------------------------
+  console.log("anomaly rule");
+  const an = await createMerchant(db, run, { key: "anom", template: "cafe", earnRate: 10 });
+  const anCash = jar();
+  const anOwn = jar();
+  await login(anCash, an.cashier);
+  await login(anOwn, an.owner);
+  const ac = await createCard(db, an.id, { name: "Anomaly Card" });
+  const anomalies = async () => {
+    const { data, error } = await db.rpc("detect_anomalies", { p_merchant: an.id });
+    if (error) throw new Error(`detect_anomalies: ${error.message}`);
+    return data;
+  };
+  let normal = 0;
+  for (const amount of [8, 12.5, 15, 22, 9.5, 30, 18, 11, 25, 14])
+    normal = await balanceOf(await redeem(anCash, { serial: ac.serial, amount }));
+  chk("10 normal earns credited", normal, 1650);
+  chk("normal earns → no anomaly", JSON.stringify(await anomalies()), "[]");
+  chk("owner lifts the cap to 100000", (await setCap(anOwn, 100000)).status, 200);
+  chk("cashier earns 1,000,000 points in one confirmed tap",
+    await balanceOf(await redeem(anCash, { serial: ac.serial, amount: 100000, confirm: true })), 1001650);
+  const flagged = await anomalies();
+  chk("exactly one anomaly", flagged.length, 1);
+  chk("it is staff_over_issue / warn", `${flagged[0]?.kind}/${flagged[0]?.severity}`, "staff_over_issue/warn");
+  chk("it names the cashier and what they issued",
+    `${flagged[0]?.detail?.staff}:${flagged[0]?.detail?.issued}`, `${an.cashier.username}:1001650`);
 }
 
 // ---------------------------------------------------------------------------
