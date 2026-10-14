@@ -6,9 +6,11 @@ import {
   ORG_NAME,
   PUBLIC_BASE_URL,
   redemptionsFor,
+  assertPassConfig,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
 import { passkitCertificates } from "./certs";
+import { ASSET_NAMES } from "./assets";
 import type { PassData } from "../types";
 
 // Build the .pkpass entirely from in-memory buffers — per-merchant branding,
@@ -18,19 +20,6 @@ import type { PassData } from "../types";
 
 const STORAGE_BUCKET = "pass-assets";
 
-// Apple pass image set, at the current HIG sizes (BUILD_PLAN §3). icon.png is
-// MANDATORY or Wallet silently rejects the pass.
-const ASSET_NAMES = [
-  "icon.png",
-  "icon@2x.png",
-  "icon@3x.png",
-  "logo.png",
-  "logo@2x.png",
-  "logo@3x.png",
-  "strip.png",
-  "strip@2x.png",
-  "strip@3x.png",
-] as const;
 
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
@@ -84,24 +73,6 @@ async function merchantAsset(merchant: MerchantRow, name: string): Promise<Buffe
   return buf;
 }
 
-// Fail loudly on a misconfigured production deploy instead of handing out
-// cards that cannot work (apple-wallet#2). Wallet only calls an https
-// webServiceURL, and the URL is baked into each card, so a card issued with an
-// http base URL can never update. A placeholder teamIdentifier cannot match
-// the signing certificate, so Wallet is expected to refuse the pass outright.
-function assertProductionConfig() {
-  if (process.env.NODE_ENV !== "production") return;
-  if (!PUBLIC_BASE_URL.startsWith("https://"))
-    throw new Error(
-      `PUBLIC_BASE_URL must be an https:// URL in production (got "${PUBLIC_BASE_URL}"). ` +
-        "It is baked into every card as webServiceURL; Wallet cannot update a card over http."
-    );
-  if (TEAM_ID === "REPLACE_TEAM_ID")
-    throw new Error(
-      "APPLE_TEAM_ID is not set. It must be the Team ID that owns the Pass Type ID, or Wallet rejects the card."
-    );
-}
-
 type Reward = { label: string; cost: number };
 
 // The merchant's redeem template as positive point costs, cheapest first.
@@ -120,7 +91,7 @@ function nextReward(points: number, rewards: Reward[]): string {
 }
 
 export async function buildApplePass(data: PassData): Promise<Buffer> {
-  assertProductionConfig();
+  assertPassConfig();
   const {
     serial,
     merchantId,

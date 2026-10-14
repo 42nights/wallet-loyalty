@@ -84,3 +84,23 @@ export const ORG_NAME = process.env.PASS_ORG_NAME || "42nights";
 // Public base URL of THIS app, e.g. https://loyalty.42nights.dev
 export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || "http://localhost:3000";
+
+// Fail loudly on a misconfigured production deploy instead of handing out
+// cards that cannot work (apple-wallet#2). Wallet only calls an https
+// webServiceURL, and the URL is baked into each card, so a card issued with an
+// http base URL can never update. A placeholder teamIdentifier cannot match
+// the signing certificate, so Wallet is expected to refuse the pass outright.
+// Called by the pass builder, and by enrollment BEFORE it creates a row, so a
+// broken deploy doesn't use up customers' phone numbers on dead cards.
+export function assertPassConfig(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  if (!PUBLIC_BASE_URL.startsWith("https://"))
+    throw new Error(
+      `PUBLIC_BASE_URL must be an https:// URL in production (got "${PUBLIC_BASE_URL}"). ` +
+        "It is baked into every card as webServiceURL; Wallet cannot update a card over http."
+    );
+  if (TEAM_ID === "REPLACE_TEAM_ID")
+    throw new Error(
+      "APPLE_TEAM_ID is not set. It must be the Team ID that owns the Pass Type ID, or Wallet rejects the card."
+    );
+}

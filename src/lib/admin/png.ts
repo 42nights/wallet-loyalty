@@ -1,19 +1,8 @@
-// Wallet art validation for admin uploads. The 8 names are exactly the files
-// buildApplePass() reads from pass-assets/merchants/<id>/ (ASSET_NAMES in
-// src/lib/wallet/apple/pass.ts) — anything else would be dead storage.
-// Sizes are Apple's storeCard sizes in pixels: icon is exact, logo is a
-// maximum box (Wallet scales it down), strip is exact (Wallet crops otherwise).
-export const WALLET_ASSETS = {
-  "icon.png": { w: 29, h: 29, max: false },
-  "icon@2x.png": { w: 58, h: 58, max: false },
-  "icon@3x.png": { w: 87, h: 87, max: false },
-  "logo.png": { w: 160, h: 50, max: true },
-  "logo@2x.png": { w: 320, h: 100, max: true },
-  "strip.png": { w: 375, h: 123, max: false },
-  "strip@2x.png": { w: 750, h: 246, max: false },
-  "strip@3x.png": { w: 1125, h: 369, max: false },
-} as const;
-export type WalletAsset = keyof typeof WALLET_ASSETS;
+// Wallet art validation for admin uploads. Names and sizes come from
+// WALLET_ASSETS — the same list buildApplePass() loads from
+// pass-assets/merchants/<id>/ — so an accepted upload is always one the pass uses.
+import { WALLET_ASSETS, type WalletAsset } from "@/lib/wallet/apple/assets";
+export { WALLET_ASSETS, type WalletAsset };
 
 export const MAX_ASSET_BYTES = 2 * 1024 * 1024;
 
