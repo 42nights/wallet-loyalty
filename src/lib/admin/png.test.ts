@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkWalletAsset, WALLET_ASSETS, type WalletAsset } from "./png";
 import { defaultAssetBuffer } from "@/lib/passDefaults";
+import { REDEEM_TEMPLATES } from "@/lib/config";
 
 // The bytes the validator reads: signature + IHDR with w/h, and the IEND trailer.
 const IEND = [0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
@@ -35,10 +36,12 @@ test("wallet art: exact sizes for icon/strip, max box for logo, PNG only", () =>
 
 // The bundled default art must pass the same validator merchants' uploads do,
 // so the defaults and the upload rules can't drift apart.
-test("bundled default art matches the Wallet asset sizes", () => {
-  for (const name of Object.keys(WALLET_ASSETS) as WalletAsset[]) {
-    const buf = defaultAssetBuffer(name);
-    assert.ok(buf, `default ${name} is bundled`);
-    assert.equal(checkWalletAsset(name, buf), null, name);
+test("bundled default art matches the Wallet asset sizes, for every template", () => {
+  for (const template of Object.keys(REDEEM_TEMPLATES)) {
+    for (const name of Object.keys(WALLET_ASSETS) as WalletAsset[]) {
+      const buf = defaultAssetBuffer(name, template);
+      assert.ok(buf, `default ${template}/${name} is bundled`);
+      assert.equal(checkWalletAsset(name, buf), null, `${template}/${name}`);
+    }
   }
 });

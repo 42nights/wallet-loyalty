@@ -40,7 +40,7 @@ src/app/(merchant)/    ← scan terminal · owner dashboard · staff management
 src/app/enroll/[slug]  ← per-merchant customer sign-up
 supabase/schema.sql    ← tables + apply_points / rate_limit_hit / merchant_stats
 scripts/               ← seed.ts (merchant + owner + cashier) · upload-assets.ts
-models/loyalty.pass    ← reference art (also the source of the bundled defaults)
+models/themes/<tpl>/   ← default pass art per template, from scripts/render-pass-art.mjs
 ```
 
 ## The mental model

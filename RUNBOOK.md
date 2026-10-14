@@ -54,7 +54,7 @@ npm run dev
    - [ ] **Points are readable over the strip.** The big number's colour relies on `stripColor`, which Apple does not document (`pass.ts`); if Wallet ignores it, the number renders white. If unreadable, change the strip art or `fg_color`.
    - [ ] Header shows POINTS while the card is collapsed in the Wallet stack; MEMBER shows the enrolled name; NEXT REWARD is not cut off.
    - [ ] Icon, logo and strip are sharp (defaults are at the BUILD_PLAN §3 sizes; check a merchant with uploaded art too).
-   - [ ] Back: HOW TO EARN, REWARDS, UPDATED (in the phone's own time zone/format), TERMS. The QR shows the serial under it.
+   - [ ] Back: HOW TO EARN, REWARDS, UPDATED (in the phone's own time zone/format), TERMS. The QR has no number under it (if the camera cannot read it, find the customer by phone on /scan).
 5. **Timed update (BUILD_PLAN §11: "Redeem/earn reflects in Wallet < 5s").** Lock the iPhone with the card added. On the counter device, start a stopwatch as you tap a redeem button or submit a bill amount; stop it when the "You now have N points" notification appears (or when the open card's number changes). Repeat 5 times; note each time and whether the phone was locked or on Wi-Fi/cellular.
    - All under 5 s → keep the current headers and write the times next to the APNs headers in `src/lib/wallet/apple/apns.ts`.
    - Any over 5 s → the comparison is to send **neither** `apns-push-type` nor `apns-priority` (Apple's pass web-service doc specifies neither). Change **both together**: never send `apns-priority: 10` (or omit priority, which defaults to 10) while keeping `apns-push-type: background`; APNs says "Always use priority 5. Using priority 10 is an error." Re-run the 5 timings and record both sets in `apns.ts`.

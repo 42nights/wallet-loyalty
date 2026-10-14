@@ -2,17 +2,23 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { EARN_RATE, type TemplateKey } from "@/lib/config";
-import { hexToRgb } from "@/lib/admin/merchant";
+import { colorBody, themeHex } from "@/lib/admin/merchant";
 import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
 
 type Values = { name: string; earnRate: string; template: TemplateKey; colors: Colors };
+
+// Colours count as hand-picked once any of them differs from the template's
+// theme (stored NULL and old copies of the theme both read as not picked).
+const picked = (v: Values) => Object.values(colorBody(v.colors, v.template)).some((c) => c !== null);
 
 export default function MerchantEditor({
   id, initial, logo, strip,
 }: { id: string; initial: Values; logo?: string; strip?: string }) {
   const router = useRouter();
   const [v, setV] = useState<Values>(initial);
+  // Like the wizard: until colours are picked by hand they follow the template.
+  const [touched, setTouched] = useState(() => picked(initial));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (patch: Partial<Values>) => {
@@ -31,9 +37,7 @@ export default function MerchantEditor({
         name: v.name,
         earnRate: Number(v.earnRate),
         template: v.template,
-        bgColor: hexToRgb(v.colors.bg),
-        fgColor: hexToRgb(v.colors.fg),
-        labelColor: hexToRgb(v.colors.label),
+        ...colorBody(v.colors, v.template),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -60,13 +64,13 @@ export default function MerchantEditor({
         <EarnHint rate={Number(v.earnRate)} template={v.template} />
         <div className={s.field}>
           <span className="label">Redeem buttons</span>
-          <TemplatePicker value={v.template} onChange={(template) => set({ template })} />
+          <TemplatePicker value={v.template} onChange={(template) => set(touched ? { template } : { template, colors: themeHex(template) })} />
         </div>
-        <ColorFields value={v.colors} onChange={(colors) => set({ colors })} />
+        <ColorFields value={v.colors} onChange={(colors) => { setTouched(true); set({ colors }); }} />
         {msg && <div className={`toast ${msg.ok ? "ok" : "bad"}`} role="status" style={{ marginTop: 0 }}>{msg.text}</div>}
         <div className={s.actions}>
           <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
-          <button type="button" className="btn btn-ghost" style={{ width: "auto" }} onClick={() => set(initial)} disabled={busy}>Reset</button>
+          <button type="button" className="btn btn-ghost" style={{ width: "auto" }} onClick={() => { set(initial); setTouched(picked(initial)); }} disabled={busy}>Reset</button>
         </div>
       </div>
       <div className={s.side}>

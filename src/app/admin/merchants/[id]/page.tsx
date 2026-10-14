@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
-import { DEFAULT_COLORS, UUID_RE, rgbToHex } from "@/lib/admin/merchant";
+import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
 import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, day, nf } from "../../ui";
@@ -99,9 +99,9 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
               earnRate: String(Number(m.earn_rate)),
               template,
               colors: {
-                bg: rgbToHex(m.bg_color, rgbToHex(DEFAULT_COLORS.bgColor, "#ffffff")),
-                fg: rgbToHex(m.fg_color, rgbToHex(DEFAULT_COLORS.fgColor, "#141414")),
-                label: rgbToHex(m.label_color, rgbToHex(DEFAULT_COLORS.labelColor, "#787878")),
+                bg: rgbToHex(m.bg_color, themeHex(template).bg),
+                fg: rgbToHex(m.fg_color, themeHex(template).fg),
+                label: rgbToHex(m.label_color, themeHex(template).label),
               },
             }}
             logo={art["logo@2x.png"] ?? art["logo.png"]}

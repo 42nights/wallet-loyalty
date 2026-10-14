@@ -56,7 +56,7 @@ These can't be guessed — lock them or the build will thrash:
 
 Sizes follow Apple's current HIG Wallet tables (store card strip 375×144 pt, icon 38×38 pt, logo max 160×50 pt).
 Plus per merchant: `backgroundColor`, `foregroundColor`, `labelColor` (rgb()).
-A default set (orange icon, star strip) ships in `models/loyalty.pass/` and `assets/` — replace per merchant.
+A default set per redeem template (café, restaurant, retail) ships in `models/themes/<template>/`, drawn in code by `scripts/render-pass-art.mjs` for the colours in `src/lib/passThemes.ts` — replace per merchant.
 A default only fills a file whose base image (`icon.png`, `logo.png`, `strip.png`) the merchant has not uploaded, so their own art is never mixed with ours.
 
 > **Multi-tenant implication:** don't sign from the static `models/` folder.

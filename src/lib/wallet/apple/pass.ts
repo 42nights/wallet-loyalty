@@ -7,8 +7,10 @@ import {
   PUBLIC_BASE_URL,
   redemptionsFor,
   assertPassConfig,
+  templateKey,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
+import { PASS_THEMES } from "@/lib/passThemes";
 import { passkitCertificates } from "./certs";
 import { ASSET_NAMES } from "./assets";
 import type { PassData } from "../types";
@@ -16,7 +18,8 @@ import type { PassData } from "../types";
 // Build the .pkpass entirely from in-memory buffers — per-merchant branding,
 // no static disk model (Vercel file-tracing safe, multi-tenant). Art is fetched
 // from Supabase storage by merchant_id; anything missing falls back to bundled
-// default buffers so a brand-new merchant still issues a valid pass.
+// default buffers (the merchant's template set) so a brand-new merchant still
+// issues a valid, on-brand pass.
 
 const STORAGE_BUCKET = "pass-assets";
 
@@ -36,11 +39,12 @@ type MerchantRow = {
 };
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
-// rgb()/hex from the merchant row, else fall back.
+// rgb()/hex from the merchant row (normalised to "rgb(r,g,b)" so it compares
+// equal to a theme colour), else fall back.
 function rgb(value: string | null, fallback: string): string {
   if (!value) return fallback;
-  const v = value.trim();
-  if (/^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i.test(v)) return v;
+  const v = value.replace(/\s+/g, "").toLowerCase();
+  if (/^rgb\(\d{1,3},\d{1,3},\d{1,3}\)$/.test(v)) return v;
   const hex = v.replace(/^#/, "");
   if (/^[0-9a-fA-F]{6}$/.test(hex)) {
     const r = parseInt(hex.slice(0, 2), 16);
@@ -117,7 +121,20 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
       if (buf) uploaded[name] = buf;
     }
   }
-  const buffers = withDefaultArt(uploaded);
+  const template = templateKey(merchant?.redeem_template);
+  const theme = PASS_THEMES[template];
+  const bg = rgb(merchant?.bg_color ?? null, theme.bg);
+  const fg = rgb(merchant?.fg_color ?? null, theme.fg);
+  const buffers = withDefaultArt(uploaded, template);
+  // The default strip is drawn for the theme's colours. Under a merchant's own
+  // background/foreground it could swallow the big points number (dark text on
+  // the dark themed strip), so their card goes without a strip until they
+  // upload one.
+  if (bg !== theme.bg || fg !== theme.fg) {
+    for (const name of ["strip.png", "strip@2x.png", "strip@3x.png"]) {
+      if (!uploaded[name]) delete buffers[name];
+    }
+  }
 
   // Identity + branding MUST go through props — passkit-generator writes the
   // final pass.json from props, not from a pass.json buffer (a buffer's
@@ -134,15 +151,16 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     webServiceURL: `${PUBLIC_BASE_URL}/api`,
     authenticationToken: authToken,
     logoText: orgName, // shop name as text next to the logo (readability)
-    backgroundColor: rgb(merchant?.bg_color ?? null, "rgb(255,255,255)"),
-    foregroundColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
-    labelColor: rgb(merchant?.label_color ?? null, "rgb(120,120,120)"),
+    // The merchant's colours win; unset ones come from their template's theme.
+    backgroundColor: bg,
+    foregroundColor: fg,
+    labelColor: rgb(merchant?.label_color ?? null, theme.label),
     // stripColor is NOT in Apple's Pass reference: passkit-generator marks it an
     // "Undocumented feature" for the colour of a primary value drawn over the
     // strip. It is tied to the merchant's foreground so the points stay readable
     // if Wallet honours it; it may be ignored without any error, so "points
     // readable over the strip" is a check in the real-device test (RUNBOOK §5).
-    stripColor: rgb(merchant?.fg_color ?? null, "rgb(20,20,20)"),
+    stripColor: fg,
     sharingProhibited: true,
   });
 
@@ -213,14 +231,14 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     }
   );
 
-  // The QR the merchant scans — encodes the serial for counter lookup. altText
-  // prints the serial under it, so a cashier can type it into /scan's manual
-  // box when the camera cannot read the code.
+  // The QR the merchant scans — encodes the serial for counter lookup. No
+  // altText: a 36-character serial printed under the code is noise on the card,
+  // and when the camera cannot read it the cashier finds the customer by phone
+  // on /scan instead.
   pass.setBarcodes({
     format: "PKBarcodeFormatQR",
     message: serial,
     messageEncoding: "iso-8859-1",
-    altText: serial,
   });
 
   return pass.getAsBuffer();
