@@ -16,13 +16,21 @@ export default async function globalSetup(config) {
     const scanCards = {};
     for (const p of config.projects)
       scanCards[p.name] = await createCard(db, m.id, { name: `Scan ${p.name}` });
+    // The happy-hour journey switches a merchant's happy hour on, which would
+    // double the points the /scan journey above asserts, so it gets its own
+    // merchant (and card) per project.
+    const happy = {};
+    for (const p of config.projects) {
+      const h = await createMerchant(db, run, { key: `hh-${p.name}`, template: "cafe", earnRate: 10 });
+      happy[p.name] = { owner: h.owner, cashier: h.cashier, card: await createCard(db, h.id, { name: `Happy ${p.name}` }) };
+    }
     const searchCard = await createCard(db, m.id, {
       name: `Findable ${run}`,
       phone: "+1555" + String(Date.now()).slice(-7),
     });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
-      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard,
+      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard, happy,
     });
 
     // Compile every route the specs touch, one at a time, before the parallel
@@ -35,6 +43,7 @@ export default async function globalSetup(config) {
       "/api/merchant/login", "/api/enroll", "/api/merchant/me", "/api/merchant/lookup",
       "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/customers",
       "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
+      "/settings", "/api/merchant/settings",
     ])
       await fetch(base + p, { redirect: "manual" });
   } catch (e) {

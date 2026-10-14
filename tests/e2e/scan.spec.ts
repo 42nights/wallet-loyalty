@@ -96,6 +96,35 @@ test("cashier: login → /scan → manual serial → earn by bill → template b
   await expect(coffee).toContainText("needs 300 · has 45");
 });
 
+test("owner sets a happy hour in /settings → /scan shows it and earns double", async ({ page }, info) => {
+  const h = fx.happy[info.project.name];
+  // today on the merchant's clock (the default zone); a run across local
+  // midnight, or at 23:59, falls outside the window — rerun
+  const today = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "short" }).format(new Date());
+
+  await apiLogin(page, h.owner);
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "2× points" }).click();
+  await page.getByRole("checkbox", { name: today, exact: true }).check();
+  await page.getByLabel("From").fill("00:00");
+  await page.getByLabel("Until").fill("23:59");
+  await expect(page.getByText(/Cards will say 2× points .*12 am–11:59 pm/)).toBeVisible();
+  await page.getByRole("button", { name: "Save happy hour" }).click();
+  await expect(page.locator(".toast.ok")).toContainText("Happy hour saved: 2× points");
+
+  await apiLogin(page, h.cashier);
+  await page.goto("/scan");
+  await expect(page.getByText("Happy hour 2× points")).toBeVisible();
+  await page.getByPlaceholder("serial…").fill(h.card.serial);
+  await page.getByPlaceholder("serial…").press("Enter");
+  await expect(page.getByText("Happy hour 2× points")).toBeVisible();
+  await page.getByPlaceholder("bill amount").fill("10");
+  await expect(page.getByText("= 200 pts (10× rate, happy hour 2×)")).toBeVisible();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.locator(".balance")).toHaveText("200");
+  await expect(page.locator(".toast.ok")).toContainText("+200 pts");
+});
+
 test("cashier sent back from an owner page sees why", async ({ page }) => {
   await apiLogin(page, fx.cashier);
   await page.goto("/scan?denied=1");

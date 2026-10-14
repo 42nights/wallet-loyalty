@@ -551,7 +551,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const mmdd = (tz, d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, month: "2-digit", day: "2-digit" }).format(d);
   const bd = await createMerchant(db, run, { key: "bday", template: "cafe", earnRate: 10 });
   const off = await createMerchant(db, run, { key: "nobday", template: "cafe", earnRate: 10 });
-  const tzSet = (timezone) => req(`/api/admin/merchants/${bd.id}`, { method: "PATCH", body: { timezone }, j: admin });
+  // sent with the unchanged name, so a route that ignored timezone would answer 200
+  const tzSet = (timezone) =>
+    req(`/api/admin/merchants/${bd.id}`, { method: "PATCH", body: { name: `Test bday ${run}`, timezone }, j: admin });
   chk("admin: a time zone Intl doesn't know → 400", (await tzSet("Mars/Olympus")).status, 400);
   const tzOk = await tzSet("pacific/kiritimati");
   chk("admin: time zone saved in Intl's spelling",
