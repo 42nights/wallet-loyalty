@@ -125,7 +125,7 @@
 .role { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
 
 /* wallet art */
-.artGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.artGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .artSlot { background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .artHead { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
 .artThumb {
