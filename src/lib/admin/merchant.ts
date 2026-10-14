@@ -1,4 +1,5 @@
 import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { PASS_THEMES } from "@/lib/passThemes";
 
 // Merchant/staff input rules for the creator admin. No server-only imports:
 // the wizard uses the same helpers client-side for live feedback, and the API
@@ -45,12 +46,12 @@ export function rgbToHex(rgb: string | null | undefined, fallback: string): stri
   return "#" + m.slice(1).map((c) => Math.min(255, Number(c)).toString(16).padStart(2, "0")).join("");
 }
 
-// Same fallbacks buildApplePass() uses when a merchant has no colours set.
-export const DEFAULT_COLORS = {
-  bgColor: "rgb(255,255,255)",
-  fgColor: "rgb(20,20,20)",
-  labelColor: "rgb(120,120,120)",
-};
+// A template's default card colours (the same theme buildApplePass() falls
+// back to when a merchant has none set), as the #rrggbb the colour inputs edit.
+export function themeHex(template: TemplateKey): { bg: string; fg: string; label: string } {
+  const t = PASS_THEMES[template];
+  return { bg: rgbToHex(t.bg, ""), fg: rgbToHex(t.fg, ""), label: rgbToHex(t.label, "") };
+}
 
 export type MerchantUpdate = {
   name?: string;

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { DEFAULT_TEMPLATE, EARN_RATE, type TemplateKey } from "@/lib/config";
 import {
-  DEFAULT_COLORS, MIN_PASSWORD, SLUG_RE, generatePassword, hexToRgb, rgbToHex, slugify,
+  MIN_PASSWORD, SLUG_RE, generatePassword, hexToRgb, slugify, themeHex,
 } from "@/lib/admin/merchant";
 import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
@@ -35,11 +35,7 @@ export default function NewMerchant() {
   const [slugEdit, setSlugEdit] = useState<string | null>(null);
   const [template, setTemplate] = useState<TemplateKey>(DEFAULT_TEMPLATE);
   const [earnRate, setEarnRate] = useState("10");
-  const [colors, setColors] = useState<Colors>({
-    bg: rgbToHex(DEFAULT_COLORS.bgColor, "#ffffff"),
-    fg: rgbToHex(DEFAULT_COLORS.fgColor, "#141414"),
-    label: rgbToHex(DEFAULT_COLORS.labelColor, "#787878"),
-  });
+  const [colorsEdit, setColorsEdit] = useState<Colors | null>(null);
   const [ownerEdit, setOwnerEdit] = useState<string | null>(null);
   const [ownerPw, setOwnerPw] = useState("");
   const [withCashier, setWithCashier] = useState(true);
@@ -54,6 +50,8 @@ export default function NewMerchant() {
   const slug = slugEdit ?? slugify(name);
   const ownerUser = ownerEdit ?? (slug ? `${slug}-owner` : "");
   const cashierUser = cashierEdit ?? (slug ? `${slug}-cashier` : "");
+  // The card colours follow the template's theme until picked by hand.
+  const colors = colorsEdit ?? themeHex(template);
 
   // Generated client-side after mount so server and client markup match.
   useEffect(() => {
@@ -216,7 +214,7 @@ export default function NewMerchant() {
 
           <div className={`panel ${s.section}`}>
             <div className={s.sectionT}><span className={s.step}>3</span>Brand</div>
-            <ColorFields value={colors} onChange={setColors} />
+            <ColorFields value={colors} onChange={setColorsEdit} />
             <span className={s.hint}>Logo, icon and strip images are uploaded on the merchant page after creation.</span>
           </div>
 

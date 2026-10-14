@@ -1,5 +1,6 @@
 import { create } from "qrcode";
 import type { TemplateKey } from "@/lib/config";
+import { PASS_THEMES } from "@/lib/passThemes";
 
 // Sample merchants for the public landing page and /demo. Everything here is
 // made-up demo data — no database, no auth — so both pages keep rendering even
@@ -10,7 +11,7 @@ export type Sample = {
   key: TemplateKey;
   kind: string; // business type shown in the switcher
   name: string; // shop name, shown as the pass logoText (pass.ts)
-  colors: { bg: string; fg: string; label: string }; // pass background / foreground / labelColor
+  colors: { bg: string; fg: string; label: string }; // the template's default pass colours (passThemes.ts)
   earnRate: number; // points per $1, like merchants.earn_rate
   customer: string;
   startPoints: number;
@@ -29,7 +30,7 @@ export const SAMPLES: Sample[] = [
     key: "cafe",
     kind: "Café",
     name: "Fern & Fox Coffee",
-    colors: { bg: "#1f3d2f", fg: "#f3ead8", label: "#a9c2a6" },
+    colors: PASS_THEMES.cafe,
     earnRate: 10,
     customer: "Sam Rivera",
     startPoints: 240,
@@ -43,7 +44,7 @@ export const SAMPLES: Sample[] = [
     key: "restaurant",
     kind: "Restaurant",
     name: "Golden Lantern Kitchen",
-    colors: { bg: "#7a1f1a", fg: "#fbe7c6", label: "#e7b98a" },
+    colors: PASS_THEMES.restaurant,
     earnRate: 10,
     customer: "Jordan Lee",
     startPoints: 420,
@@ -57,7 +58,7 @@ export const SAMPLES: Sample[] = [
     key: "retail",
     kind: "Retail",
     name: "Northside Supply",
-    colors: { bg: "#1d2a3f", fg: "#ffffff", label: "#9fb3cf" },
+    colors: PASS_THEMES.retail,
     earnRate: 1,
     customer: "Alex Morgan",
     startPoints: 460,
