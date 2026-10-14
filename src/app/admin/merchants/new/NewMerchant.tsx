@@ -2,11 +2,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DEFAULT_TEMPLATE, EARN_RATE, type TemplateKey } from "@/lib/config";
+import { DEFAULT_TEMPLATE, DEFAULT_TIMEZONE, EARN_RATE, type TemplateKey } from "@/lib/config";
 import {
   MIN_PASSWORD, SLUG_RE, colorBody, generatePassword, slugify, themeHex,
 } from "@/lib/admin/merchant";
-import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
+import { ColorFields, EarnHint, TemplatePicker, TimezoneSelect, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
 
 type SlugState = "empty" | "invalid" | "checking" | "free" | "taken";
@@ -33,6 +33,7 @@ export default function NewMerchant() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slugEdit, setSlugEdit] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
   const [template, setTemplate] = useState<TemplateKey>(DEFAULT_TEMPLATE);
   const [earnRate, setEarnRate] = useState("10");
   const [colorsEdit, setColorsEdit] = useState<Colors | null>(null);
@@ -90,6 +91,7 @@ export default function NewMerchant() {
       body: JSON.stringify({
         name,
         slug,
+        timezone,
         template,
         earnRate: Number(earnRate),
         ...colorBody(colors, template),
@@ -195,6 +197,7 @@ export default function NewMerchant() {
               </div>
               <span className={`${s.hint} ${hintClass}`} aria-live="polite">{hintText}</span>
             </div>
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
           </div>
 
           <div className={`panel ${s.section}`}>

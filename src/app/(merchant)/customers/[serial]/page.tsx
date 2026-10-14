@@ -32,6 +32,7 @@ function label(reason: string): string {
   if (reason === "earn:purchase") return "Earn";
   if (reason === "adjust:manual") return "Adjustment";
   if (reason.startsWith("campaign:")) return "Campaign";
+  if (reason === "bonus:birthday") return "Birthday treat";
   const id = reason.split(":")[1] ?? reason;
   return findAction(id)?.label ?? reason;
 }

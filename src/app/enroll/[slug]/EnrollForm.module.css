@@ -4,6 +4,33 @@
 .field input[aria-invalid="true"] { border-color: var(--bad); }
 .error { color: var(--bad); font-size: 13px; margin-top: 6px; }
 
+/* optional birthday: month + day pickers in the input box style (globals.css
+   styles input, not select) */
+.birthday {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 10px;
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.birthday legend { padding: 0; }
+.birthday select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 16px;
+  padding: 14px;
+  border-radius: 12px;
+  outline: none;
+}
+.birthday select:focus { border-color: var(--accent); }
+.birthday select[aria-invalid="true"] { border-color: var(--bad); }
+.field .hint { margin-top: 6px; }
+
 .title {
   font-family: var(--display);
   font-weight: 800;

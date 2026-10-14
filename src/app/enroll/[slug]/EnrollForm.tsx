@@ -24,16 +24,25 @@ function inAppBrowser(ua: string): boolean {
 // qr is set off Apple devices; inApp = an iPhone stuck in an app's web view
 type Done = { cardUrl: string; qr: string | null; inApp: boolean };
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// askBirthday: the shop has the birthday treat on, so the form offers the
+// optional month + day pickers (sent as "MM-DD"; no year is ever asked).
 export default function EnrollForm({
   slug,
   merchantName,
+  askBirthday = false,
 }: {
   slug: string;
   merchantName: string;
+  askBirthday?: boolean;
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [bMonth, setBMonth] = useState("");
+  const [bDay, setBDay] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -44,14 +53,16 @@ export default function EnrollForm({
 
   function showErrors(next: FieldErrors) {
     setErrors(next);
-    const first = (["name", "phone", "email"] as const).find((k) => next[k]);
+    const first = (["name", "phone", "email", "birthday"] as const).find((k) => next[k]);
     if (first) document.getElementById(`enroll-${first}`)?.focus();
   }
 
   async function join(e: FormEvent) {
     e.preventDefault();
     setNotice(null);
-    const check = validateEnroll({ name, phone, email });
+    // one picker set without the other is sent as-is ("03-") so it gets an error
+    const birthday = askBirthday && (bMonth || bDay) ? `${bMonth}-${bDay}` : "";
+    const check = validateEnroll({ name, phone, email, birthday });
     if (!check.ok) return showErrors(check.errors);
     setErrors({});
     setBusy(true);
@@ -59,7 +70,7 @@ export default function EnrollForm({
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, email, consent, slug }),
+        body: JSON.stringify({ name, phone, email, birthday, consent, slug }),
       });
       const data: { cardUrl?: string; error?: string; fields?: FieldErrors } = await res
         .json()
@@ -214,6 +225,46 @@ export default function EnrollForm({
           autoComplete="email"
           autoCapitalize="none"
         />
+        {askBirthday && (
+          <div className={s.field}>
+            <fieldset className={s.birthday} aria-describedby="enroll-birthday-why">
+              <legend className="label">Birthday (month and day, optional)</legend>
+              <select
+                id="enroll-birthday"
+                aria-label="Month"
+                aria-invalid={errors.birthday ? true : undefined}
+                value={bMonth}
+                onChange={(e) => {
+                  setBMonth(e.target.value);
+                  setErrors((x) => ({ ...x, birthday: undefined }));
+                }}
+              >
+                <option value="">Month</option>
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={pad(i + 1)}>{m}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Day"
+                aria-invalid={errors.birthday ? true : undefined}
+                value={bDay}
+                onChange={(e) => {
+                  setBDay(e.target.value);
+                  setErrors((x) => ({ ...x, birthday: undefined }));
+                }}
+              >
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => (
+                  <option key={i} value={pad(i + 1)}>{i + 1}</option>
+                ))}
+              </select>
+            </fieldset>
+            <div id="enroll-birthday-why" className={s.hint}>
+              {merchantName} adds a birthday treat to your card on the day. No year needed.
+            </div>
+            {errors.birthday && <div className={s.error}>{errors.birthday}</div>}
+          </div>
+        )}
         <label className="row" style={{ gap: 8, alignItems: "center", cursor: "pointer" }}>
           <input
             type="checkbox"

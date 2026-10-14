@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
+import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey, timezoneOf } from "@/lib/config";
 import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
@@ -40,6 +40,7 @@ type MerchantRow = {
   label_color: string | null;
   assets_updated_at: string | null;
   created_at: string | null;
+  timezone?: string | null; // later column: select("*") below tolerates its absence
 };
 
 export default async function AdminMerchantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -50,7 +51,7 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
   const [{ data: m }, { data: staff }, stats, art] = await Promise.all([
     db
       .from("merchants")
-      .select("id, name, slug, earn_rate, redeem_template, bg_color, fg_color, label_color, assets_updated_at, created_at")
+      .select("*")
       .eq("id", id)
       .maybeSingle<MerchantRow>(),
     db
@@ -97,6 +98,7 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             initial={{
               name: m.name,
               earnRate: String(Number(m.earn_rate)),
+              timezone: timezoneOf(m.timezone),
               template,
               colors: {
                 bg: rgbToHex(m.bg_color, themeHex(template).bg),

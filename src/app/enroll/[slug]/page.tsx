@@ -12,13 +12,14 @@ export default async function EnrollPage({
 }) {
   const { slug } = await params;
 
+  // select("*") so a database without birthday_reward yet still renders
   const { data: merchant } = await db
     .from("merchants")
-    .select("id, name")
+    .select("*")
     .eq("slug", slug)
     .single();
 
   if (!merchant) notFound();
 
-  return <EnrollForm slug={slug} merchantName={merchant.name} />;
+  return <EnrollForm slug={slug} merchantName={merchant.name} askBirthday={merchant.birthday_reward === true} />;
 }

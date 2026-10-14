@@ -3,10 +3,10 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { EARN_RATE, type TemplateKey } from "@/lib/config";
 import { colorBody, themeHex } from "@/lib/admin/merchant";
-import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
+import { ColorFields, EarnHint, TemplatePicker, TimezoneSelect, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
 
-type Values = { name: string; earnRate: string; template: TemplateKey; colors: Colors };
+type Values = { name: string; earnRate: string; timezone: string; template: TemplateKey; colors: Colors };
 
 // Colours count as hand-picked once any of them differs from the template's
 // theme (stored NULL and old copies of the theme both read as not picked).
@@ -36,6 +36,7 @@ export default function MerchantEditor({
       body: JSON.stringify({
         name: v.name,
         earnRate: Number(v.earnRate),
+        timezone: v.timezone,
         template: v.template,
         ...colorBody(v.colors, v.template),
       }),
@@ -62,6 +63,7 @@ export default function MerchantEditor({
           </label>
         </div>
         <EarnHint rate={Number(v.earnRate)} template={v.template} />
+        <TimezoneSelect value={v.timezone} onChange={(timezone) => set({ timezone })} />
         <div className={s.field}>
           <span className="label">Redeem buttons</span>
           <TemplatePicker value={v.template} onChange={(template) => set(touched ? { template } : { template, colors: themeHex(template) })} />

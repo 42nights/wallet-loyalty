@@ -69,3 +69,16 @@
   cursor: pointer;
 }
 .undo:disabled { opacity: .5; cursor: default; }
+
+/* happy hour is on: bill earns are multiplied (the redeem route decides) */
+.happy {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
