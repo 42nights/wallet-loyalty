@@ -265,7 +265,7 @@ export default function EnrollForm({
               </select>
             </fieldset>
             <div id="enroll-birthday-why" className={s.hint}>
-              {merchantName} adds a birthday treat to your card on the day, once the card is a month old. No year
+              {merchantName} adds a birthday treat to your card around your birthday, once the card is a month old. No year
               needed.
             </div>
             {errors.birthday && (

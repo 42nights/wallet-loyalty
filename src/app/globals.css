@@ -30,7 +30,7 @@ html[data-theme="light"] {
   --accent: #e2611f;
   --accent-ink: #ffffff;
   --ok: #1f9d57;
-  --bad: #d6453a;
+  --bad: #c23b31; /* white text on it: 5.3:1 (AA) */
   --c-issued: #1f9d57;
   --c-redeemed: #b9831a;
   --shadow: 0 16px 40px -26px rgba(60,40,20,.35);

@@ -66,7 +66,7 @@ export default function CardStatus({
     <div className="card stack">
       <div>
         <div className="label">Deactivate card</div>
-        <div className="label" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "none", marginBottom: 0 }}>
+        <div style={{ lineHeight: 1.5 }}>
           Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet.
           Its {unit} and history are kept, and you can reactivate it.
         </div>

@@ -39,8 +39,8 @@ function cell(v: Cell): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// "2026-10-14 18:05:09": UTC (merchants have no time zone), a form Excel and
-// Sheets read as a date-time.
+// "2026-10-14 18:05:09": UTC, labelled as such in the header, a form Excel and
+// Sheets read as a date-time. (Shop-local times via merchants.timezone: later.)
 const utc = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 19).replace("T", " ") : null);
 
 const csvLines = (rows: Cell[][]) => rows.map((r) => r.map(cell).join(",") + "\r\n").join("");

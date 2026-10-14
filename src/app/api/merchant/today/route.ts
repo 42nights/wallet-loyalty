@@ -5,7 +5,8 @@ import { allRows } from "@/lib/admin/stats";
 
 export const runtime = "nodejs";
 
-// Merchants have no time zone, so /scan sends its own local midnight. Accept up
+// /scan sends the counter device's own local midnight (the device is in the
+// shop, so its clock is the shop's; merchants.timezone is not needed). Accept up
 // to 36 h back (the widest UTC offset is 14 h, plus a DST day) and never the
 // future: the window can't be stretched into an all-time report.
 const MAX_BACK_MS = 36 * 60 * 60 * 1000;

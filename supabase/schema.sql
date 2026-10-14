@@ -710,7 +710,7 @@ alter table merchants add column if not exists max_bill numeric not null default
 
 -- --- Stamp cards (per merchant) — 2026-10-14 ---------------------------------
 -- A merchant runs either points (points-per-dollar, earn_rate + redeem_template)
--- or a stamp card ("buy 9, get the 10th free"). The ledger is the same: a stamp
+-- or a stamp card (collect stamp_goal stamps, get the reward). The ledger is the same: a stamp
 -- is one unit in transactions/apply_points (reasons earn:stamp and
 -- redeem:stamp_reward). stamp_goal is what the one reward costs; stamp_reward is
 -- its label on /scan and the card. Code reading these falls back to the same

@@ -372,7 +372,7 @@ export default function SettingsForm() {
             <div>
               <div className="label" id="bday-h">Birthday treat</div>
               <div className={styles.help}>
-                The sign-up page asks for an optional birthday (month and day). On the day, the member&apos;s card gets{" "}
+                The sign-up page asks for an optional birthday (month and day). Around their birthday, the member&apos;s card gets{" "}
                 <b>{s.birthdayBonus} bonus {unitLabel(s.mode, s.birthdayBonus)}</b>
                 {stamps ? ", a full card" : ", the price of your cheapest reward"} ({s.birthdayTreat}). Cards less than a
                 month old wait until next year.
@@ -410,7 +410,7 @@ export default function SettingsForm() {
                 type="url"
                 inputMode="url"
                 maxLength={500}
-                placeholder="https://g.page/r/…/review"
+                placeholder="https://g.page/…"
                 value={review}
                 onChange={(e) => setReview(e.target.value)}
                 aria-label="Review link"
@@ -436,7 +436,7 @@ export default function SettingsForm() {
             </div>
             <form className="row" onSubmit={savePlace}>
               <input
-                placeholder="37.77493, -122.41942"
+                placeholder="37.7749, -122.4194"
                 value={place}
                 onChange={(e) => setPlace(e.target.value)}
                 aria-label="Shop location as latitude, longitude"
