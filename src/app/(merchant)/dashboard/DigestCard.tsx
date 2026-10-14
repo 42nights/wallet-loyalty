@@ -21,10 +21,11 @@ export default function DigestCard() {
     if (busy) return;
     setBusy(true);
     setErr(null);
-    const r = await fetch("/api/merchant/digest", { method: "POST" });
+    const r = await fetch("/api/merchant/digest", { method: "POST" }).catch(() => null);
     setBusy(false);
+    if (!r) return setErr("Couldn't reach the server — check the connection and try again.");
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) return setErr(d.error || "Failed");
+    if (!r.ok) return setErr(d.error || "Something went wrong — please try again.");
     setDigest(d.digest);
   }
 
@@ -46,8 +47,7 @@ export default function DigestCard() {
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{digest.body}</div>
           {digest.created_at && (
             <div className="label" style={{ fontSize: 11 }}>
-              {new Date(digest.created_at).toLocaleString("en-GB")}
-              {digest.model ? ` · ${digest.model}` : ""}
+              {new Date(digest.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
             </div>
           )}
         </>

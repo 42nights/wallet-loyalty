@@ -7,6 +7,8 @@ import { anthropic, MODEL_DIGEST } from "@/lib/ai/anthropic";
 
 export const runtime = "nodejs";
 
+const DIGEST_RETRY = "Couldn't write the digest right now — please try again in a moment.";
+
 // GET  /api/merchant/digest  → latest stored digest (or null)
 export async function GET() {
   const owner = await requireOwner();
@@ -29,17 +31,20 @@ export async function POST() {
   if (!owner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const m = owner.merchantId;
 
+  // `error` strings are shown to the owner as-is (DigestCard); technical detail
+  // goes to the server log only.
   if (!(await rateLimit(`digest:${owner.id}`, 6, 60)))
-    return NextResponse.json({ error: "Slow down" }, { status: 429 });
+    return NextResponse.json(
+      { error: "Too many tries at once — wait a minute and try again." },
+      { status: 429 }
+    );
 
   let client: Anthropic;
   try {
     client = anthropic();
-  } catch {
-    return NextResponse.json(
-      { error: "AI is not configured (ANTHROPIC_API_KEY missing)." },
-      { status: 503 }
-    );
+  } catch (e) {
+    console.warn("digest unavailable:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "The weekly digest isn't available yet." }, { status: 503 });
   }
 
   const [statsR, segR, anomR, funnelR] = await Promise.all([
@@ -75,11 +80,14 @@ export async function POST() {
       .trim();
   } catch (e) {
     console.error("digest failed:", e instanceof Error ? e.message : e);
-    return NextResponse.json({ error: "AI request failed" }, { status: 502 });
+    return NextResponse.json({ error: DIGEST_RETRY }, { status: 502 });
   }
 
   await db.rpc("ai_add_usage", { p_merchant: m, p_in: inTok, p_out: outTok });
-  if (!body) return NextResponse.json({ error: "Empty digest" }, { status: 502 });
+  if (!body) {
+    console.error("digest failed: model returned no text");
+    return NextResponse.json({ error: DIGEST_RETRY }, { status: 502 });
+  }
 
   const { data: saved } = await db
     .from("digests")

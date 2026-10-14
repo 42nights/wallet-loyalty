@@ -29,12 +29,13 @@ export default function CommandBar() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: text, deep }),
-    });
+    }).catch(() => null);
     setBusy(false);
+    if (!r) return setErr("Couldn't reach the server — check the connection and try again.");
     if (r.status === 401 || r.status === 403) return router.push("/login");
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
-      setErr(d.error || "Failed");
+      setErr(d.error || "Something went wrong — please try again.");
       setAnswer(null);
       return;
     }

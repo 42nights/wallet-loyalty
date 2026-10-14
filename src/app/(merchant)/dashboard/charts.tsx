@@ -88,7 +88,7 @@ export function BarChart({ data, labels, color = "var(--accent)" }: { data: numb
           <div
             key={i}
             className="bar"
-            title={`${labels?.[i] ?? i}: ${v}`}
+            title={`${labels?.[i] ?? i}: ${v.toLocaleString()}`}
             style={{ height: `${Math.max(2, (v / max) * 100)}%`, background: color }}
           />
         ))}
@@ -140,7 +140,7 @@ export function Donut({ segments, label, size = 168, thickness = 24 }: { segment
             return el;
           })}
         <text x={c} y={c - 2} textAnchor="middle" fontFamily="var(--display)" fontWeight="800" fontSize="32" fill="var(--ink)">
-          {total}
+          {total.toLocaleString()}
         </text>
         <text x={c} y={c + 16} textAnchor="middle" fontFamily="var(--mono)" fontSize="9" fill="var(--muted)" letterSpacing="2">
           {label.toUpperCase()}
@@ -151,7 +151,7 @@ export function Donut({ segments, label, size = 168, thickness = 24 }: { segment
           <div className="leg-row" key={i}>
             <span className="leg-dot" style={{ background: s.color }} />
             {s.label}
-            <span className="n">{s.value}</span>
+            <span className="n">{s.value.toLocaleString()}</span>
           </div>
         ))}
         {total === 0 && <span className="label">No data yet</span>}
@@ -172,7 +172,7 @@ export function Funnel({ steps }: { steps: { label: string; value: number }[] })
             <div className="fun-meta">
               <span>{s.label}</span>
               <span>
-                <b>{s.value}</b> · {pct}%
+                <b>{s.value.toLocaleString()}</b> · {pct}%
               </span>
             </div>
             <div className="fun-bar">
@@ -204,7 +204,7 @@ export function Heatmap({ cells }: { cells: { dow: number; hour: number; n: numb
               <div
                 key={h}
                 className="heat-cell"
-                title={`${d} ${h}:00 — ${n} txns`}
+                title={`${d} ${h}:00 — ${n.toLocaleString()} txns`}
                 style={n ? { background: `color-mix(in srgb, var(--accent) ${pct}%, var(--surface-2))` } : undefined}
               />
             );

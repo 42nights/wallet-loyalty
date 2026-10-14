@@ -19,7 +19,7 @@ export default async function DashboardPage({
 }) {
   const staff = await getStaff();
   if (!staff) redirect("/login");
-  if (staff.role !== "owner" || !staff.merchantId) redirect("/scan");
+  if (staff.role !== "owner" || !staff.merchantId) redirect("/scan?denied=1");
   const m = staff.merchantId;
 
   const sp = await searchParams;
@@ -48,6 +48,9 @@ export default async function DashboardPage({
     ts: (tsR.data as TimeSeries | null) ?? { bucket, members: [], points: [] },
     heat: (heatR.data as HeatCell[] | null) ?? [],
     days, bucket, theme,
+    // Decided here, not in the browser: without a key the AI routes can only
+    // fail, so the command bar and digest card aren't shown at all.
+    aiEnabled: Boolean(process.env.ANTHROPIC_API_KEY),
   };
 
   return <DashboardView data={data} />;
