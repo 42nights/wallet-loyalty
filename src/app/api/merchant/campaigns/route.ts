@@ -95,7 +95,11 @@ export async function POST(req: NextRequest) {
     // Set the win-back copy BEFORE notifying, so the device's re-fetch (triggered
     // by apply_points below, or the batch notify for offer-only) sees the offer.
     if (offerText) {
-      await db.from("passes").update({ offer_text: offerText }).eq("serial", serial).eq("merchant_id", m);
+      await db
+        .from("passes")
+        .update({ offer_text: offerText, updated_at: new Date().toISOString() })
+        .eq("serial", serial)
+        .eq("merchant_id", m);
     }
     let pointsApplied = 0;
     if (bonus > 0) {
