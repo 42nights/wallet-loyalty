@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { REDEEM_TEMPLATES } from "@/lib/config";
+import { BOOKING_URL, REDEEM_TEMPLATES } from "@/lib/config";
 import { Donut, SEGMENT_COLORS, TrendChart } from "./(merchant)/dashboard/charts";
 import ThemeToggle from "./(merchant)/dashboard/ThemeToggle";
 import { LockBanner, Phone, WalletCard } from "./demo/WalletCard";
@@ -80,8 +80,6 @@ export const metadata: Metadata = {
 
 export default async function Landing() {
   const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
-  const contact = process.env.SALES_CONTACT_EMAIL?.trim();
-  const mailto = contact ? `mailto:${contact}?subject=${encodeURIComponent("42nights Wallet Loyalty")}` : null;
   const cafe = SAMPLES[0];
   const qr = qrPath(SAMPLE_SERIAL);
   const updated = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -95,16 +93,16 @@ export default async function Landing() {
     { key: "dormant", label: "Dormant", value: 73 },
   ].map((x) => ({ label: x.label, value: x.value, color: SEGMENT_COLORS[x.key] }));
 
-  // Always a second step after the demo. Without SALES_CONTACT_EMAIL there is
-  // no address to offer (and we never make one up), so it points at the demo's
+  // Always a second step after the demo. Without a booking link there is
+  // nothing to book (and we never make one up), so it points at the demo's
   // contact note instead; src/instrumentation.ts warns about that in production.
   const ctas = (
     <div className={s.ctas}>
       <Link href="/demo" className={`btn btn-primary ${s.cta}`}>
         See the live demo
       </Link>
-      {mailto ? (
-        <a href={mailto} className={`btn btn-ghost ${s.cta}`}>
+      {BOOKING_URL ? (
+        <a href={BOOKING_URL} target="_blank" rel="noopener" className={`btn btn-ghost ${s.cta}`}>
           Book a call
         </a>
       ) : (

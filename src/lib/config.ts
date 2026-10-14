@@ -92,6 +92,13 @@ export const ORG_NAME = process.env.PASS_ORG_NAME || "42nights";
 export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || "http://localhost:3000";
 
+// "Book a call" on / and /demo opens Ayaan's booking page (a Cal.com link).
+// https only, because it is rendered as a link. Unset → both pages send
+// prospects to the demo's contact note instead; src/instrumentation.ts warns
+// about that in production.
+const booking = process.env.SALES_BOOKING_URL?.trim() ?? "";
+export const BOOKING_URL = booking.startsWith("https://") ? booking : null;
+
 // Fail loudly on a misconfigured production deploy instead of handing out
 // cards that cannot work (apple-wallet#2). Wallet only calls an https
 // webServiceURL, and the URL is baked into each card, so a card issued with an

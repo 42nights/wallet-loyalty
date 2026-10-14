@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { REDEEM_TEMPLATES } from "@/lib/config";
+import { BOOKING_URL, REDEEM_TEMPLATES } from "@/lib/config";
 import DemoClient, { type DemoMerchant } from "./DemoClient";
 import { SAMPLES, SAMPLE_SERIAL, qrPath } from "./samples";
 import s from "./demo.module.css";
@@ -23,7 +23,6 @@ export default function DemoPage() {
   // Reward buttons come straight from the real templates, so the demo cannot drift.
   const merchants: DemoMerchant[] = SAMPLES.map((m) => ({ ...m, actions: REDEEM_TEMPLATES[m.key].actions }));
   const updated = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const contact = process.env.SALES_CONTACT_EMAIL?.trim();
 
   return (
     <main className={s.page}>
@@ -47,23 +46,23 @@ export default function DemoPage() {
 
       <DemoClient merchants={merchants} qr={qrPath(SAMPLE_SERIAL)} updated={updated} />
 
-      {/* "Ask us about a pilot" on / lands here. With no SALES_CONTACT_EMAIL we
-          have no address to show, so the note says who can put them in touch. */}
+      {/* "Ask us about a pilot" on / lands here. With no booking link we have
+          nothing to offer, so the note says who can put them in touch. */}
       <footer id="contact" className={s.foot}>
         <p>Want this for your business?</p>
-        {!contact && (
+        {!BOOKING_URL && (
           <div className={s.footNote}>
             Ask us about a pilot. We set up every business ourselves, so ask the person who shared this page with you, or
             the staff at the shop where you saw the card, to put you in touch.
           </div>
         )}
         <div className={s.footCtas}>
-          {contact && (
-            <a href={`mailto:${contact}?subject=${encodeURIComponent("42nights Wallet Loyalty")}`} className="btn btn-primary">
+          {BOOKING_URL && (
+            <a href={BOOKING_URL} target="_blank" rel="noopener" className="btn btn-primary">
               Book a call
             </a>
           )}
-          <Link href="/#founding" className={`btn ${contact ? "btn-ghost" : "btn-primary"}`}>
+          <Link href="/#founding" className={`btn ${BOOKING_URL ? "btn-ghost" : "btn-primary"}`}>
             Founding merchants
           </Link>
           <Link href="/" className="btn btn-ghost">
