@@ -7,10 +7,13 @@ import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) — needs Node
 
-// POST /api/merchant/redeem  body: { serial, actionId } | { serial, amount }
+// POST /api/merchant/redeem  body: { serial, actionId } | { serial, amount, confirm? }
 // Header: Idempotency-Key (required) — a per-tap UUID so a retry can't double-apply.
 //   actionId → one of the merchant's template redeem buttons (config.ts, negative delta).
 //   amount   → a bill total; earns round(merchant.earn_rate * amount) points.
+//              Over merchants.max_bill → 422. Half of max_bill or more needs
+//              confirm: true, else 409 { confirm: { points } } and nothing is
+//              written — /scan shows those points and resends with confirm.
 export async function POST(req: NextRequest) {
   const staff = await getStaff();
   if (!staff) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!allowed)
     return NextResponse.json({ error: "Slow down" }, { status: 429 });
 
-  const { serial, actionId, amount } = await req.json().catch(() => ({}));
+  const { serial, actionId, amount, confirm } = await req.json().catch(() => ({}));
   if (!serial) return NextResponse.json({ error: "No serial" }, { status: 400 });
 
   // select("*") so a database that hasn't run the redeem_template migration
@@ -38,6 +41,10 @@ export async function POST(req: NextRequest) {
   if (!merchant)
     return NextResponse.json({ error: "No merchant" }, { status: 403 });
 
+  // Largest bill one earn may carry. `?? 1000` is the schema default, so a
+  // database without the max_bill column yet still gets the cap.
+  const maxBill = Number(merchant.max_bill ?? 1000);
+
   let delta: number;
   let reason: string;
   let billAmount: number | null = null;
@@ -47,6 +54,11 @@ export async function POST(req: NextRequest) {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000)
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+    if (amt > maxBill)
+      return NextResponse.json(
+        { error: `Bill is over this shop's limit of ${maxBill} — check the amount, or ask the owner to raise the limit in Settings` },
+        { status: 422 }
+      );
     delta = Math.round(Number(merchant.earn_rate) * amt);
     reason = "earn:purchase";
     billAmount = amt; // persist the raw bill $ for real revenue analytics
@@ -62,6 +74,9 @@ export async function POST(req: NextRequest) {
   // Bound delta well within int4 to avoid overflow / fat-finger over-credit.
   if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1_000_000)
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+
+  if (billAmount !== null && billAmount >= maxBill / 2 && confirm !== true)
+    return NextResponse.json({ error: "Confirm this bill", confirm: { points: delta } }, { status: 409 });
 
   const result = await applyTransaction(
     serial,
