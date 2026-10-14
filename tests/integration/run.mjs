@@ -440,6 +440,10 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   // "undo:" keys are reserved for reversal rows: a client planting undo:<k>
   // first would make the real undo of <k> look already done.
   chk("client Idempotency-Key 'undo:…' refused on redeem", (await redeem(cash, { serial: uc.serial, amount: 1 }, `undo:${randomUUID()}`)).status, 400);
+  // a campaign credits key "<campaign id>:<serial>": planted first, it would
+  // make that card's credit a replay
+  chk("client key shaped like a campaign's refused on redeem",
+    await answer(await redeem(cash, { serial: uc.serial, amount: 1 }, `${randomUUID()}:${uc.serial}`)), "400:Invalid Idempotency-Key");
   const k1 = randomUUID();
   chk("earn $20 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 20 }, k1)), 200);
   mock.clear();
@@ -524,17 +528,22 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const below = await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" });
   const belowJ = await below.json();
   chk("reward below the goal (4 of 5) → 422 with the balance", `${below.status}:${belowJ.error}:${belowJ.balance}`, "422:Not enough stamps:4");
-  for (const [what, body] of [
-    ["a bill amount", { amount: 12 }],
-    ["a points template button (free_coffee)", { actionId: "free_coffee" }],
-    ["+4 stamps (over 3 per tap)", { stamps: 4 }],
-    ["0 stamps", { stamps: 0 }],
-    ["1.5 stamps", { stamps: 1.5 }],
-    ["stamps as a string", { stamps: "1" }],
+  // each refusal names its reason: a bare 400 would also pass on a route that
+  // knows nothing of stamps ("Unknown action")
+  const noBill = "400:This shop collects stamps: tap a stamp button, no bill amount";
+  const oneToThree = "400:Add 1 to 3 stamps at a time";
+  for (const [what, body, want] of [
+    ["a bill amount", { amount: 12 }, noBill],
+    ["a points template button (free_coffee)", { actionId: "free_coffee" }, "400:Unknown action"],
+    ["+4 stamps (over 3 per tap)", { stamps: 4 }, oneToThree],
+    ["0 stamps", { stamps: 0 }, oneToThree],
+    ["1.5 stamps", { stamps: 1.5 }, oneToThree],
+    ["stamps as a string", { stamps: "1" }, oneToThree],
   ])
-    chk(`stamp card refuses ${what} → 400`, (await redeem(stCash, { serial: sc.serial, ...body })).status, 400);
-  chk("points card refuses stamps → 400", (await redeem(cash, { serial, stamps: 1 })).status, 400);
-  chk("points card refuses the stamp reward → 400", (await redeem(cash, { serial, actionId: "stamp_reward" })).status, 400);
+    chk(`stamp card refuses ${what} → 400`, await answer(await redeem(stCash, { serial: sc.serial, ...body })), want);
+  chk("points card refuses stamps → 400", await answer(await redeem(cash, { serial, stamps: 1 })),
+    "400:This shop earns points from the bill, not stamps");
+  chk("points card refuses the stamp reward → 400", await answer(await redeem(cash, { serial, actionId: "stamp_reward" })), "400:Unknown action");
   chk("+1 stamp reaches the goal", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 1 })), 5);
   const kr = randomUUID();
   chk("reward at the goal spends 5", await balanceOf(await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" }, kr)), 0);

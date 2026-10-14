@@ -15,6 +15,14 @@ export type ApplyResult =
 
 type ApplyRow = { status: string; balance: number | null };
 
+// Every idempotency key the server mints has a colon: "undo:<key>" (undo
+// route), "birthday:<year>:<serial>" (birthday cron), "<campaign id>:<serial>"
+// (campaigns). A client's per-tap key is a bare UUID. A client key with a colon
+// could take one of those first and turn the real row into a replay (an undo
+// that looks done, a treat or campaign credit never given), so the routes that
+// take a client key refuse it.
+export const isServerKey = (key: string) => key.includes(":");
+
 // What staff are told when they try to use a deactivated card (409).
 export const VOIDED_ERROR = "This card is deactivated. The owner can reactivate it on the customer's page.";
 

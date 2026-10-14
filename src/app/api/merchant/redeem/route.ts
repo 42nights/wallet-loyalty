@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { STAMP_EARN_MAX, happyHourMultiplier, loyaltyMode, merchantRedemptions } from "@/lib/config";
-import { applyTransaction, VOIDED_ERROR } from "@/lib/points";
+import { applyTransaction, isServerKey, VOIDED_ERROR } from "@/lib/points";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
 import { formatMoney } from "@/lib/format";
@@ -31,11 +31,8 @@ export async function POST(req: NextRequest) {
   const idempotencyKey = req.headers.get("idempotency-key");
   if (!idempotencyKey)
     return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
-  // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
-  // planting one could make a later undo of <key> look already done.
-  // "birthday:<year>:<serial>" is the birthday cron's: a planted one would make
-  // that year's treat a replay, so the customer never got it.
-  if (/^(undo|birthday):/.test(idempotencyKey))
+  // keys with a colon are the server's (undo, birthday cron, campaigns): see isServerKey
+  if (isServerKey(idempotencyKey))
     return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const allowed = await rateLimit(`redeem:${staff.id}`, 120, 60);

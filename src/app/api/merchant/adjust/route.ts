@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
-import { applyTransaction, VOIDED_ERROR } from "@/lib/points";
+import { applyTransaction, isServerKey, VOIDED_ERROR } from "@/lib/points";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2)
 
@@ -13,10 +13,8 @@ export async function POST(req: NextRequest) {
 
   const idem = req.headers.get("idempotency-key");
   if (!idem) return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
-  // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
-  // planting one could make a later undo of <key> look already done.
-  // "birthday:<year>:<serial>" is reserved for the birthday cron likewise.
-  if (/^(undo|birthday):/.test(idem))
+  // keys with a colon are the server's (undo, birthday cron, campaigns): see isServerKey
+  if (isServerKey(idem))
     return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const { serial, delta } = await req.json().catch(() => ({}));
