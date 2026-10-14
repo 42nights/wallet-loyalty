@@ -76,7 +76,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
 
   if (billAmount !== null && billAmount >= maxBill / 2 && confirm !== true)
-    return NextResponse.json({ error: "Confirm this bill", confirm: { points: delta } }, { status: 409 });
+    // The hint is for a terminal still running an older /scan bundle that has no
+    // confirm step: reloading picks up the version that shows one.
+    return NextResponse.json(
+      { error: "Confirm this bill (reload the page if no confirm button appears)", confirm: { points: delta } },
+      { status: 409 }
+    );
 
   const result = await applyTransaction(
     serial,

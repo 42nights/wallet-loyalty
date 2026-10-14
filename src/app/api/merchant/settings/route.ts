@@ -79,6 +79,20 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(update).length === 0)
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
 
+  // The redeem route refuses any single earn above 1,000,000 points, so a rate x
+  // limit pair above that would let the counter accept bills it then rejects
+  // with a bare "Invalid amount". Check the pair as it will be after this save.
+  if (update.earn_rate !== undefined || update.max_bill !== undefined) {
+    const { data: cur } = await db.from("merchants").select("*").eq("id", owner.merchantId).single();
+    const rate = update.earn_rate ?? Number(cur?.earn_rate ?? 1);
+    const bill = update.max_bill ?? Number(cur?.max_bill ?? 1000);
+    if (Math.round(rate * bill) > 1_000_000)
+      return NextResponse.json(
+        { error: `At ${rate} points per 1.00, the bill limit can be at most ${Math.floor(1_000_000 / rate)}` },
+        { status: 400 }
+      );
+  }
+
   const { data, error } = await db
     .from("merchants")
     .update(update)

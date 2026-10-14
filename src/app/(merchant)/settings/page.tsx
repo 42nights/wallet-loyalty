@@ -7,6 +7,6 @@ export const runtime = "nodejs";
 export default async function SettingsPage() {
   const staff = await getStaff();
   if (!staff) redirect("/login");
-  if (staff.role !== "owner" || !staff.merchantId) redirect("/scan");
+  if (staff.role !== "owner" || !staff.merchantId) redirect("/scan?denied=1");
   return <SettingsForm />;
 }
