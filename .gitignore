@@ -9,3 +9,5 @@ tsconfig.tsbuildinfo
 .DS_Store
 .vercel
 supabase/.temp
+test-results
+playwright-report
