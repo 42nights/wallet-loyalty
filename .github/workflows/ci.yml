@@ -1,0 +1,55 @@
+# Runs the whole oracle on GitHub's free runners for every pull request and
+# every push to main: typecheck, unit, production build, integration (real
+# next dev + local Supabase + mock APNs) and Playwright journeys.
+#
+# Pushing to main still deploys to Vercel whether or not this passes — the
+# safety comes from merging only green pull requests (branch protection).
+# No secrets are used: everything runs against a throwaway local stack.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.108.0
+
+      - name: Local Supabase + schema + .env.local
+        run: bash scripts/ci-bootstrap.sh
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run ci
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

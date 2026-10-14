@@ -11,7 +11,8 @@
     "upload-assets": "tsx scripts/upload-assets.ts",
     "test:integration": "node tests/integration/run.mjs",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:integration && npm run test:e2e"
+    "test:all": "npm test && npm run test:integration && npm run test:e2e",
+    "ci": "tsc --noEmit && npm test && next build && npm run test:integration && npm run test:e2e"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

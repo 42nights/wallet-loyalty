@@ -145,3 +145,22 @@ console.
 
 `npm test` runs `src/**/*.test.ts` with node's built-in runner. They're pure
 functions with no database or server.
+
+## CI
+
+`npm run ci` is the gate: `tsc --noEmit`, unit tests, `next build`, the integration
+suite, then the Playwright suite — it stops at the first failure and exits non-zero.
+Run it before every push (pushing to `main` deploys to production). Locally it takes
+about 40 seconds once Supabase is up. Run it when no other `next dev` is using this
+checkout's `.next/` (or in a separate worktree), with `TEST_PORT` / `E2E_PORT` if the
+default ports are taken.
+
+New machine (or the spare Mac mini): `bash scripts/ci-bootstrap.sh` starts local
+Supabase, applies `supabase/schema.sql`, creates the `pass-assets` bucket and writes a
+local-only `.env.local` (self-signed signing chain) if there isn't one. Idempotent.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same bootstrap + `npm run ci` on
+GitHub's free runners for every pull request and every push to `main`, uploading
+`test-results/` and `playwright-report/` when it fails. No secrets are involved.
+Vercel deploys `main` regardless, so turn on branch protection ("require the CI check")
+and merge only green pull requests.
