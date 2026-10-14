@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { DEFAULT_TEMPLATE, EARN_RATE, type TemplateKey } from "@/lib/config";
 import {
-  MIN_PASSWORD, SLUG_RE, generatePassword, hexToRgb, slugify, themeHex,
+  MIN_PASSWORD, SLUG_RE, colorBody, generatePassword, slugify, themeHex,
 } from "@/lib/admin/merchant";
 import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
 import s from "../../admin.module.css";
@@ -92,9 +92,7 @@ export default function NewMerchant() {
         slug,
         template,
         earnRate: Number(earnRate),
-        bgColor: hexToRgb(colors.bg),
-        fgColor: hexToRgb(colors.fg),
-        labelColor: hexToRgb(colors.label),
+        ...colorBody(colors, template),
         owner: { username: ownerUser, password: ownerPw },
         cashier: withCashier ? { username: cashierUser, password: cashierPw } : undefined,
       }),

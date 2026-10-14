@@ -53,13 +53,23 @@ export function themeHex(template: TemplateKey): { bg: string; fg: string; label
   return { bg: rgbToHex(t.bg, ""), fg: rgbToHex(t.fg, ""), label: rgbToHex(t.label, "") };
 }
 
+// The colour part of a create/update body. A colour equal to the template's
+// theme is sent as null (stored NULL), so the card keeps following the live
+// theme: a later template switch or theme tweak re-colours it, and the default
+// strip stays. Only hand-picked colours are stored.
+export function colorBody(colors: { bg: string; fg: string; label: string }, template: TemplateKey) {
+  const t = themeHex(template);
+  const pick = (k: "bg" | "fg" | "label") => (colors[k].toLowerCase() === t[k] ? null : hexToRgb(colors[k]));
+  return { bgColor: pick("bg"), fgColor: pick("fg"), labelColor: pick("label") };
+}
+
 export type MerchantUpdate = {
   name?: string;
   earn_rate?: number;
   redeem_template?: TemplateKey;
-  bg_color?: string;
-  fg_color?: string;
-  label_color?: string;
+  bg_color?: string | null;
+  fg_color?: string | null;
+  label_color?: string | null;
 };
 
 const COLOR_FIELDS = [
@@ -69,7 +79,8 @@ const COLOR_FIELDS = [
 ] as const;
 
 // Validates the editable merchant fields from a request body (camelCase in,
-// column names out). `partial` = PATCH: absent fields are left alone.
+// column names out). `partial` = PATCH: absent fields are left alone. A null
+// colour clears it, so the pass falls back to the template's theme.
 // Returns the row patch, or an error message for the user.
 export function merchantFields(b: Record<string, unknown>, partial: boolean): MerchantUpdate | string {
   const out: MerchantUpdate = {};
@@ -95,7 +106,7 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
   for (const [key, col, label] of COLOR_FIELDS) {
     if (!has(key)) continue;
     const v = b[key];
-    if (!isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
+    if (v !== null && !isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
     out[col] = v;
   }
   return out;
