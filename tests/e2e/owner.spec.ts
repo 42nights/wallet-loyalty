@@ -39,6 +39,29 @@ test("cashier opening /dashboard is redirected to /scan?denied=1", async ({ page
   await expect(page).toHaveURL(/\/scan\?denied=1$/);
 });
 
+test("owner opens the sign-up poster from /settings; a cashier is refused", async ({ page }) => {
+  const name = `Test e2e ${fx.run}`; // global setup's café merchant, earn_rate 10
+  await apiLogin(page, fx.owner);
+  await page.goto("/settings");
+  await page.getByRole("link", { name: "Print sign-up poster" }).click();
+  await page.waitForURL("**/settings/poster");
+
+  const qr = page.getByRole("img", { name: `QR code that opens the ${name} rewards sign-up page` });
+  await expect(qr).toBeVisible();
+  expect(await qr.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Get your ${name} rewards card`);
+  const poster = page.getByRole("article", { name: `${name} sign-up poster` });
+  await expect(poster).toContainText("10 points");
+  await expect(poster).toContainText("Extra Shot"); // the café template's cheapest reward
+  await expect(poster).toContainText(`/enroll/${fx.slug}`);
+  await expect(page.getByRole("button", { name: "Print", exact: true })).toBeVisible();
+
+  await page.context().clearCookies();
+  await apiLogin(page, fx.cashier);
+  await page.goto("/settings/poster");
+  await expect(page).toHaveURL(/\/scan\?denied=1$/);
+});
+
 test("logged-out /dashboard is redirected to /login", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login$/);
