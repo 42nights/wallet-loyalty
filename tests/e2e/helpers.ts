@@ -30,8 +30,8 @@ export const test = base.extend<{ noServerErrors: void }>({
 });
 export { expect };
 
-// The app's forms put a <div class="label"> before each input (no <label for>),
-// so find the input that directly follows the label text.
+// The app's forms put a `.label` caption before each input; find the input
+// that directly follows the caption text.
 export const field = (page: Page, label: string) =>
   page.locator(".label", { hasText: new RegExp(`^${label}$`) }).locator("xpath=following-sibling::input[1]");
 
