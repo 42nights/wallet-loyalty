@@ -272,10 +272,20 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("restaurant cashier: own 'drinks' (500)", await balanceOf(await redeem(other, { serial: rc.serial, actionId: "drinks" })), 500);
 
   // --- campaigns ---------------------------------------------------------------
-  // Fresh cards with no earn are the only "dormant" ones in the cafe fixture.
+  // "dormant" = no earn and enrolled over 30 days ago, so these two cards are
+  // backdated; a card enrolled today with no earn is "new" (merchant_segments).
+  // They are the only dormant ones in the cafe fixture.
   console.log("campaigns");
   const d1 = await createCard(db, cafe.id, { name: "Dormant One" });
   const d2 = await createCard(db, cafe.id, { name: "Dormant Two" });
+  const fresh = await createCard(db, cafe.id, { name: "Joined Today" });
+  await rows(db.from("passes").update({ created_at: new Date(Date.now() - 60 * 86_400_000).toISOString() })
+    .in("serial", [d1.serial, d2.serial]).select("serial"));
+  const { data: segs, error: segErr } = await db.rpc("merchant_segments", { p_merchant: cafe.id });
+  if (segErr) throw new Error(`merchant_segments: ${segErr.message}`);
+  const segOf = (c) => segs.customers.find((x) => x.serial === c.serial)?.segment;
+  chk("segments: no earn, enrolled 60 days ago → dormant", `${segOf(d1)},${segOf(d2)}`, "dormant,dormant");
+  chk("segments: no earn, enrolled today → new", segOf(fresh), "new");
   const devC = `t-${run}-dev-camp`;
   const tokC = `t-${run}-tok-camp`;
   chk("register device on a dormant card", (await register(devC, d1, tokC)).status, 201);
