@@ -29,10 +29,11 @@ test("owner /customers search finds a customer by name and by phone", async ({ p
   await expect(page.getByText(c.name)).toBeVisible();
 });
 
-test("cashier opening /dashboard is redirected to /scan", async ({ page }) => {
+test("cashier opening /dashboard is redirected to /scan?denied=1", async ({ page }) => {
   await apiLogin(page, fx.cashier);
   await page.goto("/dashboard");
-  await expect(page).toHaveURL(/\/scan$/);
+  // denied=1 lets /scan tell the cashier why they landed there
+  await expect(page).toHaveURL(/\/scan\?denied=1$/);
 });
 
 test("logged-out /dashboard is redirected to /login", async ({ page }) => {

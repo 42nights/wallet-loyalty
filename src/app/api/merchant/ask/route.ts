@@ -26,12 +26,17 @@ export async function POST(req: NextRequest) {
   const m = owner.merchantId;
 
   // 20 questions/min/owner — the LLM call is the expensive part.
+  // Every `error` string here is shown to the owner as-is (CommandBar), so it is
+  // written for a café owner; technical detail goes to the server log only.
   if (!(await rateLimit(`ask:${owner.id}`, 20, 60)))
-    return NextResponse.json({ error: "Slow down" }, { status: 429 });
+    return NextResponse.json(
+      { error: "That's a lot of questions at once — wait a minute and try again." },
+      { status: 429 }
+    );
 
   const { question, deep } = await req.json().catch(() => ({}));
   const q = typeof question === "string" ? question.trim().slice(0, 500) : "";
-  if (!q) return NextResponse.json({ error: "Empty question" }, { status: 400 });
+  if (!q) return NextResponse.json({ error: "Type a question first." }, { status: 400 });
 
   // Pre-call token budget gate (soft cost cap).
   const { data: usedToday } = await db.rpc("ai_usage_today", { p_merchant: m });
@@ -44,11 +49,9 @@ export async function POST(req: NextRequest) {
   let client: Anthropic;
   try {
     client = anthropic();
-  } catch {
-    return NextResponse.json(
-      { error: "AI is not configured (ANTHROPIC_API_KEY missing)." },
-      { status: 503 }
-    );
+  } catch (e) {
+    console.warn("ask unavailable:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "AI answers aren't available yet." }, { status: 503 });
   }
 
   const model = deep === true ? MODEL_ASK_DEEP : MODEL_ASK;
@@ -100,7 +103,10 @@ export async function POST(req: NextRequest) {
     }
   } catch (e) {
     console.error("ask failed:", e instanceof Error ? e.message : e);
-    return NextResponse.json({ error: "AI request failed" }, { status: 502 });
+    return NextResponse.json(
+      { error: "Couldn't get an answer right now — please try again in a moment." },
+      { status: 502 }
+    );
   } finally {
     // Record usage even on partial failure so the budget reflects real spend.
     if (inTokens || outTokens)

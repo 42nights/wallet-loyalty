@@ -85,7 +85,7 @@ export default function CustomerCRM({ serial }: { serial: string }) {
         <div key={n.id} className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
           <div>{n.body}</div>
           <span className="label" style={{ whiteSpace: "nowrap" }}>
-            {new Date(n.created_at).toLocaleDateString("en-GB")}
+            {new Date(n.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}
           </span>
         </div>
       ))}
