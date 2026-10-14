@@ -1050,6 +1050,10 @@ async function main() {
   if (MUTATE) console.log("MUTATE=1 — one expectation is flipped; this run MUST fail.");
 
   const db = adminClient(env);
+  // The global admin-login bucket (20 tries / 10 min) is shared by every run on
+  // this local database, so parallel suites ran it dry (429). preflight() has
+  // refused anything but a local Supabase, so start each run with a fresh one.
+  await db.from("rate_limits").delete().like("bucket", "admin-login%");
   const run = newRunId();
   const tmp = mkdtempSync(join(tmpdir(), "itest-"));
   let mock;
