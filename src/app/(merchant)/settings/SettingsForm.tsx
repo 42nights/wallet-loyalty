@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { formatMoney } from "@/lib/format";
 import styles from "./settings.module.css";
 
 type Settings = {
@@ -62,12 +63,12 @@ export default function SettingsForm() {
 
   function saveRate(e: FormEvent) {
     e.preventDefault();
-    save({ earnRate: Number(rate) }, `Earn rate saved: ${Number(rate)} pts per 1.00`);
+    save({ earnRate: Number(rate) }, `Earn rate saved: ${Number(rate)} pts per ${formatMoney(1)}`);
   }
 
   function saveLimit(e: FormEvent) {
     e.preventDefault();
-    save({ maxBill: Number(limit) }, `Bill limit saved: ${Number(limit)}`);
+    save({ maxBill: Number(limit) }, `Bill limit saved: ${formatMoney(Number(limit))}`);
   }
 
   async function copyLink() {
@@ -137,7 +138,7 @@ export default function SettingsForm() {
           <section className="card stack" aria-labelledby="rate-h">
             <div>
               <div className="label" id="rate-h">Earn rate</div>
-              <div className={styles.help}>Points per 1.00 spent (0.1 – 100).</div>
+              <div className={styles.help}>Points per {formatMoney(1)} spent (0.1 – 100).</div>
             </div>
             <form className="row" onSubmit={saveRate}>
               <input
@@ -148,7 +149,7 @@ export default function SettingsForm() {
                 step="any"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
-                aria-label="Points per 1.00 spent"
+                aria-label={`Points per ${formatMoney(1)} spent`}
               />
               <button
                 className="btn btn-primary"
@@ -161,7 +162,7 @@ export default function SettingsForm() {
             </form>
             <div className={styles.example} aria-live="polite">
               {rateValid ? (
-                <>A {EXAMPLE_BILL.toFixed(2)} bill earns <b>{Math.round(rateNum * EXAMPLE_BILL)}</b> points</>
+                <>A {formatMoney(EXAMPLE_BILL)} bill earns <b>{Math.round(rateNum * EXAMPLE_BILL)}</b> points</>
               ) : (
                 <span style={{ color: "var(--bad)" }}>Enter a rate between 0.1 and 100</span>
               )}
@@ -172,7 +173,7 @@ export default function SettingsForm() {
             <div>
               <div className="label" id="limit-h">Bill limit</div>
               <div className={styles.help}>
-                The largest bill a cashier can add points for (10 – 100000). Bigger bills are refused, and
+                The largest bill a cashier can add points for ({formatMoney(10)} – {formatMoney(100000)}). Bigger bills are refused, and
                 bills of half the limit or more ask the cashier to confirm first.
               </div>
             </div>
@@ -198,9 +199,9 @@ export default function SettingsForm() {
             </form>
             <div className={styles.example} aria-live="polite">
               {limitValid ? (
-                <>Bills from <b>{limitNum / 2}</b> need a confirm; the largest earns <b>{Math.round(limitNum * s.earnRate)}</b> points</>
+                <>Bills from <b>{formatMoney(limitNum / 2)}</b> need a confirm; the largest earns <b>{Math.round(limitNum * s.earnRate)}</b> points</>
               ) : (
-                <span style={{ color: "var(--bad)" }}>Enter a limit between 10 and 100000</span>
+                <span style={{ color: "var(--bad)" }}>Enter a limit between {formatMoney(10)} and {formatMoney(100000)}</span>
               )}
             </div>
           </section>
