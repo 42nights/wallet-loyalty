@@ -197,6 +197,11 @@ a { color: var(--accent); }
   .staff-nav { order: 1; flex-basis: 100%; margin-left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .staff-nav a { text-align: center; padding: 10px 4px; letter-spacing: .08em; }
 }
+/* Printing (the sign-up poster): paper only, no app header or page colour. */
+@media print {
+  .staff-top { display: none; }
+  body { background: #fff; min-height: 0; }
+}
 
 /* ===========================================================================
    Analytics console — wide, responsive dashboard (overrides the 520px .wrap)

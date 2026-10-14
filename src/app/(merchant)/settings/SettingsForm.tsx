@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
@@ -220,6 +221,13 @@ export default function SettingsForm() {
                 </a>
                 <button className="btn btn-ghost" type="button" onClick={copyLink}>Copy link</button>
                 {linkMsg && <div className={`toast ${linkMsg.kind}`} role="status">{linkMsg.text}</div>}
+                <Link
+                  className="btn btn-ghost"
+                  style={{ display: "block", textAlign: "center", textDecoration: "none" }}
+                  href="/settings/poster"
+                >
+                  Print sign-up poster
+                </Link>
               </>
             ) : (
               <div className="label">No public link yet — ask 42nights to set your sign-up slug.</div>

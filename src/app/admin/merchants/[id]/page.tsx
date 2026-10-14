@@ -84,6 +84,15 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             {ago(stats.lastActivity)} · created {m.created_at ? day(m.created_at) : "—"}
           </div>
         </div>
+        {enrollUrl && (
+          <Link
+            href={`/settings/poster?merchant=${m.id}`}
+            className="btn btn-ghost"
+            style={{ width: "auto", padding: "12px 18px", fontSize: 15, textDecoration: "none" }}
+          >
+            Print sign-up poster
+          </Link>
+        )}
       </div>
 
       <KpiTiles k={stats.kpis} lead={{ k: "Last activity", v: ago(stats.lastActivity), sub: "txn or new card" }} />
