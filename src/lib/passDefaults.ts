@@ -32,3 +32,20 @@ export function defaultAssetBuffer(name: string): Buffer | undefined {
 
 /** Filenames that have a bundled default (used to assemble the buffer map). */
 export const DEFAULT_ASSET_NAMES = Object.keys(DEFAULT_ASSETS_B64);
+
+/**
+ * A merchant's uploaded pass art plus the bundled defaults. A default fills a
+ * missing file only when the merchant has not uploaded that image's base file,
+ * so their own logo.png + logo@2x.png is never mixed with the 42nights
+ * logo@3x.png on 3x iPhones (Wallet scales their @2x instead). icon.png is its
+ * own base, so it is always present.
+ */
+export function withDefaultArt(uploaded: Record<string, Buffer>): Record<string, Buffer> {
+  const out = { ...uploaded };
+  for (const name of DEFAULT_ASSET_NAMES) {
+    const base = name.replace(/@\dx\.png$/, ".png");
+    if (uploaded[name] || uploaded[base]) continue;
+    out[name] = defaultAssetBuffer(name)!;
+  }
+  return out;
+}

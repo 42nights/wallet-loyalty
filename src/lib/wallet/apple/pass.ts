@@ -7,7 +7,7 @@ import {
   PUBLIC_BASE_URL,
   redemptionsFor,
 } from "@/lib/config";
-import { defaultAssetBuffer } from "@/lib/passDefaults";
+import { withDefaultArt } from "@/lib/passDefaults";
 import { passkitCertificates } from "./certs";
 import type { PassData } from "../types";
 
@@ -137,24 +137,16 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     merchant = (row as MerchantRow | null) ?? null;
   }
 
-  // Assemble the in-memory bundle: the merchant's uploads first, then defaults.
-  const buffers: Record<string, Buffer> = {};
+  // Assemble the in-memory bundle: the merchant's uploads, then defaults for
+  // whatever image they have not uploaded (never mixed within one image).
+  const uploaded: Record<string, Buffer> = {};
   if (merchant) {
     for (const name of ASSET_NAMES) {
       const buf = await merchantAsset(merchant, name);
-      if (buf) buffers[name] = buf;
+      if (buf) uploaded[name] = buf;
     }
   }
-  // A default fills a missing file only when the merchant has not uploaded that
-  // image's base file. So a merchant with their own logo.png + logo@2x.png but
-  // no logo@3x.png gets their @2x scaled up on 3x iPhones, never the 42nights
-  // logo; and icon.png (its own base) is always present.
-  for (const name of ASSET_NAMES) {
-    const base = name.replace(/@\dx\.png$/, ".png");
-    if (buffers[name] || buffers[base]) continue;
-    const buf = defaultAssetBuffer(name);
-    if (buf) buffers[name] = buf;
-  }
+  const buffers = withDefaultArt(uploaded);
 
   // Identity + branding MUST go through props — passkit-generator writes the
   // final pass.json from props, not from a pass.json buffer (a buffer's
@@ -220,12 +212,13 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   if (offerText && offerText.trim()) {
     pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
   }
-  const rate = Number(merchant?.earn_rate ?? 1);
+  const parsedRate = Number(merchant?.earn_rate ?? 1);
+  const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
   pass.backFields.push(
     {
       key: "earn",
       label: "HOW TO EARN",
-      value: `${Number.isFinite(rate) ? rate : 1} points per 1.00 spent`,
+      value: `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
     },
     {
       key: "rewards",
