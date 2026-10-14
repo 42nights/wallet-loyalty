@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const MAX_BONUS = 100_000; // the campaigns route's own cap
+const MAX_TARGETS = 2000; // the route sends to at most this many cards per campaign
 const nf = (n: number) => n.toLocaleString();
 
 type Segment = { key: string; label: string; count: number };
@@ -32,6 +33,9 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
 
   const segLabel = (k: string) => segments.find((s) => s.key === k)?.label ?? k;
   const targetCount = segments.find((s) => s.key === segment)?.count ?? 0;
+  // What the confirm promises must match what the route can send: it caps a
+  // campaign at MAX_TARGETS cards and re-reads the segment at send time.
+  const sendCount = Math.min(targetCount, MAX_TARGETS);
   // Whole points only; "abc", "-5" or "1.5" must not quietly become a number.
   const bonusPts = /^\d+$/.test(bonus.trim()) ? Number(bonus.trim()) : NaN;
   const who = `${nf(targetCount)} ${segLabel(segment)} customer${targetCount === 1 ? "" : "s"}`;
@@ -146,7 +150,9 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
           <div className="confirm">
             {bonusPts > 0 ? (
               <>
-                Give <b>{nf(bonusPts)} pts</b> to {who} — <b>{nf(bonusPts * targetCount)} pts total</b>.
+                Give <b>{nf(bonusPts)} pts</b> to {who} — about <b>{nf(bonusPts * sendCount)} pts total</b>
+                {targetCount > MAX_TARGETS && <> (sent to the first {nf(MAX_TARGETS)})</>}. The segment is
+                re-checked when you send, so the final count can differ slightly.
                 {offer.trim() && <> Their Wallet card also shows “{offer.trim()}”.</>} This can&apos;t be undone.
               </>
             ) : (

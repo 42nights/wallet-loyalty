@@ -20,6 +20,11 @@ export default function CustomersTable() {
   const router = useRouter();
   const [rows, setRows] = useState<Cust[]>([]);
   const [total, setTotal] = useState(0);
+  // Paging follows the SERVER offset (rows fetched so far), not rows.length:
+  // de-duplicating a row that shifted pages made rows.length lag the offset, so
+  // "Load more" re-fetched the same page forever and skipped a customer.
+  const [fetched, setFetched] = useState(0);
+  const [more, setMore] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("recent");
   const [loading, setLoading] = useState(true);
@@ -44,6 +49,8 @@ export default function CustomersTable() {
     if (!d) return setFailed(true);
     const page = d.customers ?? [];
     setTotal(d.total ?? 0);
+    setFetched(offset + page.length);
+    setMore(page.length === PAGE);
     setRows((prev) => {
       if (offset === 0) return page;
       // A customer enrolling between pages shifts the offset by one; skip the
@@ -60,8 +67,7 @@ export default function CustomersTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, sort]);
 
-  const more = rows.length < total;
-  const count = more
+  const count = more && rows.length < total
     ? `Showing ${nf(rows.length)} of ${nf(total)} members`
     : `${nf(total)} member${total === 1 ? "" : "s"}`;
 
@@ -114,8 +120,8 @@ export default function CustomersTable() {
           <div className="label">{search.trim() ? "No customers match that search" : "No customers yet"}</div>
         )}
         {more && (
-          <button className="btn btn-ghost" disabled={loading} onClick={() => fetchPage(rows.length)}>
-            {loading ? "Loading…" : `Load more · ${nf(total - rows.length)} left`}
+          <button className="btn btn-ghost" disabled={loading} onClick={() => fetchPage(fetched)}>
+            {loading ? "Loading…" : total > rows.length ? `Load more · ${nf(total - rows.length)} left` : "Load more"}
           </button>
         )}
       </div>
