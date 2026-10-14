@@ -664,8 +664,27 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const [stillVoid] = await rows(db.from("passes").select("voided_at").eq("serial", vc.serial));
   chk("re-enrolling its number → 409, and the card stays deactivated", `${again.status}:${Boolean(stillVoid?.voided_at)}`, "409:true");
   const vPass = await latestPass(vc);
-  chk("Wallet card reads DEACTIVATED (header | primary)",
-    `${field(vPass, "headerFields", "balance")}|${field(vPass, "primaryFields", "points")}`, "DEACTIVATED|Deactivated");
+  chk("Wallet card says DEACTIVATED once: header, no primary field; the back is STATUS, UPDATED, TERMS",
+    `${field(vPass, "headerFields", "balance")}|${(vPass.storeCard?.primaryFields ?? []).length}|${(vPass.storeCard?.backFields ?? []).map((f) => f.key).join(",")}`,
+    "DEACTIVATED|0|status,updated,terms");
+  chk("its STATUS says the points are kept and who switches it back on", field(vPass, "backFields", "status"),
+    `This card is paused. Your points are kept — ask Test cafe ${run} to switch it back on.`);
+  // a stamp card, deactivated: the same layout in stamps, and the theme's own
+  // strip (byte for byte the cafe theme's, as on a points cafe card) instead of the grid
+  const vs = await createCard(db, st.id, { name: "Void Stamps" });
+  await redeem(stCash, { serial: vs.serial, stamps: 3 });
+  chk("owner deactivates a stamp card", (await setVoid(stOwn, { serial: vs.serial, reason: "other" })).status, 200);
+  const stripOf = async (card) => {
+    const r = await req(`/api/v1/passes/${PTI}/${card.serial}`, { headers: { Authorization: `ApplePass ${card.authToken}` } });
+    const f = join(tmp, `${n++}.pkpass`);
+    writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+    return execFileSync("unzip", ["-p", f, "strip@2x.png"]).toString("base64");
+  };
+  const vsPass = await latestPass(vs);
+  chk("deactivated stamp card: CARD DEACTIVATED, no primary, STATUS in stamps",
+    `${field(vsPass, "headerFields", "balance")}|${(vsPass.storeCard?.primaryFields ?? []).length}|${field(vsPass, "backFields", "status")}`,
+    `DEACTIVATED|0|This card is paused. Your stamps are kept — ask Test stamps ${run} to switch it back on.`);
+  chk("deactivated stamp card: the theme's strip, not the stamp grid", (await stripOf(vs)) === (await stripOf(smokeCard)), true);
   chk("deactivated card has no QR and no change message",
     `${(vPass.barcodes ?? []).length}:${vPass.storeCard?.headerFields?.[0]?.changeMessage ?? "none"}`, "0:none");
   const vLedger = await rows(db.from("transactions").select("delta").eq("serial", vc.serial));

@@ -153,9 +153,10 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   const stamps = loyaltyMode(merchant?.loyalty_mode) === "stamps";
   const goal = stampGoal(merchant?.stamp_goal);
   const reward = stampReward(merchant?.stamp_reward);
-  if (stamps) {
+  if (stamps && !voided) {
     // On a stamp card the strip IS the balance: the grid, drawn for this card's
     // count in the card's real colours, replaces any uploaded or default strip.
+    // A deactivated card keeps the theme's strip: no progress to show.
     for (const [name, scale] of [["strip.png", 1], ["strip@2x.png", 2], ["strip@3x.png", 3]] as const)
       buffers[name] = stampStrip(points, goal, { bg, fg, label }, scale);
   } else if (bg !== theme.bg || fg !== theme.fg) {
@@ -208,12 +209,11 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // is the ONE field with a changeMessage, so a balance change shows a single
   // notification. Never put one on the OFFER (the HIG forbids change messages
   // for marketing). A deactivated card (owner, /customers/<serial>) says so
-  // here and in the primary field instead of the balance, with no change
-  // message ("You now have DEACTIVATED points"); the balance itself stays in
-  // the ledger and comes back if the owner reactivates the card.
+  // here, once, instead of the balance, with no change message ("You now have
+  // DEACTIVATED points") and no primary field; the balance itself stays in the
+  // ledger and comes back if the owner reactivates the card.
   if (voided) {
     pass.headerFields.push({ key: "balance", label: "CARD", value: "DEACTIVATED" });
-    pass.primaryFields.push({ key: "points", label: "STATUS", value: "Deactivated" });
   } else if (stamps) {
     // A stamp card has no primary number: the strip's grid shows the count.
     pass.headerFields.push({
@@ -273,36 +273,48 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
       });
     }
   }
-  const parsedRate = Number(merchant?.earn_rate ?? 1);
-  const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
-  pass.backFields.push({
-    key: "earn",
-    label: "HOW TO EARN",
-    value: stamps
-      ? `1 stamp per visit or item, added by staff at the counter. Collect ${goal} for ${reward}.`
-      : `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
-  });
-  // The earn boosters, under the earn line. The window is the shop's own wall
-  // clock ("3-5 pm"), which is the customer's too: they shop there.
-  // Happy hour is a points-card booster (happyHourMultiplier is 1 on a stamp card).
-  const happyHour = stamps ? null : happyHourOf(merchant?.happy_hour);
-  if (happyHour) {
-    pass.backFields.push({ key: "happyhour", label: "HAPPY HOUR", value: describeHappyHour(happyHour) });
-  }
-  // Only on cards that gave a birthday: a member without one would never get it.
-  if (merchant?.birthday_reward === true && birthday) {
-    const on = new Date(`${birthday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
-    const { bonus, reward: treat } = birthdayTreat(merchant);
+  if (voided) {
+    // Earning, rewards and boosters all wait for a reactivation, so the back
+    // says only that, and that the balance is safe.
     pass.backFields.push({
-      key: "birthday",
-      label: "BIRTHDAY",
-      value: `${on}: ${bonus} bonus ${unitLabel(merchant.loyalty_mode, bonus)}, enough for ${treat} (once your card is a month old)`,
+      key: "status",
+      label: "STATUS",
+      value: `This card is paused. Your ${unitLabel(merchant?.loyalty_mode, 2)} are kept — ask ${orgName} to switch it back on.`,
     });
+  } else {
+    const parsedRate = Number(merchant?.earn_rate ?? 1);
+    const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
+    pass.backFields.push({
+      key: "earn",
+      label: "HOW TO EARN",
+      value: stamps
+        ? `1 stamp per visit or item, added by staff at the counter. Collect ${goal} for ${reward}.`
+        : `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
+    });
+    // The earn boosters, under the earn line. The window is the shop's own wall
+    // clock ("3-5 pm"), which is the customer's too: they shop there.
+    // Happy hour is a points-card booster (happyHourMultiplier is 1 on a stamp card).
+    const happyHour = stamps ? null : happyHourOf(merchant?.happy_hour);
+    if (happyHour) {
+      pass.backFields.push({ key: "happyhour", label: "HAPPY HOUR", value: describeHappyHour(happyHour) });
+    }
+    // Only on cards that gave a birthday: a member without one would never get it.
+    if (merchant?.birthday_reward === true && birthday) {
+      const on = new Date(`${birthday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+      const { bonus, reward: treat } = birthdayTreat(merchant);
+      pass.backFields.push({
+        key: "birthday",
+        label: "BIRTHDAY",
+        value: `${on}: ${bonus} bonus ${unitLabel(merchant.loyalty_mode, bonus)}, enough for ${treat} (once your card is a month old)`,
+      });
+    }
+    pass.backFields.push(
+      stamps
+        ? { key: "rewards", label: "REWARD", value: `${reward} when you collect ${goal} stamps` }
+        : { key: "rewards", label: "REWARDS", value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n") }
+    );
   }
   pass.backFields.push(
-    stamps
-      ? { key: "rewards", label: "REWARD", value: `${reward} when you collect ${goal} stamps` }
-      : { key: "rewards", label: "REWARDS", value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n") },
     // A Date, not a pre-formatted string: Wallet formats it on the device in
     // the customer's own time zone and locale (a server-side string showed the
     // server's day in dd/mm/yyyy).
