@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
   const idempotencyKey = req.headers.get("idempotency-key");
   if (!idempotencyKey)
     return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
+  // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
+  // planting one could make a later undo of <key> look already done.
+  if (idempotencyKey.startsWith("undo:"))
+    return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const allowed = await rateLimit(`redeem:${staff.id}`, 120, 60);
   if (!allowed)

@@ -28,6 +28,7 @@ type Profile = {
 };
 
 function label(reason: string): string {
+  if (reason.startsWith("undo:")) return `Undo: ${label(reason.slice(5))}`;
   if (reason === "earn:purchase") return "Earn";
   if (reason === "adjust:manual") return "Adjustment";
   if (reason.startsWith("campaign:")) return "Campaign";

@@ -58,6 +58,29 @@ export async function POST(req: NextRequest) {
   const reason = String(txn.reason ?? "");
   if (reason !== "earn:purchase" && !reason.startsWith("redeem:"))
     return NextResponse.json({ error: "Only an earn or a reward can be undone" }, { status: 400 });
+  // Already undone → answer as a replay, even past the window, so a retried
+  // undo never reads as a failure and invites a second, manual reversal. The
+  // row must really be this tap's reversal: "undo:" keys are reserved for this
+  // route (redeem/adjust refuse them), so anything else is a conflict.
+  const { data: prior } = await db
+    .from("transactions")
+    .select("reason, delta")
+    .eq("merchant_id", staff.merchantId)
+    .eq("serial", txn.serial)
+    .eq("idempotency_key", `undo:${idempotencyKey}`)
+    .maybeSingle();
+  if (prior) {
+    if (prior.reason !== `undo:${reason}` || prior.delta !== -txn.delta)
+      return NextResponse.json({ error: "That tap has a conflicting undo record" }, { status: 409 });
+    const { data: card } = await db
+      .from("passes")
+      .select("points")
+      .eq("serial", txn.serial)
+      .eq("merchant_id", staff.merchantId)
+      .single();
+    return NextResponse.json({ ok: true, newBalance: card?.points ?? 0, replay: true });
+  }
+
   if (Date.now() - Date.parse(txn.created_at) > UNDO_WINDOW_MS)
     return NextResponse.json(
       { error: "Too late to undo — the owner can adjust points on the customer's page" },

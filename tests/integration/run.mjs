@@ -167,9 +167,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   console.log("baseline (ported smoke oracle)");
   chk("GET /login", (await req("/login")).status, 200);
   chk("GET /enroll/<cafe>", (await req(`/enroll/${cafe.slug}`)).status, 200);
-  const gone = await req(`/enroll/t-${run}-nope`);
-  chk("GET /enroll/<unknown slug>", gone.status, 404);
-  chk("unknown slug page tells the customer the link isn't active", (await gone.text()).includes("This sign-up link isn"), true);
+  const unknownSlug = await req(`/enroll/t-${run}-nope`);
+  chk("GET /enroll/<unknown slug>", unknownSlug.status, 404);
+  chk("unknown slug page tells the customer the link isn't active", (await unknownSlug.text()).includes("This sign-up link isn"), true);
   const phone = "+1555" + String(Date.now()).slice(-7);
   chk("enroll: empty form → 400", (await req("/api/enroll", { method: "POST", body: { slug: cafe.slug } })).status, 400);
   chk("enroll: bad phone → 400", (await req("/api/enroll", { method: "POST", body: { name: "x", phone: "12-34", slug: cafe.slug } })).status, 400);
@@ -421,6 +421,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const devU = `t-${run}-dev-undo`;
   const tokU = `t-${run}-tok-undo`;
   chk("register device on the undo card", (await register(devU, uc, tokU)).status, 201);
+  // "undo:" keys are reserved for reversal rows: a client planting undo:<k>
+  // first would make the real undo of <k> look already done.
+  chk("client Idempotency-Key 'undo:…' refused on redeem", (await redeem(cash, { serial: uc.serial, amount: 1 }, `undo:${randomUUID()}`)).status, 400);
   const k1 = randomUUID();
   chk("earn $20 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 20 }, k1)), 200);
   mock.clear();
