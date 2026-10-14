@@ -3,16 +3,22 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { Action } from "@/lib/config";
 import SendCardPanel from "@/components/SendCardPanel";
+import { formatMoney } from "@/lib/format";
 import { parseBill } from "./bill";
 import styles from "./scan.module.css";
 
 type Customer = { serial: string; name: string | null; points: number };
 type PhoneMatch = Customer & { phone: string }; // phone is masked: "••• 1234"
+// undoKey: the Idempotency-Key of the tap this success toast reports, while its
+// Undo button is still offered
+type Toast = { kind: "ok" | "bad"; msg: string; undoKey?: string };
+
+const UNDO_MS = 10_000; // how long a success toast offers Undo
 
 export default function ScanPage() {
   const router = useRouter();
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const [toast, setToast] = useState<{ kind: "ok" | "bad"; msg: string } | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [flash, setFlash] = useState(false);
   const [manual, setManual] = useState("");
   const [phone, setPhone] = useState("");
@@ -23,6 +29,7 @@ export default function ScanPage() {
   const [pending, setPending] = useState<{ amount: number; points: number } | null>(null);
   const [addLocked, setAddLocked] = useState(false);
   const [earnRate, setEarnRate] = useState(1);
+  const [maxBill, setMaxBill] = useState<number | null>(null); // null until /me answers
   const [redemptions, setRedemptions] = useState<Action[]>([]);
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState(false);
@@ -39,6 +46,7 @@ export default function ScanPage() {
     if (res.ok) {
       const me = await res.json();
       if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
+      if (typeof me.maxBill === "number") setMaxBill(me.maxBill);
       if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
     }
   }
@@ -49,6 +57,14 @@ export default function ScanPage() {
       setToast({ kind: "bad", msg: "That page is for owners" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Undo is offered for UNDO_MS, then the toast stays without its button. Any
+  // newer toast (or none) cancels the timer along with the old toast.
+  useEffect(() => {
+    if (!toast?.undoKey) return;
+    const t = setTimeout(() => setToast((cur) => cur && { kind: cur.kind, msg: cur.msg }), UNDO_MS);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // start camera scanner when no customer is loaded
   useEffect(() => {
@@ -154,14 +170,13 @@ export default function ScanPage() {
     setBusy(true);
     setToast(null); // an old toast must never read as this tap's result
     setPending(null);
+    // one key per tap → a retry of THIS request can't double-apply, and Undo
+    // names the tap by it
+    const key = crypto.randomUUID();
     try {
       const res = await fetch("/api/merchant/redeem", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // one key per tap → a retry of THIS request can't double-apply
-          "Idempotency-Key": crypto.randomUUID(),
-        },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
         body: JSON.stringify({ serial: customer.serial, ...body }),
       });
       if (res.status === 401) return router.push("/login");
@@ -181,13 +196,39 @@ export default function ScanPage() {
       setCustomer({ ...customer, points: data.newBalance });
       setFlash(true);
       setTimeout(() => setFlash(false), 400);
-      setToast({ kind: "ok", msg: okMsg });
+      setToast({ kind: "ok", msg: okMsg, undoKey: key });
       if ("amount" in body) {
         // a bill left in the box invites a second tap, i.e. a double credit
         setBill("");
         setAddLocked(true);
         setTimeout(() => setAddLocked(false), 1500);
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reverse the tap a success toast reports (server: /api/merchant/undo).
+  async function undo(t: Toast) {
+    if (!customer || busy || !t.undoKey) return;
+    setBusy(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/merchant/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: t.undoKey }),
+      });
+      if (res.status === 401) return router.push("/login");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // "already used" carries the real balance, like "Not enough points"
+        if (typeof data.balance === "number") setCustomer({ ...customer, points: data.balance });
+        setToast({ kind: "bad", msg: data.error || "Could not undo" });
+        return;
+      }
+      setCustomer({ ...customer, points: data.newBalance });
+      setToast({ kind: "ok", msg: `Undone: ${t.msg}` });
     } finally {
       setBusy(false);
     }
@@ -215,7 +256,6 @@ export default function ScanPage() {
   if (!customer) {
     return (
       <div className="wrap">
-        <div className="brand"><span className="dot" /> 42nights <small>scan</small></div>
         <div className="card stack">
           <div className="label">Scan the customer's Wallet QR</div>
           <div id="reader" />
@@ -255,9 +295,11 @@ export default function ScanPage() {
 
   // ---- customer / actions view ----
   const billAmt = parseBill(bill);
+  // over the shop's cap: the server would refuse it, so say so now instead of
+  // previewing points it won't credit
+  const overCap = billAmt !== null && maxBill !== null && billAmt > maxBill;
   return (
     <div className="wrap">
-      <div className="brand"><span className="dot" /> 42nights <small>terminal</small></div>
       <div className="card stack">
         <div>
           <div className="label">{customer.name || "Customer"}</div>
@@ -265,7 +307,14 @@ export default function ScanPage() {
           <div className="label" style={{ marginTop: 4 }}>points</div>
         </div>
 
-        {toast && <div className={`toast ${toast.kind}`}>{toast.msg}</div>}
+        {toast && (
+          <div className={`toast ${toast.kind} ${styles.toast}`}>
+            <span>{toast.msg}</span>
+            {toast.undoKey && (
+              <button className={styles.undo} disabled={busy} onClick={() => undo(toast)}>Undo</button>
+            )}
+          </div>
+        )}
 
         <div className="label" style={{ marginTop: 6 }}>Redeem</div>
         <div className="grid2">
@@ -292,7 +341,12 @@ export default function ScanPage() {
           </button>
         </div>
         {billErr && <div className={styles.billErr} role="alert">Enter an amount like 12.50</div>}
-        {billAmt !== null && (
+        {overCap && (
+          <div className={styles.billErr} role="alert">
+            Over this shop&apos;s limit of {formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings
+          </div>
+        )}
+        {billAmt !== null && !overCap && (
           <div className="label">
             = {Math.round(earnRate * billAmt)} pts ({earnRate}× rate)
           </div>
@@ -300,7 +354,7 @@ export default function ScanPage() {
         {pending && (
           <div className={styles.confirm} role="alert">
             <div>
-              Big bill: <b>{pending.amount.toFixed(2)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
+              Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>. Is that right?
             </div>
             <div className="row">
               <button className="btn btn-primary" disabled={busy}

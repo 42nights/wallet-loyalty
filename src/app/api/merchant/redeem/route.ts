@@ -4,6 +4,7 @@ import { redemptionsFor } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
+import { formatMoney } from "@/lib/format";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) — needs Node
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     if (amt > maxBill)
       return NextResponse.json(
-        { error: `Bill is over this shop's limit of ${maxBill} — check the amount, or ask the owner to raise the limit in Settings` },
+        { error: `Bill is over this shop's limit of ${formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings` },
         { status: 422 }
       );
     delta = Math.round(Number(merchant.earn_rate) * amt);

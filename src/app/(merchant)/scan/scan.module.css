@@ -49,3 +49,23 @@
 }
 .confirm > * + * { margin-top: 12px; }
 .confirm b { font-family: var(--display); }
+
+/* success toast with its Undo button (offered for 10 s after an earn/redeem).
+   The button keeps a 44px tap target; negative margins stop it from making
+   the toast taller than a plain one. */
+.toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.undo {
+  flex: none;
+  min-height: 44px;
+  margin: -10px -8px -10px 0;
+  padding: 0 16px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+.undo:disabled { opacity: .5; cursor: default; }
