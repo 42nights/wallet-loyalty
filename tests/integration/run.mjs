@@ -163,7 +163,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   console.log("baseline (ported smoke oracle)");
   chk("GET /login", (await req("/login")).status, 200);
   chk("GET /enroll/<cafe>", (await req(`/enroll/${cafe.slug}`)).status, 200);
-  chk("GET /enroll/<unknown slug>", (await req(`/enroll/t-${run}-nope`)).status, 404);
+  const gone = await req(`/enroll/t-${run}-nope`);
+  chk("GET /enroll/<unknown slug>", gone.status, 404);
+  chk("unknown slug page tells the customer the link isn't active", (await gone.text()).includes("This sign-up link isn"), true);
   const phone = "+1555" + String(Date.now()).slice(-7);
   chk("enroll: empty form → 400", (await req("/api/enroll", { method: "POST", body: { slug: cafe.slug } })).status, 400);
   chk("enroll: bad phone → 400", (await req("/api/enroll", { method: "POST", body: { name: "x", phone: "12-34", slug: cafe.slug } })).status, 400);
