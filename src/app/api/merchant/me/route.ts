@@ -25,6 +25,9 @@ export async function GET() {
     role: staff.role,
     merchantName: merchant.name,
     earnRate: Number(merchant.earn_rate),
+    // largest bill one earn may carry: /scan flags a bigger one while it's typed
+    // (the redeem route still refuses it). 1000 = schema default, as there.
+    maxBill: Number(merchant.max_bill ?? 1000),
     template: templateKey(merchant.redeem_template),
     redemptions: redemptionsFor(merchant.redeem_template),
   });
