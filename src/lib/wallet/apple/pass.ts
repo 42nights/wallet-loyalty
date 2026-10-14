@@ -288,7 +288,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
       key: "earn",
       label: "HOW TO EARN",
       value: stamps
-        ? `1 stamp per visit or item, added by staff at the counter. Collect ${goal} for ${reward}.`
+        ? "1 stamp per item, added at the counter"
         : `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
     });
     // The earn boosters, under the earn line. The window is the shop's own wall
@@ -310,7 +310,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     }
     pass.backFields.push(
       stamps
-        ? { key: "rewards", label: "REWARD", value: `${reward} when you collect ${goal} stamps` }
+        ? { key: "rewards", label: "REWARD", value: `Collect ${goal} stamps: ${reward}.` }
         : { key: "rewards", label: "REWARDS", value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n") }
     );
   }

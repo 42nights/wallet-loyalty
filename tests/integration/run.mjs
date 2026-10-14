@@ -571,7 +571,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("stamp pass: REWARD says it is ready", field(sp.pass, "secondaryFields", "next"), "Ready: Free latte");
   chk("stamp pass carries the drawn strip at 1x/2x/3x",
     ["strip.png", "strip@2x.png", "strip@3x.png"].every((f) => sp.list.includes(f)), true);
-  chk("stamp pass back: how to earn in stamps", /1 stamp per visit or item.*Collect 5 for Free latte/.test(field(sp.pass, "backFields", "earn") ?? ""), true);
+  chk("stamp pass back: one stamp rule, and the goal before the reward",
+    `${field(sp.pass, "backFields", "earn")}|${field(sp.pass, "backFields", "rewards")}`,
+    "1 stamp per item, added at the counter|Collect 5 stamps: Free latte.");
   chk("points pass keeps its POINTS header", (await latestPass(smokeCard)).storeCard?.headerFields?.[0]?.label, "POINTS");
 
   // owner Settings: the mode is read-only, the reward can be renamed, and the

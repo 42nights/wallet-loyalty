@@ -410,7 +410,8 @@ export default function ScanPage() {
 
         {stamps && (
           <>
-            <div className="label" style={{ marginTop: 6 }}>Add stamps — one per item</div>
+            {/* 16px: the stamp sections read as separate blocks, not one run of labels */}
+            <div className="label" style={{ marginTop: 16 }}>Add stamps — 1 per item</div>
             <div className={styles.stampBtns}>
               {Array.from({ length: STAMP_EARN_MAX }, (_, i) => i + 1).map((n) => {
                 const what = `+${n} ${unitLabel(mode, n)}`;
@@ -425,7 +426,7 @@ export default function ScanPage() {
           </>
         )}
 
-        <div className="label" style={{ marginTop: 6 }}>{stamps ? "Reward" : "Redeem"}</div>
+        <div className="label" style={{ marginTop: stamps ? 16 : 6 }}>{stamps ? "Reward" : "Redeem"}</div>
         <div className={stamps ? styles.one : "grid2"}>
           {redemptions.map((a) => {
             const short = customer.points < -a.points; // a.points is the (negative) delta

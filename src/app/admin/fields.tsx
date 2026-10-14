@@ -61,7 +61,7 @@ export type Loyalty = { mode: LoyaltyMode; goal: string; reward: string };
 
 const MODES: [LoyaltyMode, string, string][] = [
   ["points", "Points", "Points on every dollar, spent on 4 rewards"],
-  ["stamps", "Stamp card", "Staff tap +1 stamp, no bill; a full card earns the reward"],
+  ["stamps", "Stamp card", "1 stamp per item, added at the counter; a full card earns the reward"],
 ];
 
 export function LoyaltyFields({ value, onChange, locked }: { value: Loyalty; onChange: (v: Loyalty) => void; locked?: string }) {
