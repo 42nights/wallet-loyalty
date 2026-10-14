@@ -109,7 +109,37 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
     if (v !== null && !isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
     out[col] = v;
   }
+
+  // One careless colour pick would otherwise ship an unreadable card to every
+  // customer of the merchant. When the body carries all three colours (the
+  // wizard and editor always send them) and the template is known, check the
+  // colours the pass will really use (null → the template's theme) with the
+  // WCAG formula the art generator uses.
+  const template = out.redeem_template ?? (typeof b.template === "string" && Object.hasOwn(REDEEM_TEMPLATES, b.template) ? (b.template as TemplateKey) : null);
+  if (template && COLOR_FIELDS.every(([key]) => b[key] !== undefined)) {
+    const theme = PASS_THEMES[template];
+    const bg = (out.bg_color ?? theme.bg) as string;
+    const fg = (out.fg_color ?? theme.fg) as string;
+    const lab = (out.label_color ?? theme.label) as string;
+    const textRatio = contrast(fg, bg);
+    if (textRatio < 4.5) return `Text and background colours are too close (${textRatio.toFixed(1)}:1) — points would be hard to read. Pick colours with more contrast.`;
+    const labelRatio = contrast(lab, bg);
+    if (labelRatio < 3) return `Label and background colours are too close (${labelRatio.toFixed(1)}:1). Pick a lighter or darker label colour.`;
+  }
   return out;
+}
+
+// WCAG 2 contrast ratio between two "rgb(r,g,b)" colours.
+export function contrast(a: string, b: string): number {
+  const lum = (c: string) => {
+    const [r, g, bl] = (RGB_RE.exec(c.replace(/\s+/g, "")) ?? [, "0", "0", "0"]).slice(1).map((v) => {
+      const s = Number(v) / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 // Strong, readable password: 16 chars from an alphabet without look-alikes

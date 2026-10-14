@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { colorBody, merchantFields, themeHex } from "./merchant";
+import { colorBody, contrast, merchantFields, themeHex } from "./merchant";
 
 // The creator admin must not accept an earn rate owner Settings would refuse
 // (it once allowed up to 1000 against Settings' 100).
@@ -22,4 +22,16 @@ test("only hand-picked colours are stored; theme colours go in as NULL", () => {
   assert.deepEqual(merchantFields({ bgColor: null, fgColor: null, labelColor: null }, true),
     { bg_color: null, fg_color: null, label_color: null });
   assert.match(String(merchantFields({ bgColor: "#fff" }, true)), /rgb\(12,34,56\)/);
+});
+
+test("hand-picked colours must keep the card readable", () => {
+  const base = { name: "X", earnRate: 10, template: "cafe" };
+  const grey = merchantFields({ ...base, bgColor: "rgb(120,120,120)", fgColor: "rgb(140,140,140)", labelColor: null }, false);
+  assert.equal(typeof grey, "string");
+  assert.match(grey as string, /too close/);
+  const ok = merchantFields({ ...base, bgColor: "rgb(255,255,255)", fgColor: "rgb(20,20,20)", labelColor: "rgb(90,90,90)" }, false);
+  assert.equal(typeof ok, "object");
+  const themed = merchantFields({ ...base, bgColor: null, fgColor: null, labelColor: null }, false);
+  assert.equal(typeof themed, "object");
+  assert.ok(contrast("rgb(255,255,255)", "rgb(0,0,0)") > 20.9);
 });
