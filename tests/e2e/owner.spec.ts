@@ -77,6 +77,35 @@ test("owner: Enter in the new-tag box makes the tag and tags this customer", asy
   await expect(page.getByPlaceholder("new tag…")).toHaveValue("");
 });
 
+test("owner deactivates a card with a reason, /scan shows it deactivated, then reactivates it", async ({ page }, info) => {
+  const card = fx.voidCards[info.project.name];
+  await apiLogin(page, fx.owner);
+  await page.goto(`/customers/${card.serial}`);
+  await page.getByRole("button", { name: "Deactivate card" }).click();
+  const yes = page.getByRole("button", { name: "Yes, deactivate" });
+  await expect(yes).toBeDisabled(); // a reason is required
+  await page.getByRole("radio", { name: "Customer asked" }).click();
+  await yes.click();
+  await expect(page.getByText("Card deactivated", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Customer asked\. No points can be added or used/)).toBeVisible();
+  // nothing left on the page that would change the balance or re-send the card
+  await expect(page.getByLabel("Points to add or remove")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send card to phone" })).toHaveCount(0);
+
+  // the counter sees it as deactivated: no rewards, no bill box
+  await page.goto("/scan");
+  await page.getByPlaceholder("serial…").fill(card.serial);
+  await page.getByPlaceholder("serial…").press("Enter");
+  await expect(page.getByText("This card is deactivated.")).toBeVisible();
+  await expect(page.getByPlaceholder("bill amount")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Free Coffee/ })).toHaveCount(0);
+
+  await page.goto(`/customers/${card.serial}`);
+  await page.getByRole("button", { name: "Reactivate card" }).click();
+  await expect(page.getByRole("button", { name: "Deactivate card" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send card to phone" })).toBeVisible();
+});
+
 test("owner removes a cashier through an inline confirm that names them", async ({ page }, info) => {
   const username = `t-${fx.run}-rm-${info.project.name}`;
   await apiLogin(page, fx.owner);

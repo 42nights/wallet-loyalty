@@ -6,6 +6,7 @@ import { STAMP_REWARD_ID, findAction, loyaltyMode, stampGoal, stampReward, unitL
 import { formatMoney, formatPhone } from "@/lib/format";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
+import CardStatus from "./CardStatus";
 import SendCardPanel from "@/components/SendCardPanel";
 
 export const runtime = "nodejs";
@@ -75,6 +76,15 @@ export default async function CustomerPage({
   const mode = loyaltyMode(merchant?.loyalty_mode);
   const goal = stampGoal(merchant?.stamp_goal);
   const reward = stampReward(merchant?.stamp_reward);
+  // customer_profile() predates deactivation; read it off the row. select("*")
+  // so a database without passes.voided_at yet shows every card as active.
+  const { data: row } = await db
+    .from("passes")
+    .select("*")
+    .eq("serial", p.serial)
+    .eq("merchant_id", staff.merchantId)
+    .single();
+  const voided = row?.voided_at ? { at: row.voided_at as string, reason: (row.void_reason as string | null) ?? null } : null;
 
   return (
     <div className="wrap">
@@ -106,14 +116,22 @@ export default async function CustomerPage({
         <Stat k="Last seen" v={d(p.last_seen)} />
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <AdjustPoints serial={p.serial} balance={p.points} mode={mode} />
-      </div>
+      {voided ? (
+        <div style={{ marginTop: 12 }}>
+          <CardStatus serial={p.serial} voided={voided} />
+        </div>
+      ) : (
+        <>
+          <div style={{ marginTop: 12 }}>
+            <AdjustPoints serial={p.serial} balance={p.points} mode={mode} />
+          </div>
 
-      <div className="card stack" style={{ marginTop: 12 }}>
-        <div className="label">Lost card? Send it to the customer&apos;s iPhone</div>
-        <SendCardPanel serial={p.serial} />
-      </div>
+          <div className="card stack" style={{ marginTop: 12 }}>
+            <div className="label">Lost card? Send it to the customer&apos;s iPhone</div>
+            <SendCardPanel serial={p.serial} />
+          </div>
+        </>
+      )}
 
       <div style={{ marginTop: 12 }}>
         <CustomerCRM serial={p.serial} />
@@ -137,6 +155,12 @@ export default async function CustomerPage({
       {mode === "points" && (
         <div className="label" style={{ marginTop: 8, fontSize: 11 }}>
           Est. spend is inferred from points ÷ earn rate until exact bill amounts are stored.
+        </div>
+      )}
+
+      {!voided && (
+        <div style={{ marginTop: 24 }}>
+          <CardStatus serial={p.serial} voided={null} />
         </div>
       )}
     </div>

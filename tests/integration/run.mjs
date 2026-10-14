@@ -144,6 +144,8 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const redeem = (j, body, key = randomUUID()) =>
     req("/api/merchant/redeem", { method: "POST", body, headers: { "Idempotency-Key": key }, j });
   const balanceOf = async (r) => (await r.json()).newBalance;
+  // "<status>:<error>": the reason a request was refused, not just that it was
+  const answer = async (r) => `${r.status}:${(await r.json().catch(() => ({}))).error}`;
   const register = (dev, card, pushToken) =>
     req(`/api/v1/devices/${dev}/registrations/${PTI}/${card.serial}`, {
       method: "POST", body: { pushToken }, headers: { Authorization: `ApplePass ${card.authToken}` },
@@ -598,6 +600,122 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("it names the cashier and what they issued",
     `${flagged[0]?.detail?.staff}:${flagged[0]?.detail?.issued}`, `${an.cashier.username}:1001650`);
 
+  // --- card void: the owner deactivates a card. Every balance change, the card
+  //     link and a link minted earlier refuse it, the Wallet card says so and
+  //     the balance stays; reactivating makes all of it work again ---------------
+  console.log("card void");
+  const restOwn = jar();
+  await login(restOwn, rest.owner);
+  const vPhone = "+1555" + String(Date.now() + 7).slice(-7);
+  const vc = await createCard(db, cafe.id, { name: "Void Card", phone: vPhone });
+  const setVoid = (j, body) => req("/api/merchant/void", { method: "POST", body, j });
+  const reactivate = (j, s) => req("/api/merchant/void", { method: "DELETE", body: { serial: s }, j });
+  const adjust = (j, s, delta) =>
+    req("/api/merchant/adjust", { method: "POST", body: { serial: s, delta }, headers: { "Idempotency-Key": randomUUID() }, j });
+  const cardLink = (j, s) => req("/api/merchant/card-link", { method: "POST", body: { serial: s }, j });
+  const vk = randomUUID();
+  chk("earn $10 @10x before the void", await balanceOf(await redeem(cash, { serial: vc.serial, amount: 10 }, vk)), 100);
+  const { url: earlyLink = "" } = await (await cardLink(own, vc.serial)).json();
+  const devV = `t-${run}-dev-void`;
+  const tokV = `t-${run}-tok-void`;
+  chk("register device on the card", (await register(devV, vc, tokV)).status, 201);
+  chk("a cashier cannot deactivate → 403", (await setVoid(cash, { serial: vc.serial, reason: "fraud" })).status, 403);
+  chk("another shop's owner cannot deactivate → 404",
+    await answer(await setVoid(restOwn, { serial: vc.serial, reason: "fraud" })), "404:Card not found");
+  chk("no reason → 400", (await setVoid(own, { serial: vc.serial })).status, 400);
+  chk("unknown reason → 400", (await setVoid(own, { serial: vc.serial, reason: "bored" })).status, 400);
+  mock.clear();
+  chk("owner deactivates the card", (await setVoid(own, { serial: vc.serial, reason: "fraud" })).status, 200);
+  chk("deactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  const [vRow] = await rows(db.from("passes").select("points, voided_at, void_reason").eq("serial", vc.serial));
+  chk("the row keeps its balance and records when and why", `${vRow?.points}:${Boolean(vRow?.voided_at)}:${vRow?.void_reason}`, "100:true:fraud");
+  chk("lookup by serial says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { serial: vc.serial }, j: cash })).json()).voided, true);
+  chk("lookup by phone says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { phone: vPhone }, j: cash })).json()).matches?.[0]?.voided, true);
+  chk("earn refused → 409", (await redeem(cash, { serial: vc.serial, amount: 5 })).status, 409);
+  chk("reward refused → 409", (await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })).status, 409);
+  chk("owner adjustment refused → 409", (await adjust(own, vc.serial, 10)).status, 409);
+  chk("undo of the earn made before the void refused → 409", (await undo(cash, vk)).status, 409);
+  chk("send-card link refused → 409", (await cardLink(own, vc.serial)).status, 409);
+  chk("a card link minted before the void stops working → 410", (await req(earlyLink.slice(B.length))).status, 410);
+  // decision: a deactivated card keeps its number, so no second card is made
+  const again = await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } });
+  const [stillVoid] = await rows(db.from("passes").select("voided_at").eq("serial", vc.serial));
+  chk("re-enrolling its number → 409, and the card stays deactivated", `${again.status}:${Boolean(stillVoid?.voided_at)}`, "409:true");
+  const vPass = await latestPass(vc);
+  chk("Wallet card reads DEACTIVATED (header | primary)",
+    `${field(vPass, "headerFields", "balance")}|${field(vPass, "primaryFields", "points")}`, "DEACTIVATED|Deactivated");
+  chk("deactivated card has no QR and no change message",
+    `${(vPass.barcodes ?? []).length}:${vPass.storeCard?.headerFields?.[0]?.changeMessage ?? "none"}`, "0:none");
+  const vLedger = await rows(db.from("transactions").select("delta").eq("serial", vc.serial));
+  chk("refusals wrote nothing: one ledger row, +100", vLedger.map((t) => t.delta).join(","), "100");
+  chk("another shop's owner cannot reactivate → 404", await answer(await reactivate(restOwn, vc.serial)), "404:Card not found");
+  chk("a cashier cannot reactivate → 403", (await reactivate(cash, vc.serial)).status, 403);
+  mock.clear();
+  chk("owner reactivates the card", (await reactivate(own, vc.serial)).status, 200);
+  chk("reactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  // one check: on its own each of these also passes on a card never deactivated
+  const vk2 = randomUUID();
+  const restored = [
+    await balanceOf(await redeem(cash, { serial: vc.serial, amount: 5 }, vk2)),
+    await balanceOf(await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })),
+    await balanceOf(await undo(cash, vk2)),
+    await balanceOf(await adjust(own, vc.serial, 10)),
+    (await cardLink(own, vc.serial)).status,
+  ];
+  chk("after reactivating: earn, reward, undo, adjust (balances) and card link work again", restored.join(","), "150,70,20,30,200");
+  const rPass = await latestPass(vc);
+  chk("re-downloaded card shows the balance, QR and change message again",
+    `${field(rPass, "primaryFields", "points")}:${(rPass.barcodes ?? []).length}:${Boolean(rPass.storeCard?.headerFields?.[0]?.changeMessage)}`, "30:1:true");
+
+  // --- review link + lock-screen location (owner Settings): https only; the
+  //     back-of-card link appears from the 3rd earn visit; the pass carries the
+  //     shop's coordinates; each save pushes the merchant's cards -------------
+  console.log("review link + location");
+  const rv = await createMerchant(db, run, { key: "rev", template: "cafe", earnRate: 10 });
+  const rvOwn = jar();
+  const rvCash = jar();
+  await login(rvOwn, rv.owner);
+  await login(rvCash, rv.cashier);
+  const settingsPatch = (j, body) => req("/api/merchant/settings", { method: "PATCH", body, j });
+  const notHttps = "400:Enter the full review link, starting with https://";
+  chk("review link http:// → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "http://example.com/review" })), notHttps);
+  chk("review link javascript: → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "javascript:alert(1)" })), notHttps);
+  chk("review link over 500 characters → 400",
+    await answer(await settingsPatch(rvOwn, { reviewUrl: `https://example.com/${"a".repeat(481)}` })),
+    "400:Use a review link of 500 characters or fewer");
+  const reg = await createCard(db, rv.id, { name: "Regular" });
+  const devR = `t-${run}-dev-review`;
+  const tokR = `t-${run}-tok-review`;
+  chk("register device on the card", (await register(devR, reg, tokR)).status, 201);
+  for (const amount of [4, 6]) await redeem(rvCash, { serial: reg.serial, amount });
+  const tagR = (await (await updatable(devR)).json()).lastUpdated;
+  mock.clear();
+  const reviewUrl = `https://g.page/r/${run}/review?a=1&b=2`;
+  const sv = await settingsPatch(rvOwn, { reviewUrl });
+  chk("owner saves an https review link", `${sv.status}:${(await sv.json()).reviewUrl}`, `200:${reviewUrl}`);
+  chk("saving pushes the merchant's card", pushesTo(tokR).length, 1);
+  chk("the card appears in passesUpdatedSince", await listed(await updatable(devR, tagR), reg.serial), true);
+  const second = field(await latestPass(reg), "backFields", "review");
+  await redeem(rvCash, { serial: reg.serial, amount: 5 });
+  const third = (await latestPass(reg)).storeCard?.backFields?.find((f) => f.key === "review");
+  chk("review field only from the 3rd visit (2 visits | 3 visits)", `${second ?? "none"}|${third?.label}`, `none|Enjoying Test rev ${run}?`);
+  chk("its link is the saved URL, HTML-escaped",
+    third?.attributedValue, `<a href='https://g.page/r/${run}/review?a=1&#38;b=2'>Leave us a review</a>`);
+  const outOfRange = "400:Latitude goes from -90 to 90 and longitude from -180 to 180";
+  chk("location that isn't 'lat, lng' → 400", await answer(await settingsPatch(rvOwn, { location: "Main St" })),
+    "400:Paste the coordinates as lat, lng, like 37.77493, -122.41942");
+  chk("latitude above 90 → 400", await answer(await settingsPatch(rvOwn, { location: "91, 10" })), outOfRange);
+  chk("longitude below -180 → 400", await answer(await settingsPatch(rvOwn, { location: "10, -181" })), outOfRange);
+  const sl = await settingsPatch(rvOwn, { location: " 37.77493,-122.41942 " });
+  chk("owner saves a pasted location", `${sl.status}:${(await sl.json()).location}`, "200:37.77493, -122.41942");
+  const loc = (await latestPass(reg)).locations ?? [];
+  chk("the pass carries it with relevantText",
+    loc.map((l) => `${l.latitude},${l.longitude},${l.relevantText}`).join("|"), `37.77493,-122.41942,Show your Test rev ${run} card`);
+  const cleared = (await settingsPatch(rvOwn, { location: "" })).status;
+  chk("clearing the location → 200 and the pass has none", `${cleared}:${JSON.stringify((await latestPass(reg)).locations ?? null)}`, "200:null");
+
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
   //     redeem route's 1,000,000-point cap ---------------------------------------
@@ -649,8 +767,6 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("formula name gets a leading ' and RFC 4180 quoting",
     cust.rows.includes(`"'=HYPERLINK(""http://evil.example"",""click"")",,0,0,0,0,`), true);
   chk("another shop's customer never appears", cust.rows.some((l) => l.includes("Restaurant Card")), false);
-  const restOwn = jar();
-  await login(restOwn, rest.owner);
   chk("…while that shop's own export lists it",
     (await csv("customers", restOwn)).rows.some((l) => l.startsWith("Restaurant Card,")), true);
 
@@ -881,6 +997,14 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const tooRich = await setHh(allDay([wd]));
   chk("the 1,000,000 cap counts the multiplier (2× at 10 x 100000 → 400 naming 50000)",
     `${tooRich.status}:${/happy hour, the bill limit can be at most 50000\b/.test((await tooRich.json()).error ?? "")}`, "400:true");
+
+  const admPatch = (body) => req(`/api/admin/merchants/${adm.id}`, { method: "PATCH", body, j: admin });
+  chk("admin review link javascript: → 400", await answer(await admPatch({ reviewUrl: "javascript:alert(1)" })), notHttps);
+  chk("admin review link http:// → 400", await answer(await admPatch({ reviewUrl: "http://example.com/r" })), notHttps);
+  chk("admin location out of range → 400", await answer(await admPatch({ location: "40.7, 200" })), outOfRange);
+  chk("admin saves a review link and a location", (await admPatch({ reviewUrl: "https://example.com/r", location: "40.7128, -74.006" })).status, 200);
+  const [admRow] = await rows(db.from("merchants").select("review_url, latitude, longitude").eq("id", adm.id));
+  chk("stored as given", `${admRow?.review_url}|${admRow?.latitude}|${admRow?.longitude}`, "https://example.com/r|40.7128|-74.006");
 }
 
 // ---------------------------------------------------------------------------

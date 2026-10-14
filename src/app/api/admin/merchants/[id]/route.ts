@@ -6,14 +6,15 @@ import { formatMoney } from "@/lib/format";
 import { happyHourOf, loyaltyMode, stampGoal } from "@/lib/config";
 import { refreshMerchantCards } from "@/lib/wallet";
 
-export const runtime = "nodejs"; // a stamp card change pushes card updates (APNs)
+export const runtime = "nodejs"; // refreshMerchantCards pushes via APNs (http2)
 
 type Params = { params: Promise<{ id: string }> };
 
 // PATCH /api/admin/merchants/{id}
 // body: any of { name, earnRate, template, bgColor, fgColor, labelColor, timezone,
-//                loyaltyMode, stampGoal, stampReward }.
+//                loyaltyMode, stampGoal, stampReward, reviewUrl, location }.
 // loyaltyMode / stampGoal changes are refused (409) once the shop has a transaction.
+// A save pushes the merchant's cards to re-fetch.
 // The slug is deliberately not editable: it is printed on counter posters and
 // baked into links customers already have.
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -88,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
   if (!data?.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  // mode, goal and reward are on the face of every card: refresh them in Wallet
-  if (stampChange) await refreshMerchantCards(id);
+  // every field this route edits is printed on the card
+  await refreshMerchantCards(id);
   return NextResponse.json({ ok: true });
 }

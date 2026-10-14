@@ -6,6 +6,7 @@ import {
   EARN_RATE, PUBLIC_BASE_URL, REDEEM_TEMPLATES, STAMP_REWARD_MAX, birthdayBonus, happyHourOf, loyaltyMode,
   parseHappyHour, stampGoal, stampReward, templateKey, timezoneOf, type HappyHour,
 } from "@/lib/config";
+import { formatLocation, parseLocation, parseReviewUrl } from "@/lib/admin/merchant";
 
 export const runtime = "nodejs"; // card-visible changes push card updates (APNs, http2)
 
@@ -28,6 +29,9 @@ type MerchantRow = {
   timezone?: string | null;
   birthday_reward?: boolean | null;
   happy_hour?: unknown;
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 function settings(m: MerchantRow) {
@@ -46,6 +50,8 @@ function settings(m: MerchantRow) {
     birthdayReward: m.birthday_reward === true,
     birthdayBonus: birthdayBonus(m),
     happyHour: happyHourOf(m.happy_hour),
+    reviewUrl: m.review_url ?? "",
+    location: formatLocation(m.latitude, m.longitude),
   };
 }
 
@@ -63,8 +69,9 @@ export async function GET() {
 }
 
 // PATCH /api/merchant/settings
-//   body: { template?, earnRate?, maxBill?, stampReward?, birthdayReward?, happyHour? }
+//   body: { template?, earnRate?, maxBill?, stampReward?, birthdayReward?, happyHour?, reviewUrl?, location? }
 //   happyHour: { days: [0-6], start: "HH:MM", end: "HH:MM", multiplier: 2|3 } | null (off)
+//   reviewUrl: https link or "" to clear. location: "lat, lng" or "" to clear.
 // Strict: an unknown template, out-of-range rate or malformed window is a 400,
 // never silently defaulted — the owner must see that their change did not take.
 // stampReward renames a stamp card's reward; a points merchant has none to rename.
@@ -72,7 +79,8 @@ export async function PATCH(req: NextRequest) {
   const owner = await requireOwner();
   if (!owner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { template, earnRate, maxBill, stampReward: reward, birthdayReward, happyHour } = await req.json().catch(() => ({}));
+  const { template, earnRate, maxBill, stampReward: reward, birthdayReward, happyHour, reviewUrl, location } =
+    await req.json().catch(() => ({}));
   const update: {
     redeem_template?: string;
     earn_rate?: number;
@@ -80,6 +88,9 @@ export async function PATCH(req: NextRequest) {
     stamp_reward?: string;
     birthday_reward?: boolean;
     happy_hour?: HappyHour | null;
+    review_url?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   } = {};
 
   if (template !== undefined) {
@@ -118,6 +129,17 @@ export async function PATCH(req: NextRequest) {
     const window = parseHappyHour(happyHour);
     if (typeof window === "string") return NextResponse.json({ error: window }, { status: 400 });
     update.happy_hour = window;
+  }
+  if (reviewUrl !== undefined) {
+    const r = parseReviewUrl(reviewUrl);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    update.review_url = r.value;
+  }
+  if (location !== undefined) {
+    const r = parseLocation(location);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    update.latitude = r.value?.latitude ?? null;
+    update.longitude = r.value?.longitude ?? null;
   }
   if (Object.keys(update).length === 0)
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

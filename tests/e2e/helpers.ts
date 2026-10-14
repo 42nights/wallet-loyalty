@@ -10,6 +10,7 @@ export const fx: {
   owner: Login;
   cashier: Login;
   scanCards: Record<string, Card>;
+  voidCards: Record<string, Card>;
   searchCard: Card;
   stamps: { cashier: Login; cards: Record<string, Card> }; // a 5-stamp "Free latte" shop
   // per project: a merchant of its own for the happy-hour journey

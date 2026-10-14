@@ -16,6 +16,8 @@ export type PassData = {
   customerName?: string | null;
   /** passes.birthday ("2000-MM-DD"). With the merchant's birthday treat on, the back says when it comes. */
   birthday?: string | null;
+  /** Deactivated by the owner: the card reads DEACTIVATED and has no QR. */
+  voided?: boolean;
 };
 
 export interface WalletProvider {

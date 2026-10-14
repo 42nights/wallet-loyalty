@@ -734,3 +734,21 @@ alter table merchants add column if not exists stamp_reward text not null defaul
 alter table merchants add column if not exists timezone text not null default 'America/Los_Angeles';
 alter table merchants add column if not exists birthday_reward boolean not null default false;
 alter table merchants add column if not exists happy_hour jsonb;
+
+-- --- 2026-10-14: card deactivation, review link, shop location -------------
+-- Additive only; code reads these through select("*") with a default, so an
+-- un-migrated database behaves as before (no card deactivated, no review link,
+-- no location).
+-- A deactivated card keeps its balance and ledger; points.ts refuses any
+-- balance change while voided_at is set (owner: /customers/<serial>).
+alter table passes add column if not exists voided_at timestamptz;
+alter table passes add column if not exists void_reason text
+  check (void_reason in ('lost', 'fraud', 'customer', 'other'));
+-- Back-of-card "Leave us a review" link, shown from the 3rd earn visit.
+alter table merchants add column if not exists review_url text
+  check (review_url ~ '^https://' and char_length(review_url) <= 500);
+-- Shop coordinates for the pass's lock-screen location relevance.
+alter table merchants add column if not exists latitude numeric
+  check (latitude between -90 and 90);
+alter table merchants add column if not exists longitude numeric
+  check (longitude between -180 and 180);

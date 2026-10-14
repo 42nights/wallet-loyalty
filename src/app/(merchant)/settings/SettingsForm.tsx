@@ -22,6 +22,8 @@ type Settings = {
   birthdayReward: boolean;
   birthdayBonus: number;
   happyHour: HappyHour | null;
+  reviewUrl: string; // "" = none
+  location: string; // "lat, lng", "" = none
 };
 type Msg = { kind: "ok" | "bad"; text: string } | null;
 // the happy-hour editor's draft; multiplier 0 = off
@@ -42,6 +44,8 @@ export default function SettingsForm() {
   const [limit, setLimit] = useState("");
   const [reward, setReward] = useState("");
   const [hh, setHh] = useState<Window>(draftOf(null));
+  const [review, setReview] = useState("");
+  const [place, setPlace] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [linkMsg, setLinkMsg] = useState<Msg>(null);
@@ -58,12 +62,16 @@ export default function SettingsForm() {
       setLimit(String(data.maxBill));
       setReward(data.stampReward);
       setHh(draftOf(data.happyHour));
+      setReview(data.reviewUrl);
+      setPlace(data.location);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save(
-    patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill" | "stampReward" | "birthdayReward" | "happyHour">>,
+    patch: Partial<
+      Pick<Settings, "template" | "earnRate" | "maxBill" | "stampReward" | "birthdayReward" | "happyHour" | "reviewUrl" | "location">
+    >,
     okText: string
   ) {
     if (busy) return;
@@ -82,6 +90,8 @@ export default function SettingsForm() {
       setRate(String(data.earnRate));
       setLimit(String(data.maxBill));
       setReward(data.stampReward);
+      setReview(data.reviewUrl);
+      setPlace(data.location);
       setMsg({ kind: "ok", text: okText });
     } finally {
       setBusy(false);
@@ -107,6 +117,16 @@ export default function SettingsForm() {
     e.preventDefault();
     const w = windowOf(hh);
     save({ happyHour: w }, w ? `Happy hour saved: ${describeHappyHour(w)}. Cards are updating.` : "Happy hour is off. Cards are updating.");
+  }
+
+  function saveReview(e: FormEvent) {
+    e.preventDefault();
+    save({ reviewUrl: review }, review.trim() ? "Review link saved — cards update in a few seconds" : "Review link removed");
+  }
+
+  function savePlace(e: FormEvent) {
+    e.preventDefault();
+    save({ location: place }, place.trim() ? "Shop location saved" : "Shop location removed");
   }
 
   async function copyLink() {
@@ -370,6 +390,62 @@ export default function SettingsForm() {
               />
               Give members a birthday treat
             </label>
+          </section>
+
+          <section className="card stack" aria-labelledby="review-h">
+            <div>
+              <div className="label" id="review-h">Review link</div>
+              <div className={styles.help}>
+                From a customer&apos;s 3rd visit, the back of their card shows &ldquo;Enjoying {s.merchantName}? Leave us a
+                review&rdquo; with this link (for example your Google review link). It never earns points. Leave empty
+                for none.
+              </div>
+            </div>
+            <form className="row" onSubmit={saveReview}>
+              <input
+                type="url"
+                inputMode="url"
+                maxLength={500}
+                placeholder="https://g.page/r/…/review"
+                value={review}
+                onChange={(e) => setReview(e.target.value)}
+                aria-label="Review link"
+              />
+              <button
+                className="btn btn-primary"
+                style={{ width: "auto", padding: "0 20px" }}
+                type="submit"
+                disabled={busy || review.trim() === s.reviewUrl}
+              >
+                Save
+              </button>
+            </form>
+          </section>
+
+          <section className="card stack" aria-labelledby="place-h">
+            <div>
+              <div className="label" id="place-h">Shop location</div>
+              <div className={styles.help}>
+                Near your shop, iPhones can offer the card on the Lock Screen. In Google Maps, right-click your shop,
+                click the numbers at the top of the menu to copy them, and paste here. Leave empty for none.
+              </div>
+            </div>
+            <form className="row" onSubmit={savePlace}>
+              <input
+                placeholder="37.77493, -122.41942"
+                value={place}
+                onChange={(e) => setPlace(e.target.value)}
+                aria-label="Shop location as latitude, longitude"
+              />
+              <button
+                className="btn btn-primary"
+                style={{ width: "auto", padding: "0 20px" }}
+                type="submit"
+                disabled={busy || place.trim() === s.location}
+              >
+                Save
+              </button>
+            </form>
           </section>
 
           <section className="card stack" aria-labelledby="link-h">

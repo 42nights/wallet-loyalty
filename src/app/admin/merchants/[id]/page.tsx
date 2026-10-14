@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, loyaltyMode, stampGoal, stampReward, templateKey, timezoneOf } from "@/lib/config";
-import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
+import { UUID_RE, formatLocation, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
 import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, day, nf } from "../../ui";
@@ -44,6 +44,9 @@ type MerchantRow = {
   stamp_goal?: number | null;
   stamp_reward?: string | null;
   timezone?: string | null; // later column: select("*") below tolerates its absence
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 export default async function AdminMerchantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -52,7 +55,8 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
   if (!UUID_RE.test(id)) notFound();
 
   const [{ data: m }, { data: staff }, stats, art, { count: txns }] = await Promise.all([
-    // "*" so the later columns (stamp card, timezone) come along when the database has them
+    // "*" so the later columns (stamp card, timezone, review link, location)
+    // come along when the database has them; the editor shows absent ones empty
     db.from("merchants").select("*").eq("id", id).maybeSingle<MerchantRow>(),
     db
       .from("staff")
@@ -121,6 +125,8 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
                 label: rgbToHex(m.label_color, themeHex(template).label),
               },
               loyalty,
+              reviewUrl: m.review_url ?? "",
+              location: formatLocation(m.latitude, m.longitude),
             }}
             txns={txns ?? 0}
             logo={art["logo@2x.png"] ?? art["logo.png"]}

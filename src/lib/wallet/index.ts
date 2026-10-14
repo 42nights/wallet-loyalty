@@ -6,13 +6,13 @@ import type { WalletProvider } from "./types";
 // without touching routes or the points engine.
 export const wallet: WalletProvider = appleProvider;
 
-// A merchant setting every card shows has changed (the stamp reward, mode or
-// goal): mark all the merchant's cards changed, so Wallet's passesUpdatedSince
-// poll lists them, and push — what the campaigns route does for the cards it
-// touches. Best-effort like applyTransaction: the setting is already saved, so
-// a failure is logged and the cards catch up on their next earn or redeem.
-// ponytail: pushes inline (~100 cards per APNs batch); a shop with tens of
-// thousands of cards would want this in a background job.
+export type { WalletProvider, PassData } from "./types";
+
+// A merchant setting that every card shows changed (name, colours, template,
+// earn rate, the stamp card, review link, location): bump each card's
+// updated_at so Wallet's passesUpdatedSince poll lists it, then push, as a
+// campaign does for its cards. Best-effort: the setting is already saved, and
+// a card that misses the push still picks the change up on its next refresh.
 export async function refreshMerchantCards(merchantId: string): Promise<void> {
   try {
     const { data, error } = await db
@@ -26,5 +26,3 @@ export async function refreshMerchantCards(merchantId: string): Promise<void> {
     console.warn("refreshMerchantCards failed:", e instanceof Error ? e.message : e);
   }
 }
-
-export type { WalletProvider, PassData } from "./types";

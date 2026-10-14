@@ -34,7 +34,7 @@ const STORAGE_BUCKET = "pass-assets";
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
 // (earn_rate, redeem_template, the stamp card ones, birthday_reward,
-// happy_hour) are therefore optional here.
+// happy_hour, review_url, latitude, longitude) are therefore optional here.
 type MerchantRow = {
   id: string;
   name: string;
@@ -49,7 +49,14 @@ type MerchantRow = {
   stamp_reward?: string | null;
   birthday_reward?: boolean | null;
   happy_hour?: unknown;
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
+
+// The review link joins the back of the card from this many earn visits on
+// (the same "visits" as the owner's customer page: ledger rows "earn:…").
+const REVIEW_AFTER_VISITS = 3;
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
 // rgb()/hex from the merchant row (normalised to "rgb(r,g,b)" so it compares
@@ -118,6 +125,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     offerText,
     customerName,
     birthday,
+    voided = false,
   } = data;
 
   let merchant: MerchantRow | null = null;
@@ -198,8 +206,14 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // Header: stays visible while the card is collapsed in the Wallet stack. This
   // is the ONE field with a changeMessage, so a balance change shows a single
   // notification. Never put one on the OFFER (the HIG forbids change messages
-  // for marketing).
-  if (stamps) {
+  // for marketing). A deactivated card (owner, /customers/<serial>) says so
+  // here and in the primary field instead of the balance, with no change
+  // message ("You now have DEACTIVATED points"); the balance itself stays in
+  // the ledger and comes back if the owner reactivates the card.
+  if (voided) {
+    pass.headerFields.push({ key: "balance", label: "CARD", value: "DEACTIVATED" });
+    pass.primaryFields.push({ key: "points", label: "STATUS", value: "Deactivated" });
+  } else if (stamps) {
     // A stamp card has no primary number: the strip's grid shows the count.
     pass.headerFields.push({
       key: "balance",
@@ -224,15 +238,39 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     pass.secondaryFields.push({ key: "member", label: "MEMBER", value: customerName.trim() });
   }
   pass.secondaryFields.push(
-    stamps
+    voided
+      ? { key: "next", label: "QUESTIONS?", value: `Ask the team at ${orgName}` }
+      : stamps
       ? { key: "next", label: "REWARD", value: points >= goal ? `Ready: ${reward}` : `${reward} at ${goal}` }
       : { key: "next", label: "NEXT REWARD", value: nextReward(points, rewards) }
   );
 
   // Back of the card. Win-back offer first when a campaign set one — passive:
   // it shows when the customer opens the card, no lockscreen marketing.
-  if (offerText && offerText.trim()) {
+  if (!voided && offerText && offerText.trim()) {
     pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
+  }
+  // The merchant's review link, once the customer is a regular. Only ever a
+  // link: nothing is earned or unlocked by leaving a review.
+  const reviewUrl = merchant?.review_url;
+  if (!voided && merchantId && reviewUrl) {
+    const { count } = await db
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", merchantId)
+      .eq("serial", serial)
+      .like("reason", "earn:%");
+    if ((count ?? 0) >= REVIEW_AFTER_VISITS) {
+      // attributedValue takes HTML (Apple allows <a href> only) and overrides
+      // value; value stays as the plain fallback (watchOS shows that one).
+      const href = reviewUrl.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      pass.backFields.push({
+        key: "review",
+        label: `Enjoying ${orgName}?`,
+        value: `Leave us a review: ${reviewUrl}`,
+        attributedValue: `<a href='${href}'>Leave us a review</a>`,
+      });
+    }
   }
   const parsedRate = Number(merchant?.earn_rate ?? 1);
   const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
@@ -280,12 +318,24 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // The QR the merchant scans — encodes the serial for counter lookup. No
   // altText: a 36-character serial printed under the code is noise on the card,
   // and when the camera cannot read it the cashier finds the customer by phone
-  // on /scan instead.
-  pass.setBarcodes({
-    format: "PKBarcodeFormatQR",
-    message: serial,
-    messageEncoding: "iso-8859-1",
-  });
+  // on /scan instead. A deactivated card has nothing to scan for.
+  if (!voided) {
+    pass.setBarcodes({
+      format: "PKBarcodeFormatQR",
+      message: serial,
+      messageEncoding: "iso-8859-1",
+    });
+  }
+
+  // Lock-screen relevance: near the shop, iOS may offer the card on the Lock
+  // Screen with this text (Apple's Pass.locations, up to 10; we send the one
+  // shop). Whether it shows is iOS's call (Location Services, the card's
+  // "Suggest on Lock Screen" switch), so check it in the RUNBOOK §5 device test.
+  const lat = Number(merchant?.latitude ?? NaN);
+  const lng = Number(merchant?.longitude ?? NaN);
+  if (!voided && Number.isFinite(lat) && Number.isFinite(lng)) {
+    pass.setLocations({ latitude: lat, longitude: lng, relevantText: `Show your ${orgName} card` });
+  }
 
   return pass.getAsBuffer();
 }

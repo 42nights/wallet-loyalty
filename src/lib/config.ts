@@ -284,6 +284,16 @@ export function describeHappyHour(h: HappyHour): string {
   return `${h.multiplier}× points ${days} ${time}`;
 }
 
+// Why an owner deactivated a card (passes.void_reason; the schema's check
+// constraint holds the same keys).
+export const VOID_REASONS = {
+  lost: "Lost / duplicate",
+  fraud: "Fraud",
+  customer: "Customer asked",
+  other: "Other",
+} as const;
+export type VoidReason = keyof typeof VOID_REASONS;
+
 // Pass appearance / identifiers (also overridable via env)
 export const PASS_TYPE_ID =
   process.env.PASS_TYPE_ID || "pass.com.42nights.loyalty";

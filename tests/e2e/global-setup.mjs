@@ -14,8 +14,11 @@ export default async function globalSetup(config) {
   try {
     const m = await createMerchant(db, run, { key: "e2e", template: "cafe", earnRate: 10 });
     const scanCards = {};
-    for (const p of config.projects)
+    const voidCards = {};
+    for (const p of config.projects) {
       scanCards[p.name] = await createCard(db, m.id, { name: `Scan ${p.name}` });
+      voidCards[p.name] = await createCard(db, m.id, { name: `Void ${p.name}` });
+    }
     // The happy-hour journey switches a merchant's happy hour on, which would
     // double the points the /scan journey above asserts, so it gets its own
     // merchant (and card) per project.
@@ -35,7 +38,7 @@ export default async function globalSetup(config) {
       stampCards[p.name] = await createCard(db, st.id, { name: `Stamps ${p.name}` });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
-      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, searchCard, happy,
+      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, voidCards, searchCard, happy,
       stamps: { cashier: st.cashier, cards: stampCards },
     });
 
@@ -47,7 +50,7 @@ export default async function globalSetup(config) {
     for (const p of [
       "/login", `/enroll/${m.slug}`, "/scan", "/dashboard", "/customers", `/customers/${searchCard.serial}`,
       "/api/merchant/login", "/api/enroll", "/api/merchant/me", "/api/merchant/lookup",
-      "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/today", "/api/merchant/customers",
+      "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/today", "/api/merchant/customers", "/api/merchant/void",
       "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
       "/settings", "/api/merchant/settings", "/settings/poster",
     ])
