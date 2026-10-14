@@ -98,6 +98,13 @@ What it covers:
   equals the ledger.
 - **card link**: `?card=garbage` returns 410. The signed link scraped from the
   owner's customer page is on `PUBLIC_BASE_URL` and re-issues the same card.
+- **bill cap**: `max_bill` defaults to 1000. A bill under half of it earns
+  directly; half or more without `confirm: true` is a 409 carrying the points and
+  writes nothing; a bill over the cap is a 422 even when confirmed. Only an owner
+  can change the cap, only to 10–100000, and a raised cap is honoured.
+- **anomaly rule**: on a fresh merchant, 10 normal earns give `detect_anomalies`
+  `[]`; one confirmed 1,000,000-point earn by its cashier gives exactly one
+  `staff_over_issue` naming that cashier.
 
 **When it fails**: the app's own output is in `test-results/integration/next.log`.
 A `FAIL harness: …` line means the run stopped early (for example, enroll failed and
@@ -116,9 +123,14 @@ both projects. Specs:
 - `enroll.spec.ts`: the enroll form renders. Submitting returns a 200
   `application/vnd.apple.pkpass` named `loyalty-<serial>.pkpass`. On desktop a
   download fires, and the downloaded file is the signed zip holding `pass.json`.
-- `scan.spec.ts`: cashier UI login → /scan → manual serial → earn by bill ($12.50
-  at 10x = 125, preview, then balance) → the cafe template's 4 buttons are shown and
-  the restaurant buttons are not → Extra Shot redeems (balance 45).
+- `scan.spec.ts`: cashier UI login → /scan shows "Camera unavailable" (no camera
+  in the test browser) → manual serial submitted with Enter → at 0 points every
+  reward is disabled with "needs N · has 0" → "abc" shows the inline amount hint →
+  "12,50" earns 125 at 10x (preview, balance, bill cleared) → the cafe template's 4
+  buttons are shown and the restaurant buttons are not → Extra Shot redeems
+  (balance 45) → a 600 bill shows the inline confirm with +6000 pts, Cancel credits
+  nothing, confirming credits it (6045). A second test: `/scan?denied=1` shows
+  "That page is for owners".
 - `owner.spec.ts`: owner /dashboard shows the 5 KPIs; /customers search finds the
   fixture customer by name and by phone and opens their page; a cashier on
   /dashboard lands on /scan; logged out, /dashboard lands on /login.
