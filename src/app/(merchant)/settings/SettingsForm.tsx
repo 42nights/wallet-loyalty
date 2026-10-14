@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 import styles from "./settings.module.css";
 
@@ -9,6 +8,7 @@ type Settings = {
   merchantName: string;
   template: TemplateKey;
   earnRate: number;
+  maxBill: number;
   enrollUrl: string | null;
 };
 type Msg = { kind: "ok" | "bad"; text: string } | null;
@@ -19,6 +19,7 @@ export default function SettingsForm() {
   const router = useRouter();
   const [s, setS] = useState<Settings | null>(null);
   const [rate, setRate] = useState("");
+  const [limit, setLimit] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const [linkMsg, setLinkMsg] = useState<Msg>(null);
@@ -32,11 +33,12 @@ export default function SettingsForm() {
       const data: Settings = await res.json();
       setS(data);
       setRate(String(data.earnRate));
+      setLimit(String(data.maxBill));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function save(patch: Partial<Pick<Settings, "template" | "earnRate">>, okText: string) {
+  async function save(patch: Partial<Pick<Settings, "template" | "earnRate" | "maxBill">>, okText: string) {
     if (busy) return;
     setBusy(true);
     setMsg(null);
@@ -51,6 +53,7 @@ export default function SettingsForm() {
       if (!res.ok) return setMsg({ kind: "bad", text: data.error || "Could not save" });
       setS(data);
       setRate(String(data.earnRate));
+      setLimit(String(data.maxBill));
       setMsg({ kind: "ok", text: okText });
     } finally {
       setBusy(false);
@@ -60,6 +63,11 @@ export default function SettingsForm() {
   function saveRate(e: FormEvent) {
     e.preventDefault();
     save({ earnRate: Number(rate) }, `Earn rate saved: ${Number(rate)} pts per 1.00`);
+  }
+
+  function saveLimit(e: FormEvent) {
+    e.preventDefault();
+    save({ maxBill: Number(limit) }, `Bill limit saved: ${Number(limit)}`);
   }
 
   async function copyLink() {
@@ -72,18 +80,14 @@ export default function SettingsForm() {
 
   const rateNum = Number(rate);
   const rateValid = rate.trim() !== "" && rateNum >= 0.1 && rateNum <= 100;
+  const limitNum = Number(limit);
+  const limitValid = limit.trim() !== "" && limitNum >= 10 && limitNum <= 100000;
 
   return (
     <div className="wrap">
       <div className="brand">
         <span className="dot" /> 42nights <small>settings</small>
       </div>
-      <div className="row" style={{ gap: 12, marginBottom: 12 }}>
-        <Link className="btn btn-ghost" href="/scan">Scan</Link>
-        <Link className="btn btn-ghost" href="/dashboard">Dashboard</Link>
-        <Link className="btn btn-ghost" href="/staff">Staff</Link>
-      </div>
-
       {!s ? (
         <div className="card">
           {msg ? <div className={`toast ${msg.kind}`}>{msg.text}</div> : <div className="label">Loading…</div>}
@@ -160,6 +164,43 @@ export default function SettingsForm() {
                 <>A {EXAMPLE_BILL.toFixed(2)} bill earns <b>{Math.round(rateNum * EXAMPLE_BILL)}</b> points</>
               ) : (
                 <span style={{ color: "var(--bad)" }}>Enter a rate between 0.1 and 100</span>
+              )}
+            </div>
+          </section>
+
+          <section className="card stack" aria-labelledby="limit-h">
+            <div>
+              <div className="label" id="limit-h">Bill limit</div>
+              <div className={styles.help}>
+                The largest bill a cashier can add points for (10 – 100000). Bigger bills are refused, and
+                bills of half the limit or more ask the cashier to confirm first.
+              </div>
+            </div>
+            <form className="row" onSubmit={saveLimit}>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={10}
+                max={100000}
+                step="any"
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+                aria-label="Largest bill"
+              />
+              <button
+                className="btn btn-primary"
+                style={{ width: "auto", padding: "0 20px" }}
+                type="submit"
+                disabled={busy || !limitValid || limitNum === s.maxBill}
+              >
+                Save
+              </button>
+            </form>
+            <div className={styles.example} aria-live="polite">
+              {limitValid ? (
+                <>Bills from <b>{limitNum / 2}</b> need a confirm; the largest earns <b>{Math.round(limitNum * s.earnRate)}</b> points</>
+              ) : (
+                <span style={{ color: "var(--bad)" }}>Enter a limit between 10 and 100000</span>
               )}
             </div>
           </section>
