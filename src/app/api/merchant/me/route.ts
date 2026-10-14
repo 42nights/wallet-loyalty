@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { redemptionsFor, templateKey } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ export async function GET() {
 
   const { data: merchant } = await db
     .from("merchants")
-    .select("name, earn_rate")
+    .select("*")
     .eq("id", staff.merchantId)
     .single();
   if (!merchant)
@@ -24,5 +25,7 @@ export async function GET() {
     role: staff.role,
     merchantName: merchant.name,
     earnRate: Number(merchant.earn_rate),
+    template: templateKey(merchant.redeem_template),
+    redemptions: redemptionsFor(merchant.redeem_template),
   });
 }

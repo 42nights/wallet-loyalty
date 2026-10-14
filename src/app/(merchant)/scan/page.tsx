@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { REDEMPTIONS } from "@/lib/config";
+import type { Action } from "@/lib/config";
 
 type Customer = { serial: string; name: string | null; points: number };
 
@@ -15,11 +15,12 @@ export default function ScanPage() {
   const [bill, setBill] = useState("");
   const [earnRate, setEarnRate] = useState(1);
   const [role, setRole] = useState<string>("cashier");
+  const [redemptions, setRedemptions] = useState<Action[]>([]);
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
 
-  // load this merchant's earn rate (for the bill → points preview)
+  // load this merchant's earn rate (bill → points preview) and redeem buttons
   useEffect(() => {
     (async () => {
       const res = await fetch("/api/merchant/me");
@@ -28,6 +29,7 @@ export default function ScanPage() {
         const me = await res.json();
         if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
         if (me.role) setRole(me.role);
+        if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,7 +165,7 @@ export default function ScanPage() {
 
         <div className="label" style={{ marginTop: 6 }}>Redeem</div>
         <div className="grid2">
-          {REDEMPTIONS.map((a) => (
+          {redemptions.map((a) => (
             <button key={a.id} className="redeem-btn" disabled={busy}
               onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
               <div className="rl">{a.label}</div>
