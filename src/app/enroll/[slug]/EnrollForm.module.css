@@ -14,6 +14,9 @@
 .lead { margin-bottom: 0; font-size: 15px; line-height: 1.55; }
 .hint { margin-bottom: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
 
+/* Neutral .toast for "already enrolled": not an error on the customer's side. */
+.info { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }
+
 /* .btn is written for <button>; this lets an <a> wear it. */
 .linkBtn { display: block; text-align: center; text-decoration: none; }
 
@@ -26,5 +29,4 @@
   margin-right: auto;
   background: #fff;
   border-radius: 12px;
-  image-rendering: pixelated;
 }

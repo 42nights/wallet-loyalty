@@ -28,7 +28,8 @@ export default function EnrollForm({
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [notice, setNotice] = useState<string | null>(null);
+  // "info" = already enrolled (not the customer's fault), "bad" = a real failure.
+  const [notice, setNotice] = useState<{ text: string; tone: "info" | "bad" } | null>(null);
   const [done, setDone] = useState<Done | null>(null);
 
   function showErrors(next: FieldErrors) {
@@ -55,7 +56,10 @@ export default function EnrollForm({
         .catch(() => ({}));
       if (!res.ok || !data.cardUrl) {
         if (data.fields) return showErrors(data.fields);
-        return setNotice(data.error || "Something went wrong. Please try again.");
+        return setNotice({
+          text: data.error || "Something went wrong. Please try again.",
+          tone: res.status === 409 ? "info" : "bad",
+        });
       }
       const { cardUrl } = data;
       if (canAddToWallet(navigator.userAgent)) {
@@ -64,10 +68,16 @@ export default function EnrollForm({
         window.location.href = cardUrl;
         setDone({ cardUrl, qr: null });
       } else {
-        setDone({ cardUrl, qr: await QRCode.toDataURL(cardUrl, { margin: 2, width: 480 }) });
+        // SVG stays crisp at any size; level L keeps the long signed link to
+        // fewer, larger modules (a screen is a clean surface to scan from).
+        const svg = await QRCode.toString(cardUrl, { type: "svg", margin: 2, errorCorrectionLevel: "L" });
+        setDone({ cardUrl, qr: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` });
       }
     } catch {
-      setNotice("Could not reach the shop's server. Check your connection and try again.");
+      setNotice({
+        text: "Could not reach the shop's server. Check your connection and try again.",
+        tone: "bad",
+      });
     } finally {
       setBusy(false);
     }
@@ -183,8 +193,11 @@ export default function EnrollForm({
           </span>
         </label>
         {notice && (
-          <div className="toast bad" role="alert">
-            {notice}
+          <div
+            className={notice.tone === "bad" ? "toast bad" : `toast ${s.info}`}
+            role={notice.tone === "bad" ? "alert" : "status"}
+          >
+            {notice.text}
           </div>
         )}
         {/*
