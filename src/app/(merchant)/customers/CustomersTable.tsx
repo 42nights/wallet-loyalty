@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { formatPhone } from "@/lib/format";
 
 type Cust = {
   serial: string;
@@ -105,7 +106,7 @@ export default function CustomersTable() {
             <div style={{ minWidth: 0 }}>
               <div>{c.customer_name || "—"}</div>
               <div className="label">
-                {c.customer_phone || "no phone"} · {nf(c.visits)} visit{c.visits === 1 ? "" : "s"}
+                {formatPhone(c.customer_phone) || "no phone"} · {nf(c.visits)} visit{c.visits === 1 ? "" : "s"}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>

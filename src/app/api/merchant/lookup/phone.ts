@@ -1,6 +1,7 @@
-// Find-by-phone at the counter. Phones are stored exactly as the customer typed
-// them at enrollment ("+1 555-010-1234", "5550101234", "(555) 010-1234"…), so
-// we compare digits only and match from the END of the number: the customer can
+// Find-by-phone at the counter. New cards store US numbers as "+15550101234"
+// (normalizePhone in api/enroll/validate.ts), but older cards hold whatever the
+// earlier rules kept ("5550101234", "15550101234", "(555) 010-1234"…), so we
+// compare digits only and match from the END of the number: the customer can
 // give the full number with or without the country code.
 //
 // At least 7 digits are required. A last-4 search returned other customers'

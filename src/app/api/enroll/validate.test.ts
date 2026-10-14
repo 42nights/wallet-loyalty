@@ -8,6 +8,19 @@ test("format variants of one phone number normalise to the same value", () => {
   assert.equal(normalizePhone("+1 (555) 010-0123"), "+15550100123");
 });
 
+// F1: the leading 1 / +1 forms used to be stored apart from the bare 10 digits,
+// so the unique index let the same customer enrol twice.
+test("a US number typed with or without the country code is one E.164 value", () => {
+  for (const raw of ["(415) 555-0110", "415 555 0110", "1-415-555-0110", "+1 415.555.0110", "001 415 555 0110"])
+    assert.equal(normalizePhone(raw), "+14155550110", raw);
+});
+
+test("non-US numbers stay as typed, with 00 read as +", () => {
+  assert.equal(normalizePhone("+44 7700 900123"), "+447700900123");
+  assert.equal(normalizePhone("0044 7700 900123"), "+447700900123");
+  assert.equal(normalizePhone("+49 30 123456"), "+4930123456");
+});
+
 test("phone numbers outside 7-15 digits or with stray characters are rejected", () => {
   for (const raw of ["123456", "1234567890123456", "555-CALL-NOW", "1+5550100", "++15550100", "#5550100"])
     assert.equal(normalizePhone(raw), null, raw);

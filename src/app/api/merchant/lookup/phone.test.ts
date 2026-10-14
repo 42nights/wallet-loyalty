@@ -6,8 +6,9 @@ import { MIN_PHONE_DIGITS, digitsOf, maskPhone, phoneMatches, phoneSuffixPattern
 // credited/redeemed on someone else's card.
 
 test("matches across formatting, country code and last-4", () => {
-  const stored = ["+1 555-010-1234", "5550101234", "(555) 010-1234", "+15550101234"];
-  const typed = ["555 010 1234", "555-010-1234", "+1 (555) 010-1234", "1234", "0101234"];
+  // canonical "+1…" (enrolled now) and the legacy forms older cards still hold
+  const stored = ["+15550101234", "+1 555-010-1234", "5550101234", "15550101234", "(555) 010-1234"];
+  const typed = ["555 010 1234", "555-010-1234", "+1 (555) 010-1234", "1-555-010-1234", "1234", "0101234"];
   for (const s of stored)
     for (const t of typed) assert.ok(phoneMatches(s, digitsOf(t)), `${s} ← ${t}`);
 });

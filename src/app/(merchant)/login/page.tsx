@@ -34,13 +34,31 @@ export default function LoginPage() {
         <span className="dot" /> 42nights <small>terminal</small>
       </div>
       <form className="card stack" onSubmit={submit}>
+        {/* Real <label>s so screen readers name the fields (F12); block keeps
+            the caption's spacing that the old <div> had. */}
         <div>
-          <div className="label">Username</div>
-          <input value={username} onChange={(e) => setU(e.target.value)} autoCapitalize="none" autoComplete="username" />
+          <label className="label" htmlFor="login-username" style={{ display: "block" }}>
+            Username
+          </label>
+          <input
+            id="login-username"
+            value={username}
+            onChange={(e) => setU(e.target.value)}
+            autoCapitalize="none"
+            autoComplete="username"
+          />
         </div>
         <div>
-          <div className="label">Password</div>
-          <input type="password" value={password} onChange={(e) => setP(e.target.value)} autoComplete="current-password" />
+          <label className="label" htmlFor="login-password" style={{ display: "block" }}>
+            Password
+          </label>
+          <input
+            id="login-password"
+            type="password"
+            value={password}
+            onChange={(e) => setP(e.target.value)}
+            autoComplete="current-password"
+          />
         </div>
         {err && <div className="toast bad">{err}</div>}
         <button className="btn btn-primary" type="submit" disabled={busy}>

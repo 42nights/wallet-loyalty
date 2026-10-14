@@ -9,14 +9,21 @@ export type EnrollFields = { name: string; phone: string; email: string | null }
 export type FieldErrors = Partial<Record<keyof EnrollFields, string>>;
 
 // One canonical form per phone number, so the (merchant_id, customer_phone)
-// unique index sees "555-016 856" and "(555) 016.856" as the same customer:
-// drop spaces, dashes, parentheses and dots, keep a leading +, then require
-// 7-15 digits (E.164 allows at most 15).
-// ponytail: no country inference, so "+1 555 0100" and "555 0100" stay two
-// different numbers; add a per-merchant default region if that shows up.
+// unique index sees every way of typing it as the same customer: drop spaces,
+// dashes, parentheses and dots, turn an international "00" prefix into "+",
+// then require 7-15 digits (E.164 allows at most 15).
+// US market (Ayaan, 2026-10-13): a North American number is stored as E.164,
+// "+1" + 10 digits, whether it was typed "(415) 555-0110", "1-415-555-0110" or
+// "+1 415.555.0110" — before this, the leading 1 / +1 forms slipped past the
+// index and made a second card (F1). Anything else stays as typed.
+// ponytail: US-only inference; a merchant abroad needs a per-merchant region.
 export function normalizePhone(raw: string): string | null {
-  const compact = raw.trim().replace(/[\s\-().]/g, "");
-  return /^\+?\d{7,15}$/.test(compact) ? compact : null;
+  const compact = raw.trim().replace(/[\s\-().]/g, "").replace(/^00/, "+");
+  if (!/^\+?\d{7,15}$/.test(compact)) return null;
+  const digits = compact.replace("+", "");
+  if (digits.length === 10 && !compact.startsWith("+")) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return compact;
 }
 
 export function validateEnroll(input: {

@@ -5,10 +5,24 @@ import { wallet } from "@/lib/wallet";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 import { signCardLink, verifyCardLink } from "@/lib/auth";
 import { PUBLIC_BASE_URL } from "@/lib/config";
-import { validateEnroll } from "./validate";
+import { normalizePhone, validateEnroll } from "./validate";
 import { assertPassConfig } from "@/lib/config";
+import { digitsOf, phoneSuffixPattern } from "@/app/api/merchant/lookup/phone";
 
 export const runtime = "nodejs";
+
+// Do NOT return the existing card on a duplicate: the caller is unauthenticated
+// and a phone number is guessable, so re-issuing would leak that customer's
+// signed pass + auth token to anyone who knows their number. Re-sending a lost
+// card must go through staff (an authenticated path).
+const alreadyEnrolled = () =>
+  NextResponse.json(
+    {
+      error:
+        "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
+    },
+    { status: 409 }
+  );
 
 // POST /api/enroll  body: { name, phone, email?, consent?, slug }
 // Resolves slug → merchant, validates the fields, creates the card and returns
@@ -52,6 +66,25 @@ export async function POST(req: NextRequest) {
   if (!merchant)
     return NextResponse.json({ error: "Unknown merchant" }, { status: 404 });
 
+  // Cards enrolled before US numbers were stored as "+1…" hold "4155550110",
+  // "14155550110" or the raw typed text, which the unique index can't equate
+  // with "+14155550110" — so a returning customer would get a second card.
+  // Canonicalise this merchant's phones that end in the same 4 digits and
+  // compare. Rows stored from now on are canonical, so the index still decides
+  // for them (and for a concurrent double-tap).
+  // ponytail: delete once legacy rows are rewritten to the canonical form.
+  const { data: sameTail, error: tailError } = await db
+    .from("passes")
+    .select("customer_phone")
+    .eq("merchant_id", merchant.id)
+    .regexMatch("customer_phone", phoneSuffixPattern(digitsOf(phone)));
+  if (tailError) {
+    console.error("enroll duplicate check failed:", tailError.message);
+    return NextResponse.json({ error: "Could not create card" }, { status: 500 });
+  }
+  if (sameTail.some((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone))
+    return alreadyEnrolled();
+
   const hasConsent = consent === true;
   const serial = randomUUID();
   const authToken = randomBytes(24).toString("hex");
@@ -71,18 +104,7 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     // 23505 = unique violation on (merchant_id, customer_phone) = already enrolled.
-    // Do NOT return the existing card here: the caller is unauthenticated and a
-    // phone number is guessable, so re-issuing would leak that customer's signed
-    // pass + auth token to anyone who knows their number. Re-sending a lost card
-    // must go through staff (an authenticated path).
-    if (error.code === "23505")
-      return NextResponse.json(
-        {
-          error:
-            "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
-        },
-        { status: 409 }
-      );
+    if (error.code === "23505") return alreadyEnrolled();
     return NextResponse.json({ error: "Could not create card" }, { status: 500 });
   }
 

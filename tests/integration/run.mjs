@@ -163,7 +163,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   console.log("baseline (ported smoke oracle)");
   chk("GET /login", (await req("/login")).status, 200);
   chk("GET /enroll/<cafe>", (await req(`/enroll/${cafe.slug}`)).status, 200);
-  chk("GET /enroll/<unknown slug>", (await req(`/enroll/t-${run}-nope`)).status, 404);
+  const gone = await req(`/enroll/t-${run}-nope`);
+  chk("GET /enroll/<unknown slug>", gone.status, 404);
+  chk("unknown slug page tells the customer the link isn't active", (await gone.text()).includes("This sign-up link isn"), true);
   const phone = "+1555" + String(Date.now()).slice(-7);
   chk("enroll: empty form → 400", (await req("/api/enroll", { method: "POST", body: { slug: cafe.slug } })).status, 400);
   chk("enroll: bad phone → 400", (await req("/api/enroll", { method: "POST", body: { name: "x", phone: "12-34", slug: cafe.slug } })).status, 400);
@@ -186,11 +188,26 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("duplicate phone enroll", (await req("/api/enroll", { method: "POST", body: { name: "x", phone, slug: cafe.slug } })).status, 409);
   const spaced = phone.replace(/^(\+\d)(\d{3})(\d{3})/, "$1 ($2) $3-");
   chk("duplicate phone, different formatting → 409", (await req("/api/enroll", { method: "POST", body: { name: "x", phone: spaced, slug: cafe.slug } })).status, 409);
+  // F1: a US number with or without its country code is one customer.
+  const national = phone.slice(2);
+  for (const [how, variant] of [["no +1", national], ["leading 1-", `1-${national}`], ["00 1", `001 ${national}`]])
+    chk(`duplicate phone, ${how} → 409`, (await req("/api/enroll", { method: "POST", body: { name: "x", phone: variant, slug: cafe.slug } })).status, 409);
+  // A card enrolled before "+1…" storage keeps its old 10-digit form; the same
+  // number must still be refused. Same last 4 digits as `phone`, other area code.
+  const legacyNational = "556" + national.slice(3);
+  const oldPhoneCard = await createCard(db, cafe.id, { name: "Legacy Phone", phone: legacyNational });
+  chk("legacy 10-digit card, re-enrol as +1 … → 409", (await req("/api/enroll", { method: "POST", body: { name: "x", phone: `+1 ${legacyNational}`, slug: cafe.slug } })).status, 409);
   chk("pass shows the member's name", JSON.stringify(pass.storeCard?.secondaryFields ?? []).includes("Smoke Test"), true);
   chk("balance field carries a changeMessage", (pass.storeCard?.headerFields ?? []).some((f) => /%@/.test(f.changeMessage ?? "")), true);
   const cash = jar();
   chk("cashier login", (await login(cash, cafe.cashier)).status, 200);
   chk("lookup own card", (await req("/api/merchant/lookup", { method: "POST", body: { serial }, j: cash })).status, 200);
+  const byPhone = async (typed) =>
+    ((await (await req("/api/merchant/lookup", { method: "POST", body: { phone: typed }, j: cash })).json()).matches ?? []).map((m) => m.serial);
+  chk("find-by-phone: canonical +1 card by its 10 digits", JSON.stringify(await byPhone(national)), JSON.stringify([serial]));
+  chk("find-by-phone: legacy 10-digit card by +1 number", JSON.stringify(await byPhone(`+1 (${legacyNational.slice(0, 3)}) ${legacyNational.slice(3)}`)), JSON.stringify([oldPhoneCard.serial]));
+  // gone again, so the cafe's segments (campaign checks below) only hold their own cards
+  await rows(db.from("passes").delete().eq("serial", oldPhoneCard.serial));
   const key = randomUUID();
   const r1 = await (await redeem(cash, { serial, amount: 12.5 }, key)).json();
   const r2 = await (await redeem(cash, { serial, amount: 12.5 }, key)).json();

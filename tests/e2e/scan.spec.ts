@@ -1,12 +1,13 @@
 import { REDEEM_TEMPLATES } from "../../src/lib/config";
-import { test, expect, fx, field, apiLogin } from "./helpers";
+import { test, expect, fx, apiLogin } from "./helpers";
 
 test("cashier: login → /scan → manual serial → earn by bill → template buttons", async ({ page }, info) => {
   const card = fx.scanCards[info.project.name];
 
   await page.goto("/login");
-  await field(page, "Username").fill(fx.cashier.username);
-  await field(page, "Password").fill(fx.cashier.password);
+  // by accessible name: the login fields are real <label>s (F12)
+  await page.getByLabel("Username", { exact: true }).fill(fx.cashier.username);
+  await page.getByLabel("Password", { exact: true }).fill(fx.cashier.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL("**/scan");
 
