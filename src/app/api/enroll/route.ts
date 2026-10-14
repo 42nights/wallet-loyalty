@@ -15,16 +15,18 @@ export const runtime = "nodejs";
 // and a phone number is guessable, so re-issuing would leak that customer's
 // signed pass + auth token to anyone who knows their number. Re-sending a lost
 // card must go through staff (an authenticated path).
-const alreadyEnrolled = () =>
+// A deactivated card can't be re-sent, so its number gets its own answer.
+const alreadyEnrolled = (paused = false) =>
   NextResponse.json(
     {
-      error:
-        "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
+      error: paused
+        ? "This number's card is paused — ask the owner to switch it back on."
+        : "Good news: this number already has a card here. Ask a team member and they will send it to you again.",
     },
     { status: 409 }
   );
 
-// POST /api/enroll  body: { name, phone, email?, consent?, slug }
+// POST /api/enroll  body: { name, phone, email?, birthday? ("MM-DD"), consent?, slug }
 // Resolves slug → merchant, validates the fields, creates the card and returns
 // JSON { cardUrl }: a 1-hour signed link to the GET below, which serves the
 // .pkpass. A link instead of the binary lets the page decide per device: an
@@ -56,11 +58,13 @@ export async function POST(req: NextRequest) {
       { error: Object.values(check.errors)[0], fields: check.errors },
       { status: 400 }
     );
-  const { name, phone, email } = check.value;
+  const { name, phone, email, birthday } = check.value;
 
+  // select("*"): birthday_reward is a later column; a database without it
+  // reads as "off" (undefined !== true).
   const { data: merchant } = await db
     .from("merchants")
-    .select("id")
+    .select("*")
     .eq("slug", slug)
     .single();
   if (!merchant)
@@ -73,17 +77,21 @@ export async function POST(req: NextRequest) {
   // compare. Rows stored from now on are canonical, so the index still decides
   // for them (and for a concurrent double-tap).
   // ponytail: delete once legacy rows are rewritten to the canonical form.
+  // "*": voided_at is a later column (absent = not deactivated)
   const { data: sameTail, error: tailError } = await db
     .from("passes")
-    .select("customer_phone")
+    .select("*")
     .eq("merchant_id", merchant.id)
     .regexMatch("customer_phone", phoneSuffixPattern(digitsOf(phone)));
   if (tailError) {
     console.error("enroll duplicate check failed:", tailError.message);
     return NextResponse.json({ error: "Could not create card" }, { status: 500 });
   }
-  if (sameTail.some((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone))
-    return alreadyEnrolled();
+  // A deactivated card still holds its number (the unique index counts it
+  // too), so it blocks a second card on purpose: staff find it by phone on
+  // /scan, where it reads as deactivated, and the owner can reactivate it.
+  const same = sameTail.find((p) => p.customer_phone && normalizePhone(p.customer_phone) === phone);
+  if (same) return alreadyEnrolled(Boolean(same.voided_at));
 
   const hasConsent = consent === true;
   const serial = randomUUID();
@@ -95,6 +103,8 @@ export async function POST(req: NextRequest) {
     customer_name: name,
     customer_phone: phone, // normalised, so the unique index catches format variants
     customer_email: email,
+    // only collected while the shop has the birthday treat on (the form asks then)
+    birthday: merchant.birthday_reward === true ? birthday : null,
     marketing_consent: hasConsent,
     consent_at: hasConsent ? new Date().toISOString() : null,
     consent_source: hasConsent ? "enroll_form" : null,
@@ -125,6 +135,9 @@ export async function GET(req: NextRequest) {
 
   const { data: pass } = await db.from("passes").select("*").eq("serial", serial).single();
   if (!pass) return new NextResponse("Card not found", { status: 404 });
+  // a link minted before the owner deactivated the card stops working too
+  if (pass.voided_at)
+    return new NextResponse("This card has been deactivated. Ask a team member for help.", { status: 410 });
 
   const { buffer, contentType } = await wallet.buildPass({
     serial,
@@ -134,6 +147,7 @@ export async function GET(req: NextRequest) {
     updatedAt: new Date(pass.updated_at),
     offerText: pass.offer_text ?? null,
     customerName: pass.customer_name ?? null,
+    birthday: pass.birthday ?? null,
   });
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,

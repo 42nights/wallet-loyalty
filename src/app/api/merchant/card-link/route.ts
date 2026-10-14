@@ -4,6 +4,7 @@ import { getStaff, signCardLink } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
 import { PUBLIC_BASE_URL } from "@/lib/config";
+import { VOIDED_ERROR } from "@/lib/points";
 
 export const runtime = "nodejs";
 
@@ -28,13 +29,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No serial" }, { status: 400 });
 
   // Another merchant's serial → 404, same as a non-existent card (no IDOR).
+  // select("*") so a database without passes.voided_at still answers.
   const { data } = await db
     .from("passes")
-    .select("serial")
+    .select("*")
     .eq("serial", serial)
     .eq("merchant_id", staff.merchantId)
     .single();
   if (!data) return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (data.voided_at) return NextResponse.json({ error: VOIDED_ERROR }, { status: 409 });
 
   const url = `${PUBLIC_BASE_URL}/api/enroll?card=${await signCardLink(data.serial)}`;
   const qrSvg = await QRCode.toString(url, { type: "svg", margin: 1 });

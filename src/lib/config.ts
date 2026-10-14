@@ -65,7 +65,7 @@ export function redemptionsFor(template: unknown): Action[] {
 // Back-compat: the default template's buttons.
 export const REDEMPTIONS: Action[] = REDEEM_TEMPLATES[DEFAULT_TEMPLATE].actions;
 
-// Earning is points-per-dollar with a per-merchant `earn_rate` (merchants
+// On a points card, earning is points-per-dollar with a per-merchant `earn_rate` (merchants
 // table). The /scan bill-amount input applies round(earn_rate * amount)
 // server-side (see /api/merchant/redeem). There are no fixed earn presets.
 //
@@ -75,6 +75,54 @@ export const REDEMPTIONS: Action[] = REDEEM_TEMPLATES[DEFAULT_TEMPLATE].actions;
 // at the counter; 100 keeps bills up to 10,000 working.
 export const EARN_RATE = { min: 0.1, max: 100 } as const;
 
+// ---------------------------------------------------------------------------
+// Stamp cards. A merchant runs either points (above) or a stamp card
+// (merchants.loyalty_mode). The ledger is the same: a stamp is one unit in
+// transactions/apply_points, earned +1..+STAMP_EARN_MAX per tap (reason
+// "earn:stamp", no bill) and spent stamp_goal at a time on the one reward
+// (reason "redeem:stamp_reward"). Readers below take the raw column value, so a
+// missing column (un-migrated database) reads as the schema default.
+// ---------------------------------------------------------------------------
+export type LoyaltyMode = "points" | "stamps";
+export const STAMP_GOAL = { min: 3, max: 20, default: 10 } as const;
+export const STAMP_REWARD_MAX = 30; // characters, = the schema check
+export const STAMP_EARN_MAX = 3; // stamps one tap may add (several items at once)
+export const STAMP_REWARD_ID = "stamp_reward";
+
+export function loyaltyMode(value: unknown): LoyaltyMode {
+  return value === "stamps" ? "stamps" : "points";
+}
+
+export function stampGoal(value: unknown): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= STAMP_GOAL.min && n <= STAMP_GOAL.max ? n : STAMP_GOAL.default;
+}
+
+export function stampReward(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "Free coffee";
+}
+
+type MerchantRules = {
+  loyalty_mode?: unknown;
+  stamp_goal?: unknown;
+  stamp_reward?: unknown;
+  redeem_template?: unknown;
+};
+
+// The redeem buttons a merchant's /scan shows and /api/merchant/redeem accepts:
+// the one stamp reward on a stamp card, else the merchant's template.
+export function merchantRedemptions(m: MerchantRules): Action[] {
+  if (loyaltyMode(m.loyalty_mode) === "stamps")
+    return [{ id: STAMP_REWARD_ID, label: stampReward(m.stamp_reward), points: -stampGoal(m.stamp_goal), kind: "redeem" }];
+  return redemptionsFor(m.redeem_template);
+}
+
+// What a balance is counted in, for copy: "pts"/"points", or "stamp"/"stamps".
+export function unitLabel(mode: unknown, n: number, short = false): string {
+  if (loyaltyMode(mode) === "stamps") return n === 1 ? "stamp" : "stamps";
+  return short ? "pts" : "points";
+}
+
 export const ALL_ACTIONS: Action[] = Object.values(REDEEM_TEMPLATES).flatMap((t) => t.actions);
 
 // Label lookup for history views. To validate a redeem, use redemptionsFor()
@@ -82,6 +130,180 @@ export const ALL_ACTIONS: Action[] = Object.values(REDEEM_TEMPLATES).flatMap((t)
 export function findAction(id: string): Action | undefined {
   return ALL_ACTIONS.find((a) => a.id === id);
 }
+
+// ---------------------------------------------------------------------------
+// Earn boosters: the birthday treat and happy hour, and the shop clock both
+// run on. Merchant values come from select("*") rows, so every reader below
+// takes `unknown` and falls back to "off" / the default zone when a column is
+// missing (un-migrated database) or holds something unexpected.
+// ---------------------------------------------------------------------------
+
+// merchants.timezone. The server runs on UTC (Vercel), so "today" and "3 pm"
+// must be read on the shop's own clock. /admin offers these US zones; the API
+// stores any name Intl accepts.
+export const DEFAULT_TIMEZONE = "America/Los_Angeles";
+export const US_TIMEZONES = [
+  { id: "America/New_York", label: "Eastern (New York)" },
+  { id: "America/Chicago", label: "Central (Chicago)" },
+  { id: "America/Denver", label: "Mountain (Denver)" },
+  { id: "America/Phoenix", label: "Arizona (Phoenix)" },
+  { id: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { id: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { id: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+] as const;
+
+// A zone name Intl accepts → its canonical spelling ("america/chicago" →
+// "America/Chicago"), else null. Validating with Intl means a stored zone can
+// never make the clock code below throw.
+export function canonicalTimezone(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+export function timezoneOf(value: unknown): string {
+  return canonicalTimezone(value) ?? DEFAULT_TIMEZONE;
+}
+
+export function timezoneLabel(tz: string): string {
+  return US_TIMEZONES.find((t) => t.id === tz)?.label ?? tz;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// `now` read on a wall clock: calendar date, weekday (0 = Sunday) and minutes
+// since local midnight. DST is Intl's job.
+export function localTime(tz: string, now = new Date()) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, year: "numeric", month: "numeric", day: "numeric",
+      weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23",
+    }).formatToParts(now).map((x) => [x.type, x.value])
+  );
+  return {
+    year: Number(p.year),
+    month: Number(p.month),
+    day: Number(p.day),
+    weekday: WEEKDAYS.indexOf(p.weekday),
+    minutes: Number(p.hour) * 60 + Number(p.minute),
+  };
+}
+
+// Birthdays are month + day only: passes.birthday stores them on the
+// placeholder year 2000, a leap year, so Feb 29 is a real date.
+// The stored values whose birthday falls on this calendar day. Feb 29
+// birthdays are celebrated on Feb 28 in years without a Feb 29.
+export function birthdaysOn(t: { year: number; month: number; day: number }): string[] {
+  const md = `${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
+  const leap = new Date(Date.UTC(t.year, 1, 29)).getUTCMonth() === 1;
+  return md === "02-28" && !leap ? ["2000-02-28", "2000-02-29"] : [`2000-${md}`];
+}
+
+// The birthday treat is one free reward, whichever mode the shop runs: on a
+// points card the cheapest reward's cost in points, on a stamp card a full card
+// (stamp_goal stamps). The ONE place the treat is decided (the cron credits
+// `bonus`, Settings and the card show it with the reward it pays for).
+export function birthdayTreat(m: MerchantRules): { bonus: number; reward: string } {
+  const [cheapest] = [...merchantRedemptions(m)].sort((a, b) => b.points - a.points);
+  return { bonus: -cheapest.points, reward: cheapest.label };
+}
+
+// Birthday credits skip cards younger than this on the day: a phone number
+// joined on its "birthday" would otherwise be a free reward on the spot.
+export const BIRTHDAY_MIN_CARD_AGE_DAYS = 30;
+
+// merchants.happy_hour: one weekly window, [start, end) on the shop clock and
+// within one day (no overnight windows). Bill earns inside it are multiplied.
+export type HappyHour = { days: number[]; start: string; end: string; multiplier: 2 | 3 };
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Strict check of a posted window, for the settings route: null = off, a
+// HappyHour to store, or a message for the owner. Unknown keys are refused.
+export function parseHappyHour(v: unknown): HappyHour | null | string {
+  if (v === null) return null;
+  if (typeof v !== "object" || Array.isArray(v)) return "Happy hour must be a window or null";
+  const { days, start, end, multiplier, ...rest } = v as Record<string, unknown>;
+  if (Object.keys(rest).length) return `Unknown happy hour field: ${Object.keys(rest)[0]}`;
+  if (
+    !Array.isArray(days) || days.length === 0 || new Set(days).size !== days.length ||
+    !days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+  )
+    return "Pick at least one day";
+  if (typeof start !== "string" || typeof end !== "string" || !HHMM.test(start) || !HHMM.test(end))
+    return "Times must look like 15:00";
+  if (start >= end) return "Happy hour must end after it starts, on the same day";
+  if (multiplier !== 2 && multiplier !== 3) return "Pick 2× or 3×";
+  return { days: [...days].sort((a, b) => a - b), start, end, multiplier };
+}
+
+// A stored value → the window, or null (off, missing column, or malformed).
+export function happyHourOf(stored: unknown): HappyHour | null {
+  const h = parseHappyHour(stored ?? null);
+  return typeof h === "string" ? null : h;
+}
+
+const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+
+// The earn multiplier in force at `now` for this merchant: 1 outside the window.
+// Happy hour is a points-card booster: a stamp card is always 1 (stamps are
+// per item, and x3 would break STAMP_EARN_MAX).
+export function happyHourMultiplier(
+  merchant: { happy_hour?: unknown; timezone?: unknown; loyalty_mode?: unknown },
+  now = new Date()
+): number {
+  if (loyaltyMode(merchant.loyalty_mode) === "stamps") return 1;
+  const h = happyHourOf(merchant.happy_hour);
+  if (!h) return 1;
+  const t = localTime(timezoneOf(merchant.timezone), now);
+  return h.days.includes(t.weekday) && t.minutes >= minutesOf(h.start) && t.minutes < minutesOf(h.end)
+    ? h.multiplier
+    : 1;
+}
+
+// "2× points Mon–Fri 3–5 pm": the window as the card back and Settings show it.
+// Days run Monday first; 3+ consecutive days collapse to a range.
+export function describeHappyHour(h: HappyHour): string {
+  const order = [1, 2, 3, 4, 5, 6, 0].filter((d) => h.days.includes(d));
+  const runs: number[][] = [];
+  for (const d of order) {
+    const last = runs[runs.length - 1];
+    if (last && (last[last.length - 1] + 1) % 7 === d) last.push(d);
+    else runs.push([d]);
+  }
+  const days =
+    order.length === 7
+      ? "every day"
+      : runs
+          .map((r) => (r.length >= 3 ? `${WEEKDAYS[r[0]]}–${WEEKDAYS[r[r.length - 1]]}` : r.map((d) => WEEKDAYS[d]).join(", ")))
+          .join(", ");
+  const clock = (hhmm: string) => {
+    const m = minutesOf(hhmm);
+    const h12 = Math.floor(m / 60) % 12 || 12;
+    return { text: m % 60 ? `${h12}:${String(m % 60).padStart(2, "0")}` : String(h12), pm: m >= 720 };
+  };
+  const a = clock(h.start);
+  const b = clock(h.end);
+  const time =
+    a.pm === b.pm
+      ? `${a.text}–${b.text} ${b.pm ? "pm" : "am"}`
+      : `${a.text} ${a.pm ? "pm" : "am"}–${b.text} ${b.pm ? "pm" : "am"}`;
+  return `${h.multiplier}× points ${days} ${time}`;
+}
+
+// Why an owner deactivated a card (passes.void_reason; the schema's check
+// constraint holds the same keys). "lost" keeps its stored key but means a
+// duplicate or replaced card: a customer who lost their phone needs the same
+// card re-sent (Send card to phone), not deactivated.
+export const VOID_REASONS = {
+  lost: "Duplicate / replaced card",
+  fraud: "Fraud",
+  customer: "Customer asked",
+  other: "Other",
+} as const;
+export type VoidReason = keyof typeof VOID_REASONS;
 
 // Pass appearance / identifiers (also overridable via env)
 export const PASS_TYPE_ID =
@@ -91,6 +313,13 @@ export const ORG_NAME = process.env.PASS_ORG_NAME || "42nights";
 // Public base URL of THIS app, e.g. https://loyalty.42nights.dev
 export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || "http://localhost:3000";
+
+// "Book a call" on / and /demo opens Ayaan's booking page (a Cal.com link).
+// https only, because it is rendered as a link. Unset → both pages send
+// prospects to the demo's contact note instead; src/instrumentation.ts warns
+// about that in production.
+const booking = process.env.SALES_BOOKING_URL?.trim() ?? "";
+export const BOOKING_URL = booking.startsWith("https://") ? booking : null;
 
 // Fail loudly on a misconfigured production deploy instead of handing out
 // cards that cannot work (apple-wallet#2). Wallet only calls an https

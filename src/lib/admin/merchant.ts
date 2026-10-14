@@ -1,4 +1,4 @@
-import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, canonicalTimezone, type LoyaltyMode, type TemplateKey } from "@/lib/config";
 import { PASS_THEMES } from "@/lib/passThemes";
 
 // Merchant/staff input rules for the creator admin. No server-only imports:
@@ -70,7 +70,54 @@ export type MerchantUpdate = {
   bg_color?: string | null;
   fg_color?: string | null;
   label_color?: string | null;
+  loyalty_mode?: LoyaltyMode;
+  stamp_goal?: number;
+  stamp_reward?: string;
+  timezone?: string;
+  review_url?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
+
+type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
+
+// The "Leave us a review" link on the back of the card (merchants.review_url).
+// https only: Wallet makes it tappable, so javascript:, http: and the like are
+// refused. Empty or null clears it. Stored as the parsed URL (spaces and the
+// like percent-encoded), at most 500 characters.
+export const REVIEW_URL_MAX = 500;
+export function parseReviewUrl(v: unknown): Parsed<string | null> {
+  if (v === null || (typeof v === "string" && !v.trim())) return { ok: true, value: null };
+  let url: URL | null = null;
+  try {
+    url = typeof v === "string" ? new URL(v.trim()) : null;
+  } catch {
+    /* not a URL */
+  }
+  if (!url || url.protocol !== "https:")
+    return { ok: false, error: "Enter the full review link, starting with https://" };
+  if (url.href.length > REVIEW_URL_MAX)
+    return { ok: false, error: `Use a review link of ${REVIEW_URL_MAX} characters or fewer` };
+  return { ok: true, value: url.href };
+}
+
+// The shop's coordinates as Google Maps copies them: right-click the shop,
+// click the "37.77493, -122.41942" line. Empty or null clears both.
+export function parseLocation(v: unknown): Parsed<{ latitude: number; longitude: number } | null> {
+  if (v === null || (typeof v === "string" && !v.trim())) return { ok: true, value: null };
+  const m = typeof v === "string" ? /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(v) : null;
+  if (!m) return { ok: false, error: "Paste the coordinates as lat, lng, like 37.77493, -122.41942" };
+  const latitude = Number(m[1]);
+  const longitude = Number(m[2]);
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180)
+    return { ok: false, error: "Latitude goes from -90 to 90 and longitude from -180 to 180" };
+  return { ok: true, value: { latitude, longitude } };
+}
+
+// Stored coordinates back into the one "lat, lng" box ("" when unset).
+export function formatLocation(lat: unknown, lng: unknown): string {
+  return lat != null && lng != null ? `${Number(lat)}, ${Number(lng)}` : "";
+}
 
 const COLOR_FIELDS = [
   ["bgColor", "bg_color", "Background"],
@@ -103,11 +150,49 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
       return "Pick one of the redeem templates";
     out.redeem_template = b.template as TemplateKey;
   }
+  // Optional on create too (the column defaults to Pacific). Any zone Intl
+  // knows, stored in its canonical spelling; the forms offer US_TIMEZONES.
+  if (b.timezone !== undefined) {
+    const tz = canonicalTimezone(b.timezone);
+    if (!tz) return "Pick a time zone";
+    out.timezone = tz;
+  }
   for (const [key, col, label] of COLOR_FIELDS) {
     if (!has(key)) continue;
     const v = b[key];
     if (v !== null && !isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
     out[col] = v;
+  }
+  // The stamp card fields are optional on create AND update: the wizard sends
+  // them only for a stamp card and the editor only when they change, so a points
+  // merchant never writes the new columns (an un-migrated database still works).
+  if (b.loyaltyMode !== undefined) {
+    if (b.loyaltyMode !== "points" && b.loyaltyMode !== "stamps") return "Pick points or a stamp card";
+    out.loyalty_mode = b.loyaltyMode;
+  }
+  if (b.stampGoal !== undefined) {
+    const goal = typeof b.stampGoal === "number" || typeof b.stampGoal === "string" ? Number(b.stampGoal) : NaN;
+    if (!Number.isInteger(goal) || goal < STAMP_GOAL.min || goal > STAMP_GOAL.max)
+      return `A stamp card takes ${STAMP_GOAL.min} to ${STAMP_GOAL.max} stamps`;
+    out.stamp_goal = goal;
+  }
+  if (b.stampReward !== undefined) {
+    const reward = typeof b.stampReward === "string" ? b.stampReward.trim() : "";
+    if (!reward || reward.length > STAMP_REWARD_MAX) return `The reward needs a name of 1 to ${STAMP_REWARD_MAX} characters`;
+    out.stamp_reward = reward;
+  }
+  // Optional even on create, so creating a merchant never writes these
+  // columns (a database without them still works).
+  if (b.reviewUrl !== undefined) {
+    const r = parseReviewUrl(b.reviewUrl);
+    if (!r.ok) return r.error;
+    out.review_url = r.value;
+  }
+  if (b.location !== undefined) {
+    const r = parseLocation(b.location);
+    if (!r.ok) return r.error;
+    out.latitude = r.value?.latitude ?? null;
+    out.longitude = r.value?.longitude ?? null;
   }
 
   // One careless colour pick would otherwise ship an unreadable card to every

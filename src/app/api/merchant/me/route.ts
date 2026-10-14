@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { redemptionsFor, templateKey } from "@/lib/config";
+import { happyHourMultiplier, loyaltyMode, merchantRedemptions, stampGoal, templateKey } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -20,6 +20,7 @@ export async function GET() {
   if (!merchant)
     return NextResponse.json({ error: "Merchant not found" }, { status: 404 });
 
+  const multiplier = happyHourMultiplier(merchant);
   return NextResponse.json({
     username: staff.username,
     role: staff.role,
@@ -29,6 +30,12 @@ export async function GET() {
     // (the redeem route still refuses it). 1000 = schema default, as there.
     maxBill: Number(merchant.max_bill ?? 1000),
     template: templateKey(merchant.redeem_template),
-    redemptions: redemptionsFor(merchant.redeem_template),
+    // points or stamps; on a stamp card `redemptions` is the one reward button
+    mode: loyaltyMode(merchant.loyalty_mode),
+    stampGoal: stampGoal(merchant.stamp_goal),
+    redemptions: merchantRedemptions(merchant),
+    // the happy-hour multiplier in force right now (null outside the window):
+    // /scan's banner and points preview. The redeem route decides what's credited.
+    happyHour: multiplier > 1 ? multiplier : null,
   });
 }

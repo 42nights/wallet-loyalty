@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { findAction } from "@/lib/config";
+import { STAMP_REWARD_ID, findAction, unitLabel, type LoyaltyMode } from "@/lib/config";
 import { TrendChart, BarChart, Sparkline, Donut, Funnel, Heatmap, SEGMENT_COLORS } from "./charts";
 import Controls from "./Controls";
 import ThemeToggle from "./ThemeToggle";
@@ -27,6 +27,8 @@ export type DashboardData = {
   funnel: FunnelT; ts: TimeSeries; heat: HeatCell[];
   days: string; bucket: string; theme: "light" | "dark";
   aiEnabled: boolean;
+  // a stamp card counts stamps; absent = points
+  mode?: LoyaltyMode; stampReward?: string;
 };
 
 const SEGMENT_ORDER = ["vip", "regular", "new", "active", "at_risk", "lapsed", "dormant"];
@@ -43,16 +45,20 @@ const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumF
 const kpiNum = (n: number) => (n >= COMPACT_FROM ? compact(n) : nf(n));
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
 
-function anomalyText(a: Anomaly): string {
+function anomalyText(a: Anomaly, mode?: LoyaltyMode): string {
   const d = a.detail;
-  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${nf(d.points ?? 0)} pts (avg ${nf(d.avg ?? 0)}).`;
-  if (a.kind === "staff_over_issue") return `${d.staff} issued ${nf(d.issued ?? 0)} pts — an outlier worth a look.`;
+  const u = unitLabel(mode, 2, true);
+  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${nf(d.points ?? 0)} ${u} (avg ${nf(d.avg ?? 0)}).`;
+  if (a.kind === "staff_over_issue") return `${d.staff} issued ${nf(d.issued ?? 0)} ${u} — an outlier worth a look.`;
   return a.kind;
 }
-function actionLabel(reason: string): string {
+function actionLabel(reason: string, stampReward?: string): string {
   const id = reason.split(":")[1] ?? reason;
+  if (id === STAMP_REWARD_ID && stampReward) return stampReward;
   return findAction(id)?.label ?? id;
 }
+// "Points" or "Stamps", for tile and chart titles
+const Unit = (mode?: LoyaltyMode) => (mode === "stamps" ? "Stamps" : "Points");
 
 type Insight = { dir: "up" | "down" | "warn" | "info"; text: string };
 const INS_ICON: Record<Insight["dir"], string> = { up: "↑", down: "↓", warn: "⚠", info: "→" };
@@ -72,9 +78,9 @@ export function computeInsights(d: DashboardData): Insight[] {
       // detect_anomalies covers the same window: a rise next to a staff
       // over-issue flag is no growth to celebrate, so it reads neutral.
       if (p >= 0 && d.anomalies.some((a) => a.kind === "staff_over_issue"))
-        out.push({ dir: "info", text: `Points issued up ${p}% vs the previous period — check the staff outlier below before reading it as growth.` });
+        out.push({ dir: "info", text: `${Unit(d.mode)} issued up ${p}% vs the previous period — check the staff outlier below before reading it as growth.` });
       else
-        out.push({ dir: p >= 0 ? "up" : "down", text: `Points issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
+        out.push({ dir: p >= 0 ? "up" : "down", text: `${Unit(d.mode)} issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
     }
   }
 
@@ -110,7 +116,7 @@ export function computeInsights(d: DashboardData): Insight[] {
     out.push({ dir: r >= 40 ? "up" : "down", text: `${r}% of members were active in the last 30 days.` });
   }
 
-  for (const a of d.anomalies) out.push({ dir: "warn", text: anomalyText(a) });
+  for (const a of d.anomalies) out.push({ dir: "warn", text: anomalyText(a, d.mode) });
   if (!out.length) out.push({ dir: "info", text: "Not enough data yet — check back after a few more scans." });
   return out;
 }
@@ -130,7 +136,7 @@ function Kpi({ k, n, v, sub, spark }: { k: string; n?: number; v?: string; sub?:
 }
 
 export default function DashboardView({ data }: { data: DashboardData }) {
-  const { stats: s, seg, staffRows, funnel, ts, heat, days, bucket, theme, aiEnabled } = data;
+  const { stats: s, seg, staffRows, funnel, ts, heat, days, bucket, theme, aiEnabled, mode, stampReward } = data;
   const range = days === "365" ? "last 12 months" : `last ${days} days`;
 
   // The time series is already windowed to the selected range, so its sums are
@@ -155,14 +161,14 @@ export default function DashboardView({ data }: { data: DashboardData }) {
       <div className="kpi-row">
         <Kpi k="Members" n={s.members} sub={`+${nf(sum(memberSeries))} new · ${range}`} spark={memberSeries.length > 1 ? <Sparkline data={memberSeries} color="var(--c-members)" /> : undefined} />
         <Kpi k="Active · 30d" n={s.active_members} sub="always last 30 days" />
-        <Kpi k="Points issued" n={sum(issued)} sub={range} spark={issued.length > 1 ? <Sparkline data={issued} color="var(--c-issued)" /> : undefined} />
-        <Kpi k="Points redeemed" n={sum(redeemed)} sub={range} spark={redeemed.length > 1 ? <Sparkline data={redeemed} color="var(--c-redeemed)" /> : undefined} />
+        <Kpi k={`${Unit(mode)} issued`} n={sum(issued)} sub={range} spark={issued.length > 1 ? <Sparkline data={issued} color="var(--c-issued)" /> : undefined} />
+        <Kpi k={`${Unit(mode)} redeemed`} n={sum(redeemed)} sub={range} spark={redeemed.length > 1 ? <Sparkline data={redeemed} color="var(--c-redeemed)" /> : undefined} />
         <Kpi k="Repeat rate" v={`${Math.round((s.repeat_rate ?? 0) * 100)}%`} sub="all time" />
       </div>
 
       <div className="dash-grid">
         <div className="panel col-8">
-          <div className="panel-h"><span className="panel-t">Points flow</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
+          <div className="panel-h"><span className="panel-t">{Unit(mode)} flow</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
           <TrendChart caption={`per ${bucket}`} series={[{ label: "Issued", color: "var(--c-issued)", data: issued }, { label: "Redeemed", color: "var(--c-redeemed)", data: redeemed }]} />
         </div>
 
@@ -219,7 +225,7 @@ export default function DashboardView({ data }: { data: DashboardData }) {
           <div className="panel-h"><span className="panel-t">Top redemptions</span><span className="label" style={{ margin: 0 }}>all time</span></div>
           {s.top_redemptions.length === 0 && <div className="label">none yet</div>}
           {s.top_redemptions.slice(0, 6).map((t) => (
-            <div className="lrow" key={t.reason}><span>{actionLabel(t.reason)}</span><span className="label" style={{ margin: 0 }}>{nf(t.count)}× · {nf(t.points)}</span></div>
+            <div className="lrow" key={t.reason}><span>{actionLabel(t.reason, stampReward)}</span><span className="label" style={{ margin: 0 }}>{nf(t.count)}× · {nf(t.points)}</span></div>
           ))}
         </div>
 

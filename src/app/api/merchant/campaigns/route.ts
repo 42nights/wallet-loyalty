@@ -3,6 +3,7 @@ import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { applyPoints } from "@/lib/points";
 import { wallet } from "@/lib/wallet";
+import { loyaltyMode, stampGoal } from "@/lib/config";
 
 export const runtime = "nodejs"; // wallet.notify pushes via APNs
 
@@ -73,10 +74,18 @@ export async function POST(req: NextRequest) {
 
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   if (!segment) return NextResponse.json({ error: "Unknown segment" }, { status: 400 });
-  if (!Number.isInteger(bonus) || bonus < 0 || bonus > 100_000)
-    return NextResponse.json({ error: "Invalid bonus" }, { status: 400 });
+  // A stamp card's bonus is at most one full card: one typo must not hand
+  // every customer a stack of rewards. select("*"): loyalty_mode may be absent.
+  const { data: shop } = await db.from("merchants").select("*").eq("id", m).maybeSingle();
+  const stamps = loyaltyMode(shop?.loyalty_mode) === "stamps";
+  const maxBonus = stamps ? stampGoal(shop?.stamp_goal) : 100_000;
+  if (!Number.isInteger(bonus) || bonus < 0 || bonus > maxBonus)
+    return NextResponse.json(
+      { error: stamps ? `A stamp card's bonus is 0 to ${maxBonus} stamps (one full card)` : "Invalid bonus" },
+      { status: 400 }
+    );
   if (bonus === 0 && !offerText)
-    return NextResponse.json({ error: "Add bonus points or an offer" }, { status: 400 });
+    return NextResponse.json({ error: `Add bonus ${stamps ? "stamps" : "points"} or an offer` }, { status: 400 });
 
   if (!existing) {
     const { data: pending } = await db

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner } from "@/lib/auth";
-import { applyTransaction } from "@/lib/points";
+import { applyTransaction, isServerKey, VOIDED_ERROR } from "@/lib/points";
 
 export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2)
 
@@ -13,9 +13,8 @@ export async function POST(req: NextRequest) {
 
   const idem = req.headers.get("idempotency-key");
   if (!idem) return NextResponse.json({ error: "Idempotency-Key required" }, { status: 400 });
-  // "undo:<key>" is reserved for /api/merchant/undo's reversal rows; a client
-  // planting one could make a later undo of <key> look already done.
-  if (idem.startsWith("undo:"))
+  // keys with a colon are the server's (undo, birthday cron, campaigns): see isServerKey
+  if (isServerKey(idem))
     return NextResponse.json({ error: "Invalid Idempotency-Key" }, { status: 400 });
 
   const { serial, delta } = await req.json().catch(() => ({}));
@@ -33,5 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Would go negative", balance: result.balance }, { status: 422 });
   if (result.status === "not_found")
     return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (result.status === "voided")
+    return NextResponse.json({ error: VOIDED_ERROR }, { status: 409 });
   return NextResponse.json({ error: "Could not adjust" }, { status: 500 });
 }

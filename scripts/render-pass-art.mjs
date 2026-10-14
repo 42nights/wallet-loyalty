@@ -10,8 +10,9 @@
 import { chromium } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { PASS_THEMES } from "../src/lib/passThemes.ts";
+import { pngChunk } from "../src/lib/wallet/apple/stampStrip.ts";
 import { WALLET_ASSETS } from "../src/lib/wallet/apple/assets.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -60,47 +61,73 @@ const GLYPHS = {
 // flat strokes and fills (small PNGs). draw() fades every motif out over the
 // left side, so the number sits on plain background, and at the top and
 // bottom edges, so the strip has no seam against the rest of the card.
+// Each motif is one upright line-art object in the right third, standing on a
+// ground line near y=117, inside x 212-359 (16pt in from the right edge, like
+// Wallet's field inset) and y 20-124.
 const MOTIFS = {
-  // Three short steam wisps rising from below the bottom edge in the right
-  // third: wide at the base, tapering to a point, gone by mid-height. Caramel
-  // rather than the terracotta label colour, so it reads as steam.
-  cafe: () => {
-    // Each wisp: a centre line swaying on a sine, offset to both sides by a
-    // half width that narrows to nothing at the tip.
-    const wisp = ([x0, w, top, amp, phase]) => {
-      const pts = Array.from({ length: 25 }, (_, i) => {
-        const f = i / 24;
-        return [x0 + amp * Math.sin(phase + f * Math.PI * 1.6), 150 - (150 - top) * f, (w / 2) * (1 - f) ** 0.8];
-      });
-      const side = (list, dir) => list.map(([x, y, hw]) => `${(x + dir * hw).toFixed(1)} ${y.toFixed(1)}`).join("L");
-      return `<path d="M${side(pts, -1)}L${side([...pts].reverse(), 1)}Z"/>`;
+  // A cup on its saucer in the label colour, with three wisps of steam in the
+  // cream text colour: one lazy S each, a hairline over a soft halo, fading in
+  // above the rim and out by the top, so they read as steam and not flame. The
+  // label colour stays the card's only accent.
+  cafe: (t) => {
+    const wisp = (x, top, a) => {
+      const h = (77 - top) / 2;
+      return `<path d="M${x} 77C${x - a} ${77 - h / 3} ${x - a} ${77 - (2 * h) / 3} ${x} ${77 - h}S${x + a} ${top + h / 3} ${x} ${top}"/>`;
     };
+    const steam = [wisp(292, 32, 5), wisp(304, 20, 6), wisp(316, 26, 5)].join("");
     return `
-      <linearGradient id="steam" gradientUnits="userSpaceOnUse" x1="0" y1="144" x2="0" y2="70">
-        <stop offset="0" stop-color="rgb(208,167,120)" stop-opacity=".36"/>
-        <stop offset="1" stop-color="rgb(208,167,120)" stop-opacity="0"/>
+      <linearGradient id="steam" gradientUnits="userSpaceOnUse" x1="0" y1="80" x2="0" y2="20">
+        <stop offset="0" stop-color="${t.fg}" stop-opacity="0"/>
+        <stop offset=".3" stop-color="${t.fg}" stop-opacity=".45"/>
+        <stop offset="1" stop-color="${t.fg}" stop-opacity="0"/>
       </linearGradient>
-      <g fill="url(#steam)">${[[284, 14, 56, 6, 0], [314, 18, 44, 8, 2.2], [343, 12, 62, 5, 1]].map(wisp).join("")}</g>`;
+      <g stroke="url(#steam)" stroke-linecap="round">
+        <g stroke-width="3.6" opacity=".22">${steam}</g>
+        <g stroke-width="1.3">${steam}</g>
+      </g>
+      <g stroke="${t.label}" stroke-opacity=".62" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="304" cy="84" rx="26" ry="4.2" fill="${t.label}" fill-opacity=".16"/>
+        <path d="M278 84C278 103 288 114.5 304 114.5S330 103 330 84"/>
+        <path d="M329.4 91C343 89 344 104 325.5 105.5"/>
+        <path d="M264 113C282 118 326 118 344 113"/>
+      </g>`;
   },
   // Art-deco fan: half rings on a baseline, alternating heavy and hairline,
-  // around a small solid sun. Everything sits inside the strip.
+  // around a small solid sun. The baseline stops short of the card edge on a
+  // small diamond at each end.
   restaurant: (t) => {
-    const [cx, cy] = [290, 116];
+    const [cx, cy, half] = [286, 116, 70];
     const arc = (r) => `M${cx - r} ${cy}A${r} ${r} 0 0 1 ${cx + r} ${cy}`;
-    const rings = [28, 44, 60, 76].map((r, i) =>
-      `<path d="${arc(r)}" stroke="${t.label}" stroke-opacity="${i % 2 ? ".2" : ".34"}" stroke-width="${i % 2 ? ".8" : "1.6"}"/>`
+    const rings = [24, 38, 52, 66].map((r, i) =>
+      `<path d="${arc(r)}" stroke="${t.label}" stroke-opacity="${i % 2 ? ".3" : ".48"}" stroke-width="${i % 2 ? ".8" : "1.6"}"/>`
     ).join("");
-    return `${rings}<path d="${arc(12)}Z" fill="${t.label}" fill-opacity=".3"/>` +
-      `<path d="M${cx - 84} ${cy}H${cx + 84}" stroke="${t.label}" stroke-opacity=".24" stroke-width=".8"/>`;
+    const diamond = (x) => `<path d="M${x - 2.2} ${cy}L${x} ${cy - 2.2}L${x + 2.2} ${cy}L${x} ${cy + 2.2}Z"/>`;
+    return `${rings}<path d="${arc(10)}Z" fill="${t.label}" fill-opacity=".36"/>` +
+      `<path d="M${cx - half + 4} ${cy}H${cx + half - 4}" stroke="${t.label}" stroke-opacity=".4" stroke-width=".8"/>` +
+      `<g fill="${t.label}" fill-opacity=".55">${diamond(cx - half)}${diamond(cx + half)}</g>`;
   },
-  // A fine ledger grid with one dotted perforation line, like the tear-off
-  // edge of a receipt. The tag appears only in the icon and logo.
-  retail: (t) => `
-    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
-      <path d="M16 0H0V16" stroke="${t.label}" stroke-opacity=".12" stroke-width=".8" fill="none"/>
-    </pattern>
-    <rect width="375" height="144" fill="url(#grid)"/>
-    <g fill="${t.label}" fill-opacity=".4">${Array.from({ length: 17 }, (_, i) => `<circle cx="320" cy="${8 + i * 8}" r="1.5"/>`).join("")}</g>`,
+  // A till receipt: torn zigzag ends, printed rows and a dashed rule above the
+  // total, so the dotted line belongs to it. No barcode: the card's real QR sits
+  // just below, and two codes on one card is noise. The tag appears only in the
+  // icon and logo.
+  retail: (t) => {
+    const [x0, x1, y0, y1, tooth] = [272, 332, 26, 114, 7.5];
+    const zig = (y, dir) => Array.from({ length: 8 }, (_, i) => {
+      const x = dir > 0 ? x0 + (i + 1) * tooth : x1 - (i + 1) * tooth;
+      return `L${x - (dir * tooth) / 2} ${y - dir * 3.5}L${x} ${y}`;
+    }).join("");
+    const bar = (x, y, w, h = 1.6) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>`;
+    const rows = [[58, 22, 8], [65, 17, 8], [72, 25, 6]]
+      .map(([y, w, p]) => bar(x0 + 8, y, w) + bar(x1 - 8 - p, y, p)).join("");
+    const dashes = Array.from({ length: 11 }, (_, i) => bar(x0 + 8 + i * 4.2, 81, 2.2, 1.1)).join("");
+    return `
+      <path d="M${x0} ${y0}${zig(y0, 1)}V${y1}${zig(y1, -1)}Z" fill="${t.label}" fill-opacity=".06"
+        stroke="${t.label}" stroke-opacity=".5" stroke-width="1.2" stroke-linejoin="round"/>
+      <g fill="${t.label}" fill-opacity=".5">
+        ${bar(292, 36, 20, 3)}${bar(296, 43, 12, 1.4)}${rows}${dashes}
+        ${bar(x0 + 8, 88, 18, 2.6)}${bar(x1 - 20, 88, 12, 2.6)}
+      </g>`;
+  },
 };
 
 const svg = (w, h, vw, vh, body) =>
@@ -133,14 +160,6 @@ function draw(template, kind, w, h) {
 // Same pixels, smaller file. The IDAT chunks together hold one zlib stream, so
 // inflate it and deflate it again at level 9; every other chunk is kept.
 function recompress(png) {
-  const chunk = (type, data) => {
-    const out = Buffer.alloc(12 + data.length);
-    out.writeUInt32BE(data.length, 0);
-    out.write(type, 4, "latin1");
-    data.copy(out, 8);
-    out.writeUInt32BE(crc32(data, crc32(type)), 8 + data.length);
-    return out;
-  };
   const parts = [png.subarray(0, 8)];
   const idat = [];
   for (let i = 8; i < png.length; ) {
@@ -150,11 +169,11 @@ function recompress(png) {
     if (type === "IDAT") {
       if (!idat.length) parts.push("IDAT");
       idat.push(data);
-    } else parts.push(chunk(type, data));
+    } else parts.push(pngChunk(type, data));
     i += 12 + len;
   }
   const z = deflateSync(inflateSync(Buffer.concat(idat)), { level: 9, memLevel: 9 });
-  const out = Buffer.concat(parts.map((p) => (p === "IDAT" ? chunk("IDAT", z) : p)));
+  const out = Buffer.concat(parts.map((p) => (p === "IDAT" ? pngChunk("IDAT", z) : p)));
   return out.length < png.length ? out : png;
 }
 

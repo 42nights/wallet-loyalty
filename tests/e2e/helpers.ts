@@ -10,7 +10,11 @@ export const fx: {
   owner: Login;
   cashier: Login;
   scanCards: Record<string, Card>;
+  voidCards: Record<string, { owner: Login; card: Card }>; // per project, its own shop
   searchCard: Card;
+  stamps: { cashier: Login; cards: Record<string, Card> }; // a 5-stamp "Free latte" shop
+  // per project: a merchant of its own for the happy-hour journey
+  happy: Record<string, { owner: Login; cashier: Login; card: Card }>;
 } = JSON.parse(process.env.E2E_FIXTURE ?? "null");
 
 // Every spec uses this `test`: it fails a test whose page saw any 5xx. Without

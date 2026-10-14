@@ -23,6 +23,8 @@ const MUTATE = process.env.MUTATE === "1";
 // The app under test gets a per-run admin password (process env beats
 // .env.local), so the admin checks never need the real one.
 const ADMIN_PW = `itest-admin-${randomUUID()}`;
+// Same idea for the birthday cron's bearer secret.
+const CRON_PW = `itest-cron-${randomUUID()}`;
 const LOG = join(ROOT, "test-results", "integration", "next.log");
 
 let fail = 0;
@@ -73,6 +75,7 @@ function startNext(apnsPort, env) {
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
       PUBLIC_BASE_URL: B,
       ADMIN_PASSWORD: ADMIN_PW,
+      CRON_SECRET: CRON_PW,
     },
   });
 }
@@ -141,6 +144,8 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const redeem = (j, body, key = randomUUID()) =>
     req("/api/merchant/redeem", { method: "POST", body, headers: { "Idempotency-Key": key }, j });
   const balanceOf = async (r) => (await r.json()).newBalance;
+  // "<status>:<error>": the reason a request was refused, not just that it was
+  const answer = async (r) => `${r.status}:${(await r.json().catch(() => ({}))).error}`;
   const register = (dev, card, pushToken) =>
     req(`/api/v1/devices/${dev}/registrations/${PTI}/${card.serial}`, {
       method: "POST", body: { pushToken }, headers: { Authorization: `ApplePass ${card.authToken}` },
@@ -158,6 +163,17 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   };
   const field = (pass, area, key) => pass.storeCard?.[area]?.find((f) => f.key === key)?.value;
   const pushesTo = (token) => mock.requests.filter((r) => r.path === `/3/device/${token}`);
+  // Settings and admin saves refresh cards in next/server's after(), i.e. once
+  // the response is sent: wait (up to 5 s) for the push before counting, and
+  // give a save that must push nothing 1 s to prove it.
+  const pushedTo = async (token) => {
+    for (let i = 0; i < 50 && !pushesTo(token).length; i++) await new Promise((r) => setTimeout(r, 100));
+    return pushesTo(token).length;
+  };
+  const quietFor = async (token) => {
+    await new Promise((r) => setTimeout(r, 1000));
+    return pushesTo(token).length;
+  };
 
   const cafe = await createMerchant(db, run, { key: "cafe", template: "cafe", earnRate: 10 });
   const rest = await createMerchant(db, run, { key: "rest", template: "restaurant", earnRate: 10 });
@@ -424,6 +440,10 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   // "undo:" keys are reserved for reversal rows: a client planting undo:<k>
   // first would make the real undo of <k> look already done.
   chk("client Idempotency-Key 'undo:…' refused on redeem", (await redeem(cash, { serial: uc.serial, amount: 1 }, `undo:${randomUUID()}`)).status, 400);
+  // a campaign credits key "<campaign id>:<serial>": planted first, it would
+  // make that card's credit a replay
+  chk("client key shaped like a campaign's refused on redeem",
+    await answer(await redeem(cash, { serial: uc.serial, amount: 1 }, `${randomUUID()}:${uc.serial}`)), "400:Invalid Idempotency-Key");
   const k1 = randomUUID();
   chk("earn $20 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 20 }, k1)), 200);
   mock.clear();
@@ -480,6 +500,109 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("undo card: ledger sum equals the cached balance",
     `${uLedger.reduce((a, t) => a + t.delta, 0)}=${uCached}`, "160=160");
 
+  // --- stamp cards: a stamps merchant (loyalty_mode) earns +1..+3 stamps per
+  //     tap and spends stamp_goal on its one reward; each mode refuses the
+  //     other's earn and buttons; the card shows STAMPS "n of goal" + a grid ----
+  console.log("stamp cards");
+  const st = await createMerchant(db, run, { key: "stamps", template: "cafe", earnRate: 10, stamps: { goal: 5, reward: "Free latte" } });
+  const stCash = jar();
+  const stOwn = jar();
+  await login(stCash, st.cashier);
+  await login(stOwn, st.owner);
+  const sc = await createCard(db, st.id, { name: "Stamp Card" });
+  const stMe = await (await req("/api/merchant/me", { j: stCash })).json();
+  chk("stamps /me: mode and goal", `${stMe.mode}:${stMe.stampGoal}`, "stamps:5");
+  chk("stamps /me: the one reward button, costing the goal",
+    JSON.stringify(stMe.redemptions), JSON.stringify([{ id: "stamp_reward", label: "Free latte", points: -5, kind: "redeem" }]));
+  chk("points /me says points", me.mode, "points");
+  const devS = `t-${run}-dev-stamps`;
+  const tokS = `t-${run}-tok-stamps`;
+  chk("register device on the stamp card", (await register(devS, sc, tokS)).status, 201);
+  mock.clear();
+  const ks = randomUUID();
+  chk("+1 stamp", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 1 }, ks)), 1);
+  chk("a stamp pushes to the card's device", pushesTo(tokS).length, 1);
+  const ksr = await (await redeem(stCash, { serial: sc.serial, stamps: 1 }, ks)).json();
+  chk("the same tap retried is a replay", `${ksr.newBalance}:${ksr.replay}`, "1:true");
+  chk("+3 stamps (several items)", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 3 })), 4);
+  const below = await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" });
+  const belowJ = await below.json();
+  chk("reward below the goal (4 of 5) → 422 with the balance", `${below.status}:${belowJ.error}:${belowJ.balance}`, "422:Not enough stamps:4");
+  // each refusal names its reason: a bare 400 would also pass on a route that
+  // knows nothing of stamps ("Unknown action")
+  const noBill = "400:This shop collects stamps: tap a stamp button, no bill amount";
+  const oneToThree = "400:Add 1 to 3 stamps at a time";
+  for (const [what, body, want] of [
+    ["a bill amount", { amount: 12 }, noBill],
+    ["a points template button (free_coffee)", { actionId: "free_coffee" }, "400:Unknown action"],
+    ["+4 stamps (over 3 per tap)", { stamps: 4 }, oneToThree],
+    ["0 stamps", { stamps: 0 }, oneToThree],
+    ["1.5 stamps", { stamps: 1.5 }, oneToThree],
+    ["stamps as a string", { stamps: "1" }, oneToThree],
+  ])
+    chk(`stamp card refuses ${what} → 400`, await answer(await redeem(stCash, { serial: sc.serial, ...body })), want);
+  chk("points card refuses stamps → 400", await answer(await redeem(cash, { serial, stamps: 1 })),
+    "400:This shop earns points from the bill, not stamps");
+  chk("points card refuses the stamp reward → 400", await answer(await redeem(cash, { serial, actionId: "stamp_reward" })), "400:Unknown action");
+  chk("+1 stamp reaches the goal", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 1 })), 5);
+  const kr = randomUUID();
+  chk("reward at the goal spends 5", await balanceOf(await redeem(stCash, { serial: sc.serial, actionId: "stamp_reward" }, kr)), 0);
+  const ku = randomUUID();
+  chk("+2 stamps", await balanceOf(await redeem(stCash, { serial: sc.serial, stamps: 2 }, ku)), 2);
+  const us = await undo(stCash, ku);
+  chk("a stamp tap can be undone", `${us.status}:${(await us.json()).newBalance}`, "200:0");
+  const ur = await undo(stCash, kr);
+  chk("the reward can be undone (stamps come back)", `${ur.status}:${(await ur.json()).newBalance}`, "200:5");
+  const sLedger = await rows(db.from("transactions").select("delta, reason, amount").eq("serial", sc.serial).order("id"));
+  chk("ledger: stamps are units, no bill amounts",
+    sLedger.map((t) => `${t.delta}:${t.reason}:${t.amount}`).join(","),
+    "1:earn:stamp:null,3:earn:stamp:null,1:earn:stamp:null,-5:redeem:stamp_reward:null,2:earn:stamp:null,-2:undo:earn:stamp:null,5:undo:redeem:stamp_reward:null");
+  chk("stamp card: cached balance equals the ledger",
+    `${sLedger.reduce((a, t) => a + t.delta, 0)}=${(await rows(db.from("passes").select("points").eq("serial", sc.serial)))[0]?.points}`, "5=5");
+
+  const stampPass = async (card) => {
+    const r = await req(`/api/v1/passes/${PTI}/${card.serial}`, { headers: { Authorization: `ApplePass ${card.authToken}` } });
+    return { status: r.status, ...unzipPass(Buffer.from(await r.arrayBuffer())) };
+  };
+  const sp = await stampPass(sc);
+  const head = sp.pass.storeCard?.headerFields?.[0] ?? {};
+  chk("stamp pass header: STAMPS 5 of 5 with a changeMessage", `${sp.status}:${head.label}:${head.value}:${head.changeMessage}`, "200:STAMPS:5 of 5:Stamps: %@");
+  chk("stamp pass: no primary points number", (sp.pass.storeCard?.primaryFields ?? []).length, 0);
+  chk("stamp pass: REWARD says it is ready", field(sp.pass, "secondaryFields", "next"), "Ready: Free latte");
+  chk("stamp pass carries the drawn strip at 1x/2x/3x",
+    ["strip.png", "strip@2x.png", "strip@3x.png"].every((f) => sp.list.includes(f)), true);
+  chk("stamp pass back: one stamp rule, and the goal before the reward",
+    `${field(sp.pass, "backFields", "earn")}|${field(sp.pass, "backFields", "rewards")}`,
+    "1 stamp per item, added at the counter|Collect 5 stamps: Free latte.");
+  chk("points pass keeps its POINTS header", (await latestPass(smokeCard)).storeCard?.headerFields?.[0]?.label, "POINTS");
+
+  // owner Settings: the mode is read-only, the reward can be renamed, and the
+  // rename reaches every card in Wallet (passesUpdatedSince + one push)
+  const stSet = await (await req("/api/merchant/settings", { j: stOwn })).json();
+  chk("settings GET: stamp card, goal, reward", `${stSet.mode}:${stSet.stampGoal}:${stSet.stampReward}`, "stamps:5:Free latte");
+  const setReward = (j, stampReward) => req("/api/merchant/settings", { method: "PATCH", body: { stampReward }, j });
+  const tagS = (await (await updatable(devS)).json()).lastUpdated;
+  mock.clear();
+  const renamed = await setReward(stOwn, "  Free flat white  ");
+  chk("owner renames the reward (trimmed)", renamed.status === 200 ? (await renamed.json()).stampReward : renamed.status, "Free flat white");
+  chk("rename: one push to the card's device", await pushedTo(tokS), 1);
+  chk("rename: the card appears in passesUpdatedSince", await listed(await updatable(devS, tagS), sc.serial), true);
+  chk("rename: re-downloaded pass shows the new reward", field(await latestPass(sc), "secondaryFields", "next"), "Ready: Free flat white");
+  chk("reward name over 30 characters → 400", (await setReward(stOwn, "x".repeat(31))).status, 400);
+  chk("blank reward name → 400", (await setReward(stOwn, "   ")).status, 400);
+  chk("cashier cannot rename the reward → 403", (await setReward(stCash, "Free tea")).status, 403);
+  chk("a points shop has no stamp reward to rename → 400", (await setReward(own, "Free tea")).status, 400);
+  // a stamp card's campaign bonus is at most one full card (goal 5)
+  chk("stamp card campaign of 6 bonus stamps → 400 naming the cap",
+    await answer(await req("/api/merchant/campaigns", { method: "POST", body: { name: "Too many", segment: "new", bonusPoints: 6 }, j: stOwn })),
+    "400:A stamp card's bonus is 0 to 5 stamps (one full card)");
+  const stCsv = await req("/api/merchant/export?type=customers", { j: stOwn });
+  chk("stamp card CSV heads its balance column Stamps",
+    (await stCsv.text()).replace(/^\uFEFF/, "").split("\r\n")[0], "Name,Phone,Stamps,Lifetime earned,Lifetime redeemed,Visits,Last seen (UTC)");
+  const poster = (await (await req("/settings/poster", { j: stOwn })).text()).replace(/<!-- -->/g, "");
+  chk("stamp card poster: earn 1 stamp per item, the reward after the goal",
+    ["1 stamp", "per item, added at the counter", "Free flat white", "after 5 stamps"].every((t) => poster.includes(t)), true);
+
   // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
   //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and
   //     stays quiet on normal earns ------------------------------------------
@@ -509,6 +632,151 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("it names the cashier and what they issued",
     `${flagged[0]?.detail?.staff}:${flagged[0]?.detail?.issued}`, `${an.cashier.username}:1001650`);
 
+  // --- card void: the owner deactivates a card. Every balance change, the card
+  //     link and a link minted earlier refuse it, the Wallet card says so and
+  //     the balance stays; reactivating makes all of it work again ---------------
+  console.log("card void");
+  const restOwn = jar();
+  await login(restOwn, rest.owner);
+  const vPhone = "+1555" + String(Date.now() + 7).slice(-7);
+  const vc = await createCard(db, cafe.id, { name: "Void Card", phone: vPhone });
+  const setVoid = (j, body) => req("/api/merchant/void", { method: "POST", body, j });
+  const reactivate = (j, s) => req("/api/merchant/void", { method: "DELETE", body: { serial: s }, j });
+  const adjust = (j, s, delta) =>
+    req("/api/merchant/adjust", { method: "POST", body: { serial: s, delta }, headers: { "Idempotency-Key": randomUUID() }, j });
+  const cardLink = (j, s) => req("/api/merchant/card-link", { method: "POST", body: { serial: s }, j });
+  const vk = randomUUID();
+  chk("earn $10 @10x before the void", await balanceOf(await redeem(cash, { serial: vc.serial, amount: 10 }, vk)), 100);
+  const { url: earlyLink = "" } = await (await cardLink(own, vc.serial)).json();
+  const devV = `t-${run}-dev-void`;
+  const tokV = `t-${run}-tok-void`;
+  chk("register device on the card", (await register(devV, vc, tokV)).status, 201);
+  chk("a cashier cannot deactivate → 403", (await setVoid(cash, { serial: vc.serial, reason: "fraud" })).status, 403);
+  chk("another shop's owner cannot deactivate → 404",
+    await answer(await setVoid(restOwn, { serial: vc.serial, reason: "fraud" })), "404:Card not found");
+  chk("no reason → 400", (await setVoid(own, { serial: vc.serial })).status, 400);
+  chk("unknown reason → 400", (await setVoid(own, { serial: vc.serial, reason: "bored" })).status, 400);
+  mock.clear();
+  chk("owner deactivates the card", (await setVoid(own, { serial: vc.serial, reason: "fraud" })).status, 200);
+  chk("deactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  const [vRow] = await rows(db.from("passes").select("points, voided_at, void_reason").eq("serial", vc.serial));
+  chk("the row keeps its balance and records when and why", `${vRow?.points}:${Boolean(vRow?.voided_at)}:${vRow?.void_reason}`, "100:true:fraud");
+  chk("lookup by serial says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { serial: vc.serial }, j: cash })).json()).voided, true);
+  chk("lookup by phone says deactivated",
+    (await (await req("/api/merchant/lookup", { method: "POST", body: { phone: vPhone }, j: cash })).json()).matches?.[0]?.voided, true);
+  chk("earn refused → 409", (await redeem(cash, { serial: vc.serial, amount: 5 })).status, 409);
+  chk("reward refused → 409", (await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })).status, 409);
+  chk("owner adjustment refused → 409", (await adjust(own, vc.serial, 10)).status, 409);
+  chk("undo of the earn made before the void refused → 409", (await undo(cash, vk)).status, 409);
+  chk("send-card link refused → 409", (await cardLink(own, vc.serial)).status, 409);
+  chk("a card link minted before the void stops working → 410", (await req(earlyLink.slice(B.length))).status, 410);
+  // decision: a deactivated card keeps its number, so no second card is made
+  const again = await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } });
+  const [stillVoid] = await rows(db.from("passes").select("voided_at").eq("serial", vc.serial));
+  chk("re-enrolling its number → 409 saying the card is paused, and the card stays deactivated",
+    `${again.status}:${(await again.json()).error}:${Boolean(stillVoid?.voided_at)}`,
+    "409:This number's card is paused — ask the owner to switch it back on.:true");
+  const vPass = await latestPass(vc);
+  chk("Wallet card says DEACTIVATED once: header, no primary field; the back is STATUS, UPDATED, TERMS",
+    `${field(vPass, "headerFields", "balance")}|${(vPass.storeCard?.primaryFields ?? []).length}|${(vPass.storeCard?.backFields ?? []).map((f) => f.key).join(",")}`,
+    "DEACTIVATED|0|status,updated,terms");
+  chk("its STATUS says the points are kept and who switches it back on", field(vPass, "backFields", "status"),
+    `This card is paused. Your points are kept — ask Test cafe ${run} to switch it back on.`);
+  // a stamp card, deactivated: the same layout in stamps, and the theme's own
+  // strip (byte for byte the cafe theme's, as on a points cafe card) instead of the grid
+  const vs = await createCard(db, st.id, { name: "Void Stamps" });
+  await redeem(stCash, { serial: vs.serial, stamps: 3 });
+  chk("owner deactivates a stamp card", (await setVoid(stOwn, { serial: vs.serial, reason: "other" })).status, 200);
+  const stripOf = async (card) => {
+    const r = await req(`/api/v1/passes/${PTI}/${card.serial}`, { headers: { Authorization: `ApplePass ${card.authToken}` } });
+    const f = join(tmp, `${n++}.pkpass`);
+    writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+    return execFileSync("unzip", ["-p", f, "strip@2x.png"]).toString("base64");
+  };
+  const vsPass = await latestPass(vs);
+  chk("deactivated stamp card: CARD DEACTIVATED, no primary, STATUS in stamps",
+    `${field(vsPass, "headerFields", "balance")}|${(vsPass.storeCard?.primaryFields ?? []).length}|${field(vsPass, "backFields", "status")}`,
+    `DEACTIVATED|0|This card is paused. Your stamps are kept — ask Test stamps ${run} to switch it back on.`);
+  chk("deactivated stamp card: the theme's strip, not the stamp grid", (await stripOf(vs)) === (await stripOf(smokeCard)), true);
+  chk("deactivated card has no QR and no change message",
+    `${(vPass.barcodes ?? []).length}:${vPass.storeCard?.headerFields?.[0]?.changeMessage ?? "none"}`, "0:none");
+  const vLedger = await rows(db.from("transactions").select("delta").eq("serial", vc.serial));
+  chk("refusals wrote nothing: one ledger row, +100", vLedger.map((t) => t.delta).join(","), "100");
+  chk("another shop's owner cannot reactivate → 404", await answer(await reactivate(restOwn, vc.serial)), "404:Card not found");
+  chk("a cashier cannot reactivate → 403", (await reactivate(cash, vc.serial)).status, 403);
+  mock.clear();
+  chk("owner reactivates the card", (await reactivate(own, vc.serial)).status, 200);
+  chk("reactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  // one check: on its own each of these also passes on a card never deactivated
+  const vk2 = randomUUID();
+  const restored = [
+    await balanceOf(await redeem(cash, { serial: vc.serial, amount: 5 }, vk2)),
+    await balanceOf(await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })),
+    await balanceOf(await undo(cash, vk2)),
+    await balanceOf(await adjust(own, vc.serial, 10)),
+    (await cardLink(own, vc.serial)).status,
+  ];
+  chk("after reactivating: earn, reward, undo, adjust (balances) and card link work again", restored.join(","), "150,70,20,30,200");
+  const rPass = await latestPass(vc);
+  chk("re-downloaded card shows the balance, QR and change message again",
+    `${field(rPass, "primaryFields", "points")}:${(rPass.barcodes ?? []).length}:${Boolean(rPass.storeCard?.headerFields?.[0]?.changeMessage)}`, "30:1:true");
+
+  // --- review link + lock-screen location (owner Settings): https only; the
+  //     back-of-card link appears from the 3rd earn visit; the pass carries the
+  //     shop's coordinates; each save pushes the merchant's cards -------------
+  console.log("review link + location");
+  const rv = await createMerchant(db, run, { key: "rev", template: "cafe", earnRate: 10 });
+  const rvOwn = jar();
+  const rvCash = jar();
+  await login(rvOwn, rv.owner);
+  await login(rvCash, rv.cashier);
+  const settingsPatch = (j, body) => req("/api/merchant/settings", { method: "PATCH", body, j });
+  const notHttps = "400:Enter the full review link, starting with https://";
+  chk("review link http:// → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "http://example.com/review" })), notHttps);
+  chk("review link javascript: → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "javascript:alert(1)" })), notHttps);
+  chk("review link over 500 characters → 400",
+    await answer(await settingsPatch(rvOwn, { reviewUrl: `https://example.com/${"a".repeat(481)}` })),
+    "400:Use a review link of 500 characters or fewer");
+  const reg = await createCard(db, rv.id, { name: "Regular" });
+  const devR = `t-${run}-dev-review`;
+  const tokR = `t-${run}-tok-review`;
+  chk("register device on the card", (await register(devR, reg, tokR)).status, 201);
+  for (const amount of [4, 6]) await redeem(rvCash, { serial: reg.serial, amount });
+  const tagR = (await (await updatable(devR)).json()).lastUpdated;
+  mock.clear();
+  const reviewUrl = `https://g.page/r/${run}/review?a=1&b=2`;
+  const sv = await settingsPatch(rvOwn, { reviewUrl });
+  chk("owner saves an https review link", `${sv.status}:${(await sv.json()).reviewUrl}`, `200:${reviewUrl}`);
+  chk("saving pushes the merchant's card", await pushedTo(tokR), 1);
+  chk("the card appears in passesUpdatedSince", await listed(await updatable(devR, tagR), reg.serial), true);
+  const second = field(await latestPass(reg), "backFields", "review");
+  await redeem(rvCash, { serial: reg.serial, amount: 5 });
+  const third = (await latestPass(reg)).storeCard?.backFields?.find((f) => f.key === "review");
+  chk("review field only from the 3rd visit (2 visits | 3 visits)", `${second ?? "none"}|${third?.label}`, `none|Enjoying Test rev ${run}?`);
+  chk("its link is the saved URL, HTML-escaped",
+    third?.attributedValue, `<a href='https://g.page/r/${run}/review?a=1&#38;b=2'>Leave us a review</a>`);
+  const outOfRange = "400:Latitude goes from -90 to 90 and longitude from -180 to 180";
+  chk("location that isn't 'lat, lng' → 400", await answer(await settingsPatch(rvOwn, { location: "Main St" })),
+    "400:Paste the coordinates as lat, lng, like 37.77493, -122.41942");
+  chk("latitude above 90 → 400", await answer(await settingsPatch(rvOwn, { location: "91, 10" })), outOfRange);
+  chk("longitude below -180 → 400", await answer(await settingsPatch(rvOwn, { location: "10, -181" })), outOfRange);
+  const sl = await settingsPatch(rvOwn, { location: " 37.77493,-122.41942 " });
+  chk("owner saves a pasted location", `${sl.status}:${(await sl.json()).location}`, "200:37.77493, -122.41942");
+  const loc = (await latestPass(reg)).locations ?? [];
+  chk("the pass carries it with relevantText",
+    loc.map((l) => `${l.latitude},${l.longitude},${l.relevantText}`).join("|"), `37.77493,-122.41942,Show your Test rev ${run} card`);
+  const cleared = (await settingsPatch(rvOwn, { location: "" })).status;
+  chk("clearing the location → 200 and the pass has none", `${cleared}:${JSON.stringify((await latestPass(reg)).locations ?? null)}`, "200:null");
+  // one card refresh per save, and only when something the card shows changed
+  await pushedTo(tokR);
+  mock.clear();
+  chk("saving the same review link again → 200, no push", `${(await settingsPatch(rvOwn, { reviewUrl })).status}:${await quietFor(tokR)}`, "200:0");
+  chk("a bill-limit-only save → 200, no push", `${(await settingsPatch(rvOwn, { maxBill: 500 })).status}:${await quietFor(tokR)}`, "200:0");
+  const both = await settingsPatch(rvOwn, { reviewUrl: `${reviewUrl}&c=3`, location: "37.7, -122.4" });
+  await pushedTo(tokR);
+  chk("a review link and a location in one save → one push", `${both.status}:${await quietFor(tokR)}`, "200:1");
+
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
   //     redeem route's 1,000,000-point cap ---------------------------------------
@@ -533,6 +801,312 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+
+  // --- CSV export: owner-only downloads of the customer list and the ledger,
+  //     scoped to the session's shop, formula-safe, paged past 1000 rows ------
+  console.log("csv export");
+  const csv = async (type, j) => {
+    const r = await req(`/api/merchant/export?type=${type}`, { j });
+    const buf = Buffer.from(await r.arrayBuffer());
+    const lines = buf.toString("utf8").replace(/^\uFEFF/, "").split("\r\n");
+    return { r, bom: buf.subarray(0, 3).toString("hex") === "efbbbf", head: lines[0], rows: lines.slice(1, -1) };
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const shown = `(555) ${phone.slice(5, 8)}-${phone.slice(8)}`;
+  await createCard(db, cafe.id, { name: '=HYPERLINK("http://evil.example","click")' });
+  const cust = await csv("customers", own);
+  chk("owner customers export → 200", cust.r.status, 200);
+  chk("content-type is utf-8 CSV", cust.r.headers.get("content-type"), "text/csv; charset=utf-8");
+  chk("filename carries the slug and the date",
+    cust.r.headers.get("content-disposition"), `attachment; filename="${cafe.slug}-customers-${today}.csv"`);
+  chk("file starts with a UTF-8 BOM", cust.bom, true);
+  chk("customers header row", cust.head, "Name,Phone,Points,Lifetime earned,Lifetime redeemed,Visits,Last seen (UTC)");
+  chk("one row per cafe card",
+    cust.rows.length, (await rows(db.from("passes").select("serial").eq("merchant_id", cafe.id))).length);
+  chk("own row: phone as shown, 45 pts, 125 earned, 80 redeemed, 1 visit",
+    cust.rows.some((l) => l.startsWith(`Smoke Test,${shown},45,125,80,1,20`)), true);
+  chk("formula name gets a leading ' and RFC 4180 quoting",
+    cust.rows.includes(`"'=HYPERLINK(""http://evil.example"",""click"")",,0,0,0,0,`), true);
+  chk("another shop's customer never appears", cust.rows.some((l) => l.includes("Restaurant Card")), false);
+  chk("…while that shop's own export lists it",
+    (await csv("customers", restOwn)).rows.some((l) => l.startsWith("Restaurant Card,")), true);
+
+  const tx = await csv("transactions", own);
+  chk("owner transactions export → 200", tx.r.status, 200);
+  chk("transactions filename",
+    tx.r.headers.get("content-disposition"), `attachment; filename="${cafe.slug}-transactions-${today}.csv"`);
+  chk("transactions header row", tx.head, "Date (UTC),Customer,Phone,Kind,Reason,Points,Bill ($),Staff");
+  chk("one row per cafe ledger entry",
+    tx.rows.length, (await rows(db.from("transactions").select("id").eq("merchant_id", cafe.id))).length);
+  chk("the earn: customer, kind, points, bill, cashier",
+    tx.rows.some((l) => l.endsWith(`,Smoke Test,${shown},earn,earn:purchase,125,12.5,${cafe.cashier.username}`)), true);
+  chk("the reward: its -80 stays a number",
+    tx.rows.some((l) => l.endsWith(`,Smoke Test,${shown},redeem,redeem:extra_shot,-80,,${cafe.cashier.username}`)), true);
+  chk("kinds as the ledger records them",
+    [...new Set(tx.rows.map((l) => l.split(",")[3]))].sort().join(","), "adjust,campaign,earn,redeem,undo");
+  chk("another shop's ledger never appears", tx.rows.some((l) => l.includes("Restaurant Card")), false);
+  chk("cashier: customers export → 403", (await req("/api/merchant/export?type=customers", { j: cash })).status, 403);
+  chk("cashier: transactions export → 403", (await req("/api/merchant/export?type=transactions", { j: cash })).status, 403);
+  chk("logged out → 401", (await req("/api/merchant/export?type=transactions")).status, 401);
+  chk("unknown export type → 400", (await req("/api/merchant/export?type=staff", { j: own })).status, 400);
+
+  // PostgREST hands back at most 1000 rows a request: a shop with 1005 cards
+  // and 1005 ledger rows must get all of them, each once.
+  const bulk = await createMerchant(db, run, { key: "bulk", template: "cafe", earnRate: 10 });
+  const bulkOwn = jar();
+  await login(bulkOwn, bulk.owner);
+  const N = 1005;
+  const bulkCards = Array.from({ length: N }, (_, i) => ({
+    serial: randomUUID(), merchant_id: bulk.id, customer_name: `Bulk ${i}`, points: 0, auth_token: randomUUID(),
+  }));
+  await rows(db.from("passes").insert(bulkCards).select("serial"));
+  for (let i = 0; i < N; i += 50)
+    await Promise.all(Array.from({ length: Math.min(50, N - i) }, () => rows(db.rpc("apply_points", {
+      p_serial: bulkCards[0].serial, p_delta: 1, p_reason: "adjust:manual",
+      p_staff: bulk.owner.id, p_merchant: bulk.id, p_idempo: randomUUID(),
+    }))));
+  const bc = await csv("customers", bulkOwn);
+  chk(`customers export: all ${N} cards, none twice`, `${bc.rows.length}/${new Set(bc.rows).size}`, `${N}/${N}`);
+  const bt = await csv("transactions", bulkOwn);
+  chk(`transactions export: all ${N} ledger rows`, bt.rows.length, N);
+
+  // --- today summary: GET /api/merchant/today is the signed-in staff member's
+  //     own taps since the local midnight /scan sends (clamped to 36 h back) ---
+  console.log("today summary");
+  const td = await createMerchant(db, run, { key: "today", template: "cafe", earnRate: 10 });
+  const tdCash = jar();
+  const tdOwn = jar();
+  const tdCash2 = jar();
+  await login(tdCash, td.cashier);
+  await login(tdOwn, td.owner);
+  const tdC2 = { username: `t-${run}-today-cashier2`, password: randomUUID() };
+  chk("today: owner adds a second cashier", (await req("/api/merchant/staff", { method: "POST", body: tdC2, j: tdOwn })).status, 200);
+  await login(tdCash2, tdC2);
+  const tc = await createCard(db, td.id, { name: "Today Card" });
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const todayReq = (j, since = midnight.toISOString()) =>
+    req(`/api/merchant/today?since=${encodeURIComponent(since)}`, { j });
+  const tally = async (j) => {
+    const t = await (await todayReq(j)).json();
+    return `${t.customers}/${t.points}/${t.rewards}/${t.undos}`;
+  };
+  chk("since that isn't a date → 400", (await todayReq(tdCash, "yesterday")).status, 400);
+  chk("cashier earns $12 @10x", await balanceOf(await redeem(tdCash, { serial: tc.serial, amount: 12 })), 120);
+  chk("their summary counts it (customers/points/rewards/undos)", await tally(tdCash), "1/120/0/0");
+  chk("the other cashier's summary does not", await tally(tdCash2), "0/0/0/0");
+  const kt = randomUUID();
+  chk("cashier redeems extra_shot (80)", await balanceOf(await redeem(tdCash, { serial: tc.serial, actionId: "extra_shot" }, kt)), 40);
+  chk("…and undoes it", (await undo(tdCash, kt)).status, 200);
+  chk("an undone reward counts only as an undo", await tally(tdCash), "1/120/0/1");
+  // the reversal row carries the owner's staff_id, yet it is the cashier's tap that was undone
+  const ko = randomUUID();
+  chk("cashier earns $5 @10x", await balanceOf(await redeem(tdCash, { serial: tc.serial, amount: 5 }, ko)), 170);
+  chk("…and the owner undoes it", (await undo(tdOwn, ko)).status, 200);
+  chk("the owner's undo shows in the cashier's numbers", await tally(tdCash), "1/120/0/2");
+  const hoursBack = async (since) => Math.round((Date.now() - Date.parse((await (await todayReq(tdCash, since)).json()).since)) / 3_600_000);
+  chk("since 3 days back is clamped to 36 h", await hoursBack(new Date(Date.now() - 3 * 86_400_000).toISOString()), 36);
+  chk("since tomorrow is clamped to now", await hoursBack(new Date(Date.now() + 86_400_000).toISOString()), 0);
+
+  // --- admin stamp cards: the wizard creates one; mode and goal change only
+  //     while the shop has no transactions; the reward name changes any time --
+  console.log("admin stamp cards");
+  const patchM = (id, body) => req(`/api/admin/merchants/${id}`, { method: "PATCH", body, j: admin });
+  const modeOf = async (id) => {
+    const [m] = await rows(db.from("merchants").select("loyalty_mode, stamp_goal, stamp_reward").eq("id", id));
+    return `${m?.loyalty_mode}:${m?.stamp_goal}:${m?.stamp_reward}`;
+  };
+  const toPoints = await patchM(st.id, { loyaltyMode: "points" });
+  chk("switching a shop with transactions to points → 409", toPoints.status, 409);
+  chk("409 says why", /already has \d+ transactions/.test((await toPoints.json()).error ?? ""), true);
+  chk("changing its goal → 409", (await patchM(st.id, { stampGoal: 8 })).status, 409);
+  chk("sending its unchanged goal is fine → 200", (await patchM(st.id, { stampGoal: 5 })).status, 200);
+  chk("renaming its reward is fine → 200", (await patchM(st.id, { stampReward: "Free cortado" })).status, 200);
+  chk("…and nothing else moved", await modeOf(st.id), "stamps:5:Free cortado");
+  const fresh0 = await createMerchant(db, run, { key: "tostamps", template: "retail", earnRate: 10 });
+  chk("a new merchant is points by default", await modeOf(fresh0.id), "points:10:Free coffee");
+  chk("goal 21 → 400", (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 21 })).status, 400);
+  chk("goal 2 → 400", (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 2 })).status, 400);
+  chk("unknown mode → 400", (await patchM(fresh0.id, { loyaltyMode: "visits" })).status, 400);
+  chk("no transactions yet: switch to stamps with goal 6 → 200",
+    (await patchM(fresh0.id, { loyaltyMode: "stamps", stampGoal: 6, stampReward: "Free gift" })).status, 200);
+  chk("the row is a 6-stamp card", await modeOf(fresh0.id), "stamps:6:Free gift");
+  const wiz = await req("/api/admin/merchants", {
+    method: "POST", j: admin,
+    body: {
+      name: "Stamp Wizard", slug: `t-${run}-stampwiz`, template: "cafe", earnRate: 10,
+      bgColor: null, fgColor: null, labelColor: null,
+      owner: { username: `t-${run}-stampwiz-owner`, password: randomUUID() },
+      loyaltyMode: "stamps", stampGoal: 8, stampReward: "Free bagel",
+    },
+  });
+  chk("wizard creates a stamp card merchant → 201", wiz.status, 201);
+  if (wiz.status === 201) chk("…with its goal and reward", await modeOf((await wiz.json()).id), "stamps:8:Free bagel");
+  // a 2x happy hour doubles what one bill can credit, so 10 x 100000 no longer fits
+  await rows(db.from("merchants").update({ happy_hour: { days: [1], start: "15:00", end: "17:00", multiplier: 2 } }).eq("id", adm.id).select("id"));
+  const doubled = await setRate(10);
+  chk("admin rate counts the owner's 2× happy hour (10 x 100000 x 2 → 400, at most 5)",
+    `${doubled.status}:${/at most 5\b/.test((await doubled.json()).error ?? "")}`, "400:true");
+
+  // --- birthday treat: shop time zone (set in /admin), optional month + day at
+  //     enroll, and the daily cron that credits it once per card per year ------
+  console.log("birthday treat");
+  // The suite is plain JS, so it reads shop clocks with Intl itself.
+  const KIRI = "Pacific/Kiritimati"; // UTC+14: a calendar day ahead of the US most of the day
+  const LA = "America/Los_Angeles";
+  const mmdd = (tz, d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, month: "2-digit", day: "2-digit" }).format(d);
+  const bd = await createMerchant(db, run, { key: "bday", template: "cafe", earnRate: 10 });
+  const off = await createMerchant(db, run, { key: "nobday", template: "cafe", earnRate: 10 });
+  // sent with the unchanged name, so a route that ignored timezone would answer 200
+  const tzSet = (timezone) =>
+    req(`/api/admin/merchants/${bd.id}`, { method: "PATCH", body: { name: `Test bday ${run}`, timezone }, j: admin });
+  chk("admin: a time zone Intl doesn't know → 400", (await tzSet("Mars/Olympus")).status, 400);
+  const tzOk = await tzSet("pacific/kiritimati");
+  chk("admin: time zone saved in Intl's spelling",
+    `${tzOk.status}:${(await rows(db.from("merchants").select("timezone").eq("id", bd.id)))[0]?.timezone}`, `200:${KIRI}`);
+  const bdOwn = jar();
+  const bdCash = jar();
+  await login(bdOwn, bd.owner);
+  await login(bdCash, bd.cashier);
+  chk("owner turns the birthday treat on",
+    (await (await req("/api/merchant/settings", { method: "PATCH", body: { birthdayReward: true }, j: bdOwn })).json()).birthdayReward, true);
+  const enrol = async (m, birthday) => {
+    const phone = "+1556" + String(Math.floor(1e6 + Math.random() * 9e6));
+    const r = await req("/api/enroll", { method: "POST", body: { name: "Birthday Test", phone, birthday, slug: m.slug } });
+    const [c] = await rows(db.from("passes").select("serial, auth_token, birthday").eq("merchant_id", m.id).eq("customer_phone", phone));
+    return { status: r.status, serial: c?.serial, authToken: c?.auth_token, birthday: c?.birthday ?? null };
+  };
+  const bdToday = mmdd(KIRI);
+  const bad = await req("/api/enroll", { method: "POST", body: { name: "x", phone: "+15569990000", birthday: "02-30", slug: bd.slug } });
+  chk("enroll: an impossible birthday (02-30) → 400 on the birthday field", `${bad.status}:${Boolean((await bad.json()).fields?.birthday)}`, "400:true");
+  const bToday = await enrol(bd, bdToday);
+  const bOther = await enrol(bd, mmdd(KIRI, new Date(Date.now() - 86_400_000))); // yesterday on the shop's clock
+  const bOff = await enrol(off, mmdd(LA));
+  chk("enroll stores month + day on year 2000, and nothing while the treat is off",
+    `${bToday.status}:${bToday.birthday}|${bOff.status}:${bOff.birthday}`, `200:2000-${bdToday}|200:null`);
+  // the toggle-off shop's card gets a birthday that IS today, so skipping it means something
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(LA)}` }).eq("serial", bOff.serial).select("serial"));
+  const daysAgo = (n) => new Date(Date.now() - n * 86_400_000);
+  // Only cards at least a month old on the day are credited: these were "made" 40 days ago...
+  await rows(db.from("passes").update({ created_at: daysAgo(40).toISOString() })
+    .in("serial", [bToday.serial, bOther.serial, bOff.serial]).select("serial"));
+  // ...this one 5 days ago, birthday today (joined for the treat: skipped), and
+  // this one is old but its birthday was 3 days ago (outside the 2-day catch-up)
+  const bNew = await createCard(db, bd.id, { name: "Birthday New" });
+  await rows(db.from("passes").update({ birthday: `2000-${bdToday}`, created_at: daysAgo(5).toISOString() }).eq("serial", bNew.serial).select("serial"));
+  const bOld = await createCard(db, bd.id, { name: "Birthday Gone" });
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(KIRI, daysAgo(3))}`, created_at: daysAgo(40).toISOString() }).eq("serial", bOld.serial).select("serial"));
+  const yearOf = (d) => new Intl.DateTimeFormat("en-US", { timeZone: KIRI, year: "numeric" }).format(d);
+  const year = yearOf(new Date());
+  const planted = `birthday:${year}:${bOther.serial}`;
+  chk("the cron's key prefix is refused from clients (redeem, adjust)", [
+    (await redeem(bdCash, { serial: bOther.serial, amount: 1 }, planted)).status,
+    (await req("/api/merchant/adjust", { method: "POST", body: { serial: bOther.serial, delta: 5 }, headers: { "Idempotency-Key": planted }, j: bdOwn })).status,
+  ].join(","), "400,400");
+  const cron = (auth) => req("/api/cron/birthday", { headers: auth ? { Authorization: auth } : {} });
+  chk("cron: no secret, a wrong one, or no Bearer → 401",
+    [(await cron()).status, (await cron("Bearer nope")).status, (await cron(CRON_PW)).status].join(","), "401,401,401");
+  const devB = `t-${run}-dev-bday`;
+  const tokB = `t-${run}-tok-bday`;
+  chk("register device on the birthday card", (await register(devB, bToday, tokB)).status, 201);
+  // a stamp card shop's treat is one full card (its goal, 5), on its own (LA) clock
+  await rows(db.from("merchants").update({ birthday_reward: true }).eq("id", st.id).select("id"));
+  const bStamp = await createCard(db, st.id, { name: "Stamp Birthday" });
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(LA)}`, created_at: daysAgo(40).toISOString() }).eq("serial", bStamp.serial).select("serial"));
+  mock.clear();
+  const run1 = await cron(`Bearer ${CRON_PW}`);
+  const run2 = await cron(`Bearer ${CRON_PW}`);
+  chk("cron runs twice the same day", `${run1.status},${run2.status}`, "200,200");
+  const bLedger = await rows(db.from("transactions").select("serial, delta, staff_id, idempotency_key")
+    .eq("reason", "bonus:birthday").in("serial", [bToday.serial, bOther.serial, bOff.serial, bNew.serial, bOld.serial]));
+  const bName = { [bToday.serial]: "today", [bOther.serial]: "yesterday", [bOff.serial]: "off", [bNew.serial]: "new", [bOld.serial]: "3 days ago" };
+  const bKey = { [bToday.serial]: `birthday:${year}:${bToday.serial}`, [bOther.serial]: `birthday:${yearOf(daysAgo(1))}:${bOther.serial}` };
+  chk("one credit each across both runs, to today's and yesterday's birthday on the shop's clock (+80 = cafe's cheapest reward, no staff, key birthday:<year>:<serial>); the 5-day-old card, the 3-days-ago birthday and the toggle-off shop get nothing",
+    bLedger.map((t) => `${bName[t.serial]}:${t.delta}:${t.staff_id}:${t.idempotency_key === bKey[t.serial]}`).sort().join(","),
+    "today:80:null:true,yesterday:80:null:true");
+  chk("birthday card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", bToday.serial)))[0]?.points, 80);
+  chk("the credit pushed the card once; the replay pushed nothing", pushesTo(tokB).length, 1);
+  const onDay = new Date(`2000-${bdToday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+  chk("card back: BIRTHDAY line", field(await latestPass(bToday), "backFields", "birthday"),
+    `${onDay}: 80 bonus points, enough for Extra Shot (once your card is a month old)`);
+  const bsLedger = await rows(db.from("transactions").select("delta").eq("reason", "bonus:birthday").eq("serial", bStamp.serial));
+  const onLa = new Date(`2000-${mmdd(LA)}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+  chk("stamp card: the birthday credits one full card (5 stamps), and the back says so in stamps",
+    `${bsLedger.map((t) => t.delta).join(",")}|${field(await latestPass(bStamp), "backFields", "birthday")}`,
+    `5|${onLa}: 5 bonus stamps, enough for Free cortado (once your card is a month old)`); // renamed in "admin stamp cards"
+
+  // --- happy hour: a weekly window on the shop's clock multiplies bill earns
+  //     at the counter; the ledger keeps earn:purchase and the raw bill ---------
+  console.log("happy hour");
+  const hm = await createMerchant(db, run, { key: "hh", template: "cafe", earnRate: 10 });
+  const hmOwn = jar();
+  const hmCash = jar();
+  await login(hmOwn, hm.owner);
+  await login(hmCash, hm.cashier);
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // "now" in the merchant's (default) time zone. A run that crosses local
+  // midnight or sits in 23:59 can fail these; rerun.
+  const wd = DAYS.indexOf(new Intl.DateTimeFormat("en-US", { timeZone: LA, weekday: "short" }).format(new Date()));
+  const allDay = (days) => ({ days, start: "00:00", end: "23:59", multiplier: 2 });
+  const setHh = (happyHour, extra = {}) => req("/api/merchant/settings", { method: "PATCH", body: { ...extra, happyHour }, j: hmOwn });
+  const hc = await createCard(db, hm.id, { name: "Happy Card" });
+  const devH = `t-${run}-dev-hh`;
+  const tokH = `t-${run}-tok-hh`;
+  chk("register device on the happy-hour card", (await register(devH, hc, tokH)).status, 201);
+  // sent with a valid bill limit, so a route that ignored happyHour would save (200)
+  const invalid = [{ ...allDay([7]) }, { ...allDay([wd]), start: "17:00", end: "15:00" }, { ...allDay([wd]), multiplier: 4 },
+    { ...allDay([wd]), extra: 1 }, { ...allDay([]) }, "2x", { ...allDay([wd]), end: "5pm" }];
+  const invalidStatus = [];
+  for (const w of invalid) invalidStatus.push((await setHh(w, { maxBill: 1000 })).status);
+  chk("malformed happy-hour windows → 400", invalidStatus.join(","), invalid.map(() => 400).join(","));
+  mock.clear();
+  const on = await setHh(allDay([wd]));
+  chk("owner saves a 2× window covering now", `${on.status}:${JSON.stringify((await on.json()).happyHour)}`, `200:${JSON.stringify(allDay([wd]))}`);
+  chk("the settings change pushed the card", await pushedTo(tokH), 1);
+  chk("/me tells /scan happy hour is on", (await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour, 2);
+  const inWin = await (await redeem(hmCash, { serial: hc.serial, amount: 10 })).json();
+  const bigIn = await (await redeem(hmCash, { serial: hc.serial, amount: 600 })).json();
+  chk("card back: HAPPY HOUR line", field(await latestPass(hc), "backFields", "happyhour"), `2× points ${DAYS[wd]} 12 am–11:59 pm`);
+  chk("window moved off today", (await setHh(allDay([0, 1, 2, 3, 4, 5, 6].filter((d) => d !== wd)))).status, 200);
+  const outWin = await (await redeem(hmCash, { serial: hc.serial, amount: 10 })).json();
+  chk("$10 @10x: doubled inside the window, normal outside (points:happyHour)",
+    `${inWin.points}:${inWin.happyHour}|${outWin.points}:${outWin.happyHour}`, "200:2|100:null");
+  chk("big-bill confirm shows the multiplied points", `${bigIn.confirm?.points}:${bigIn.happyHour}`, "12000:2");
+  const hLedger = await rows(db.from("transactions").select("reason, amount, delta").eq("serial", hc.serial).order("id"));
+  chk("ledger keeps reason earn:purchase and the raw bill",
+    hLedger.map((t) => `${t.reason}:${Number(t.amount)}:${t.delta}`).join(","), "earn:purchase:10:200,earn:purchase:10:100");
+  chk("happy-hour card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", hc.serial)))[0]?.points, 300);
+  chk("happy hour off", `${(await setHh(null)).status}:${(await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour}`, "200:null");
+  // happy hour is a points-card booster: a stamp card refuses a window, and even
+  // a stored one (say, from before a switch to stamps) never touches a stamp
+  chk("a stamp card refuses a happy-hour window → 400 saying why",
+    await answer(await req("/api/merchant/settings", { method: "PATCH", body: { happyHour: allDay([wd]) }, j: stOwn })),
+    "400:Happy hour is for points cards: a stamp card adds one stamp per item");
+  await rows(db.from("merchants").update({ happy_hour: allDay([wd]) }).eq("id", st.id).select("id"));
+  const stTap = await (await redeem(stCash, { serial: sc.serial, stamps: 1 })).json();
+  chk("…and a stored window never multiplies a stamp (tap points:happyHour | /me | card back)",
+    `${stTap.points}:${stTap.happyHour}|${(await (await req("/api/merchant/me", { j: stCash })).json()).happyHour}|${field(await latestPass(sc), "backFields", "happyhour") ?? "none"}`,
+    "1:null|null|none");
+  await rows(db.from("merchants").update({ happy_hour: null }).eq("id", st.id).select("id"));
+  chk("bill limit 100000 at 10 pts/$1", (await setCap(hmOwn, 100000)).status, 200);
+  const tooRich = await setHh(allDay([wd]));
+  chk("the 1,000,000 cap counts the multiplier (2× at 10 x 100000 → 400 naming 50000)",
+    `${tooRich.status}:${/happy hour, the bill limit can be at most 50000\b/.test((await tooRich.json()).error ?? "")}`, "400:true");
+
+  const admPatch = (body) => req(`/api/admin/merchants/${adm.id}`, { method: "PATCH", body, j: admin });
+  chk("admin review link javascript: → 400", await answer(await admPatch({ reviewUrl: "javascript:alert(1)" })), notHttps);
+  chk("admin review link http:// → 400", await answer(await admPatch({ reviewUrl: "http://example.com/r" })), notHttps);
+  chk("admin location out of range → 400", await answer(await admPatch({ location: "40.7, 200" })), outOfRange);
+  chk("admin saves a review link and a location", (await admPatch({ reviewUrl: "https://example.com/r", location: "40.7128, -74.006" })).status, 200);
+  const [admRow] = await rows(db.from("merchants").select("review_url, latitude, longitude").eq("id", adm.id));
+  chk("stored as given", `${admRow?.review_url}|${admRow?.latitude}|${admRow?.longitude}`, "https://example.com/r|40.7128|-74.006");
+  // an admin save refreshes the shop's cards only when they change (rv's card is registered as tokR)
+  const rvPatch = (body) => req(`/api/admin/merchants/${rv.id}`, { method: "PATCH", body, j: admin });
+  mock.clear();
+  chk("admin time-zone-only save → 200, no push", `${(await rvPatch({ timezone: "America/Chicago" })).status}:${await quietFor(tokR)}`, "200:0");
+  const renamedRv = await rvPatch({ name: `Test rev ${run} 2` });
+  await pushedTo(tokR);
+  chk("admin rename → 200, one push", `${renamedRv.status}:${await quietFor(tokR)}`, "200:1");
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +1126,10 @@ async function main() {
   if (MUTATE) console.log("MUTATE=1 — one expectation is flipped; this run MUST fail.");
 
   const db = adminClient(env);
+  // The global admin-login bucket (20 tries / 10 min) is shared by every run on
+  // this local database, so parallel suites ran it dry (429). preflight() has
+  // refused anything but a local Supabase, so start each run with a fresh one.
+  await db.from("rate_limits").delete().like("bucket", "admin-login%");
   const run = newRunId();
   const tmp = mkdtempSync(join(tmpdir(), "itest-"));
   let mock;

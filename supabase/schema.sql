@@ -707,3 +707,48 @@ alter table merchants add column if not exists redeem_template text not null def
 -- /settings (10 - 100000). Code that reads it falls back to 1000 when the
 -- column is missing, so an un-migrated database behaves like this default.
 alter table merchants add column if not exists max_bill numeric not null default 1000;
+
+-- --- Stamp cards (per merchant) — 2026-10-14 ---------------------------------
+-- A merchant runs either points (points-per-dollar, earn_rate + redeem_template)
+-- or a stamp card (collect stamp_goal stamps, get the reward). The ledger is the same: a stamp
+-- is one unit in transactions/apply_points (reasons earn:stamp and
+-- redeem:stamp_reward). stamp_goal is what the one reward costs; stamp_reward is
+-- its label on /scan and the card. Code reading these falls back to the same
+-- defaults when the columns are missing (an un-migrated database).
+alter table merchants add column if not exists loyalty_mode text not null default 'points' check (loyalty_mode in ('points','stamps'));
+alter table merchants add column if not exists stamp_goal int not null default 10 check (stamp_goal between 3 and 20);
+alter table merchants add column if not exists stamp_reward text not null default 'Free coffee' check (char_length(stamp_reward) between 1 and 30);
+
+-- --- Earn boosters: time zone, birthday treat, happy hour (2026-10-14) -------
+-- Additive only. Code reads these with select("*") and falls back to the
+-- defaults below, so a database without them yet behaves as "both off".
+-- timezone: IANA name the shop's clock runs on (happy-hour window, "today" for
+--   birthdays). The API only stores names Intl accepts; /admin offers the US zones.
+-- birthday_reward: owner toggle. When on, enroll asks for an optional month and
+--   day, stored in passes.birthday with the placeholder year 2000 (a leap year,
+--   so Feb 29 fits), and the daily /api/cron/birthday credits the cheapest
+--   reward's cost once per year (key birthday:<year>:<serial>).
+-- happy_hour: null = off, else {"days":[0-6, 0=Sun],"start":"HH:MM","end":"HH:MM",
+--   "multiplier":2|3}, validated by the settings route. Bill earns inside the
+--   window are multiplied; the ledger keeps reason earn:purchase and the raw bill.
+alter table merchants add column if not exists timezone text not null default 'America/Los_Angeles';
+alter table merchants add column if not exists birthday_reward boolean not null default false;
+alter table merchants add column if not exists happy_hour jsonb;
+
+-- --- 2026-10-14: card deactivation, review link, shop location -------------
+-- Additive only; code reads these through select("*") with a default, so an
+-- un-migrated database behaves as before (no card deactivated, no review link,
+-- no location).
+-- A deactivated card keeps its balance and ledger; points.ts refuses any
+-- balance change while voided_at is set (owner: /customers/<serial>).
+alter table passes add column if not exists voided_at timestamptz;
+alter table passes add column if not exists void_reason text
+  check (void_reason in ('lost', 'fraud', 'customer', 'other'));
+-- Back-of-card "Leave us a review" link, shown from the 3rd earn visit.
+alter table merchants add column if not exists review_url text
+  check (review_url ~ '^https://' and char_length(review_url) <= 500);
+-- Shop coordinates for the pass's lock-screen location relevance.
+alter table merchants add column if not exists latitude numeric
+  check (latitude between -90 and 90);
+alter table merchants add column if not exists longitude numeric
+  check (longitude between -180 and 180);

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, templateKey } from "@/lib/config";
-import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
+import { PUBLIC_BASE_URL, REDEEM_TEMPLATES, loyaltyMode, stampGoal, stampReward, templateKey, timezoneOf } from "@/lib/config";
+import { UUID_RE, formatLocation, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { isWalletAsset } from "@/lib/admin/png";
 import { health, merchantOverview } from "@/lib/admin/stats";
 import { AdminHeader, DailyCharts, HealthBadge, KpiTiles, ago, day, nf } from "../../ui";
@@ -40,6 +40,13 @@ type MerchantRow = {
   label_color: string | null;
   assets_updated_at: string | null;
   created_at: string | null;
+  loyalty_mode?: string | null; // stamp card columns: absent on an un-migrated database
+  stamp_goal?: number | null;
+  stamp_reward?: string | null;
+  timezone?: string | null; // later column: select("*") below tolerates its absence
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 export default async function AdminMerchantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -47,12 +54,10 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
 
-  const [{ data: m }, { data: staff }, stats, art] = await Promise.all([
-    db
-      .from("merchants")
-      .select("id, name, slug, earn_rate, redeem_template, bg_color, fg_color, label_color, assets_updated_at, created_at")
-      .eq("id", id)
-      .maybeSingle<MerchantRow>(),
+  const [{ data: m }, { data: staff }, stats, art, { count: txns }] = await Promise.all([
+    // "*" so the later columns (stamp card, timezone, review link, location)
+    // come along when the database has them; the editor shows absent ones empty
+    db.from("merchants").select("*").eq("id", id).maybeSingle<MerchantRow>(),
     db
       .from("staff")
       .select("id, username, role, created_at")
@@ -61,10 +66,13 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
       .order("created_at"),
     merchantOverview(id),
     walletArt(id),
+    // from the first transaction on, points vs stamps and the goal are fixed
+    db.from("transactions").select("id", { count: "exact", head: true }).eq("merchant_id", id),
   ]);
   if (!m) notFound();
 
   const template = templateKey(m.redeem_template);
+  const loyalty = { mode: loyaltyMode(m.loyalty_mode), goal: String(stampGoal(m.stamp_goal)), reward: stampReward(m.stamp_reward) };
   const enrollUrl = m.slug ? `${PUBLIC_BASE_URL}/enroll/${m.slug}` : null;
 
   return (
@@ -80,13 +88,29 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
           <div className={s.sub}>
             {enrollUrl ? <a href={enrollUrl} target="_blank" rel="noreferrer">{enrollUrl}</a> : "No enroll link (no slug)"}
             <br />
-            {REDEEM_TEMPLATES[template].label} template · {nf(Number(m.earn_rate))} pts per $1 · last activity{" "}
+            {loyalty.mode === "stamps"
+              ? `Stamp card · ${loyalty.goal} stamps for ${loyalty.reward} · ${REDEEM_TEMPLATES[template].label} style`
+              : `${REDEEM_TEMPLATES[template].label} template · ${nf(Number(m.earn_rate))} pts per $1`}{" "}
+            · last activity{" "}
             {ago(stats.lastActivity)} · created {m.created_at ? day(m.created_at) : "—"}
           </div>
         </div>
+        {enrollUrl && (
+          <Link
+            href={`/settings/poster?merchant=${m.id}`}
+            className="btn btn-ghost"
+            style={{ width: "auto", padding: "12px 18px", fontSize: 15, textDecoration: "none" }}
+          >
+            Print sign-up poster
+          </Link>
+        )}
       </div>
 
-      <KpiTiles k={stats.kpis} lead={{ k: "Last activity", v: ago(stats.lastActivity), sub: "txn or new card" }} />
+      <KpiTiles
+        k={stats.kpis}
+        lead={{ k: "Last activity", v: ago(stats.lastActivity), sub: "txn or new card" }}
+        stamps={loyalty.mode === "stamps"}
+      />
       <DailyCharts daily={stats.daily} />
 
       <div className="dash-grid">
@@ -97,13 +121,18 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             initial={{
               name: m.name,
               earnRate: String(Number(m.earn_rate)),
+              timezone: timezoneOf(m.timezone),
               template,
               colors: {
                 bg: rgbToHex(m.bg_color, themeHex(template).bg),
                 fg: rgbToHex(m.fg_color, themeHex(template).fg),
                 label: rgbToHex(m.label_color, themeHex(template).label),
               },
+              loyalty,
+              reviewUrl: m.review_url ?? "",
+              location: formatLocation(m.latitude, m.longitude),
             }}
+            txns={txns ?? 0}
             logo={art["logo@2x.png"] ?? art["logo.png"]}
             strip={art["strip@2x.png"] ?? art["strip.png"] ?? art["strip@3x.png"]}
           />

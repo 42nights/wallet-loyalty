@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
-import { applyTransaction } from "@/lib/points";
+import { applyTransaction, VOIDED_ERROR } from "@/lib/points";
+import { STAMP_REWARD_ID } from "@/lib/config";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -11,7 +12,7 @@ export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) —
 const UNDO_WINDOW_MS = 2 * 60 * 1000;
 
 // POST /api/merchant/undo  body: { idempotencyKey }
-// Reverses one counter tap — an earn (earn:purchase) or a reward (redeem:*) —
+// Reverses one counter tap — an earn (earn:purchase, earn:stamp) or a reward (redeem:*) —
 // identified by the Idempotency-Key that tap was sent with. The ledger row is
 // never edited: the reversal is a new apply_points row with the opposite delta,
 // reason "undo:<original reason>" and key "undo:<original key>", so a
@@ -56,8 +57,10 @@ export async function POST(req: NextRequest) {
       { status: 403 }
     );
   const reason = String(txn.reason ?? "");
-  if (reason !== "earn:purchase" && !reason.startsWith("redeem:"))
+  if (reason !== "earn:purchase" && reason !== "earn:stamp" && !reason.startsWith("redeem:"))
     return NextResponse.json({ error: "Only an earn or a reward can be undone" }, { status: 400 });
+  // the tap's own reason says what the card counts (STAMP_REWARD_ID's row is redeem:stamp_reward)
+  const unit = reason === "earn:stamp" || reason === `redeem:${STAMP_REWARD_ID}` ? "stamps" : "points";
   // Already undone → answer as a replay, even past the window, so a retried
   // undo never reads as a failure and invites a second, manual reversal. The
   // row must really be this tap's reversal: "undo:" keys are reserved for this
@@ -83,7 +86,7 @@ export async function POST(req: NextRequest) {
 
   if (Date.now() - Date.parse(txn.created_at) > UNDO_WINDOW_MS)
     return NextResponse.json(
-      { error: "Too late to undo — the owner can adjust points on the customer's page" },
+      { error: `Too late to undo — the owner can adjust ${unit} on the customer's page` },
       { status: 409 }
     );
 
@@ -101,11 +104,13 @@ export async function POST(req: NextRequest) {
   // undoing an earn whose points the customer has since spent would go negative
   if (result.status === "insufficient")
     return NextResponse.json(
-      { error: "Those points were already used", balance: result.balance },
+      { error: `Those ${unit} were already used`, balance: result.balance },
       { status: 422 }
     );
   if (result.status === "not_found")
     return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (result.status === "voided")
+    return NextResponse.json({ error: VOIDED_ERROR }, { status: 409 });
 
   console.error("undo failed:", result.error);
   return NextResponse.json({ error: "Could not undo" }, { status: 500 });

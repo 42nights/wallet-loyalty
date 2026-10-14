@@ -8,11 +8,19 @@ import {
   redemptionsFor,
   assertPassConfig,
   templateKey,
+  loyaltyMode,
+  stampGoal,
+  stampReward,
+  birthdayTreat,
+  describeHappyHour,
+  happyHourOf,
+  unitLabel,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
 import { PASS_THEMES } from "@/lib/passThemes";
 import { passkitCertificates } from "./certs";
 import { ASSET_NAMES } from "./assets";
+import { stampStrip } from "./stampStrip";
 import type { PassData } from "../types";
 
 // Build the .pkpass entirely from in-memory buffers — per-merchant branding,
@@ -26,7 +34,8 @@ const STORAGE_BUCKET = "pass-assets";
 
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
-// (earn_rate, redeem_template) are therefore optional here.
+// (earn_rate, redeem_template, the stamp card ones, birthday_reward,
+// happy_hour, review_url, latitude, longitude) are therefore optional here.
 type MerchantRow = {
   id: string;
   name: string;
@@ -36,7 +45,19 @@ type MerchantRow = {
   assets_updated_at: string | null;
   earn_rate?: number | string | null;
   redeem_template?: string | null;
+  loyalty_mode?: string | null;
+  stamp_goal?: number | null;
+  stamp_reward?: string | null;
+  birthday_reward?: boolean | null;
+  happy_hour?: unknown;
+  review_url?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
+
+// The review link joins the back of the card from this many earn visits on
+// (the same "visits" as the owner's customer page: ledger rows "earn:…").
+const REVIEW_AFTER_VISITS = 3;
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
 // rgb()/hex from the merchant row (normalised to "rgb(r,g,b)" so it compares
@@ -104,6 +125,8 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     updatedAt = new Date(),
     offerText,
     customerName,
+    birthday,
+    voided = false,
   } = data;
 
   let merchant: MerchantRow | null = null;
@@ -125,12 +148,22 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   const theme = PASS_THEMES[template];
   const bg = rgb(merchant?.bg_color ?? null, theme.bg);
   const fg = rgb(merchant?.fg_color ?? null, theme.fg);
+  const label = rgb(merchant?.label_color ?? null, theme.label);
   const buffers = withDefaultArt(uploaded, template);
-  // The default strip is drawn for the theme's colours. Under a merchant's own
-  // background/foreground it could swallow the big points number (dark text on
-  // the dark themed strip), so their card goes without a strip until they
-  // upload one.
-  if (bg !== theme.bg || fg !== theme.fg) {
+  const stamps = loyaltyMode(merchant?.loyalty_mode) === "stamps";
+  const goal = stampGoal(merchant?.stamp_goal);
+  const reward = stampReward(merchant?.stamp_reward);
+  if (stamps && !voided) {
+    // On a stamp card the strip IS the balance: the grid, drawn for this card's
+    // count in the card's real colours, replaces any uploaded or default strip.
+    // A deactivated card keeps the theme's strip: no progress to show.
+    for (const [name, scale] of [["strip.png", 1], ["strip@2x.png", 2], ["strip@3x.png", 3]] as const)
+      buffers[name] = stampStrip(points, goal, { bg, fg, label }, scale);
+  } else if (bg !== theme.bg || fg !== theme.fg) {
+    // The default strip is drawn for the theme's colours. Under a merchant's own
+    // background/foreground it could swallow the big points number (dark text on
+    // the dark themed strip), so their card goes without a strip until they
+    // upload one.
     for (const name of ["strip.png", "strip@2x.png", "strip@3x.png"]) {
       if (!uploaded[name]) delete buffers[name];
     }
@@ -154,7 +187,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     // The merchant's colours win; unset ones come from their template's theme.
     backgroundColor: bg,
     foregroundColor: fg,
-    labelColor: rgb(merchant?.label_color ?? null, theme.label),
+    labelColor: label,
     // stripColor is NOT in Apple's Pass reference: passkit-generator marks it an
     // "Undocumented feature" for the colour of a primary value drawn over the
     // strip. It is tied to the merchant's foreground so the points stay readable
@@ -175,45 +208,113 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   // Header: stays visible while the card is collapsed in the Wallet stack. This
   // is the ONE field with a changeMessage, so a balance change shows a single
   // notification. Never put one on the OFFER (the HIG forbids change messages
-  // for marketing).
-  pass.headerFields.push({
-    key: "balance",
-    label: "POINTS",
-    value: balance,
-    changeMessage: "You now have %@ points",
-  });
+  // for marketing). A deactivated card (owner, /customers/<serial>) says so
+  // here, once, instead of the balance, with no change message ("You now have
+  // DEACTIVATED points") and no primary field; the balance itself stays in the
+  // ledger and comes back if the owner reactivates the card.
+  if (voided) {
+    pass.headerFields.push({ key: "balance", label: "CARD", value: "DEACTIVATED" });
+  } else if (stamps) {
+    // A stamp card has no primary number: the strip's grid shows the count.
+    pass.headerFields.push({
+      key: "balance",
+      label: "STAMPS",
+      value: `${balance} of ${goal}`,
+      changeMessage: "Stamps: %@",
+    });
+  } else {
+    pass.headerFields.push({
+      key: "balance",
+      label: "POINTS",
+      value: balance,
+      changeMessage: "You now have %@ points",
+    });
 
-  // POINTS as the big primary number (over the strip) — easiest to read.
-  pass.primaryFields.push({ key: "points", label: "POINTS", value: balance });
+    // POINTS as the big primary number (over the strip) — easiest to read.
+    pass.primaryFields.push({ key: "points", label: "POINTS", value: balance });
+  }
 
   const rewards = rewardsFor(merchant?.redeem_template);
   if (customerName && customerName.trim()) {
     pass.secondaryFields.push({ key: "member", label: "MEMBER", value: customerName.trim() });
   }
-  pass.secondaryFields.push({
-    key: "next",
-    label: "NEXT REWARD",
-    value: nextReward(points, rewards),
-  });
+  pass.secondaryFields.push(
+    voided
+      ? { key: "next", label: "QUESTIONS?", value: `Ask the team at ${orgName}` }
+      : stamps
+      ? { key: "next", label: "REWARD", value: points >= goal ? `Ready: ${reward}` : `${reward} at ${goal}` }
+      : { key: "next", label: "NEXT REWARD", value: nextReward(points, rewards) }
+  );
 
   // Back of the card. Win-back offer first when a campaign set one — passive:
   // it shows when the customer opens the card, no lockscreen marketing.
-  if (offerText && offerText.trim()) {
+  if (!voided && offerText && offerText.trim()) {
     pass.backFields.push({ key: "offer", label: "OFFER", value: offerText.trim() });
   }
-  const parsedRate = Number(merchant?.earn_rate ?? 1);
-  const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
-  pass.backFields.push(
-    {
+  // The merchant's review link, once the customer is a regular. Only ever a
+  // link: nothing is earned or unlocked by leaving a review.
+  const reviewUrl = merchant?.review_url;
+  if (!voided && merchantId && reviewUrl) {
+    const { count } = await db
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", merchantId)
+      .eq("serial", serial)
+      .like("reason", "earn:%");
+    if ((count ?? 0) >= REVIEW_AFTER_VISITS) {
+      // attributedValue takes HTML (Apple allows <a href> only) and overrides
+      // value; value stays as the plain fallback (watchOS shows that one).
+      const href = reviewUrl.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      pass.backFields.push({
+        key: "review",
+        label: `Enjoying ${orgName}?`,
+        value: `Leave us a review: ${reviewUrl}`,
+        attributedValue: `<a href='${href}'>Leave us a review</a>`,
+      });
+    }
+  }
+  if (voided) {
+    // Earning, rewards and boosters all wait for a reactivation, so the back
+    // says only that, and that the balance is safe.
+    pass.backFields.push({
+      key: "status",
+      label: "STATUS",
+      value: `This card is paused. Your ${unitLabel(merchant?.loyalty_mode, 2)} are kept — ask ${orgName} to switch it back on.`,
+    });
+  } else {
+    const parsedRate = Number(merchant?.earn_rate ?? 1);
+    const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
+    pass.backFields.push({
       key: "earn",
       label: "HOW TO EARN",
-      value: `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
-    },
-    {
-      key: "rewards",
-      label: "REWARDS",
-      value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n"),
-    },
+      value: stamps
+        ? "1 stamp per item, added at the counter"
+        : `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
+    });
+    // The earn boosters, under the earn line. The window is the shop's own wall
+    // clock ("3-5 pm"), which is the customer's too: they shop there.
+    // Happy hour is a points-card booster (happyHourMultiplier is 1 on a stamp card).
+    const happyHour = stamps ? null : happyHourOf(merchant?.happy_hour);
+    if (happyHour) {
+      pass.backFields.push({ key: "happyhour", label: "HAPPY HOUR", value: describeHappyHour(happyHour) });
+    }
+    // Only on cards that gave a birthday: a member without one would never get it.
+    if (merchant?.birthday_reward === true && birthday) {
+      const on = new Date(`${birthday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+      const { bonus, reward: treat } = birthdayTreat(merchant);
+      pass.backFields.push({
+        key: "birthday",
+        label: "BIRTHDAY",
+        value: `${on}: ${bonus} bonus ${unitLabel(merchant.loyalty_mode, bonus)}, enough for ${treat} (once your card is a month old)`,
+      });
+    }
+    pass.backFields.push(
+      stamps
+        ? { key: "rewards", label: "REWARD", value: `Collect ${goal} stamps: ${reward}.` }
+        : { key: "rewards", label: "REWARDS", value: rewards.map((r) => `${r.label}: ${r.cost} pts`).join("\n") }
+    );
+  }
+  pass.backFields.push(
     // A Date, not a pre-formatted string: Wallet formats it on the device in
     // the customer's own time zone and locale (a server-side string showed the
     // server's day in dd/mm/yyyy).
@@ -227,19 +328,33 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     {
       key: "terms",
       label: "TERMS",
-      value: `Points have no cash value and cannot be transferred. ${orgName} may change rewards and point values at any time.`,
+      value: stamps
+        ? `Stamps have no cash value and cannot be transferred. ${orgName} may change the reward at any time.`
+        : `Points have no cash value and cannot be transferred. ${orgName} may change rewards and point values at any time.`,
     }
   );
 
   // The QR the merchant scans — encodes the serial for counter lookup. No
   // altText: a 36-character serial printed under the code is noise on the card,
   // and when the camera cannot read it the cashier finds the customer by phone
-  // on /scan instead.
-  pass.setBarcodes({
-    format: "PKBarcodeFormatQR",
-    message: serial,
-    messageEncoding: "iso-8859-1",
-  });
+  // on /scan instead. A deactivated card has nothing to scan for.
+  if (!voided) {
+    pass.setBarcodes({
+      format: "PKBarcodeFormatQR",
+      message: serial,
+      messageEncoding: "iso-8859-1",
+    });
+  }
+
+  // Lock-screen relevance: near the shop, iOS may offer the card on the Lock
+  // Screen with this text (Apple's Pass.locations, up to 10; we send the one
+  // shop). Whether it shows is iOS's call (Location Services, the card's
+  // "Suggest on Lock Screen" switch), so check it in the RUNBOOK §5 device test.
+  const lat = Number(merchant?.latitude ?? NaN);
+  const lng = Number(merchant?.longitude ?? NaN);
+  if (!voided && Number.isFinite(lat) && Number.isFinite(lng)) {
+    pass.setLocations({ latitude: lat, longitude: lng, relevantText: `Show your ${orgName} card` });
+  }
 
   return pass.getAsBuffer();
 }

@@ -36,7 +36,7 @@ test("name and phone are required, email is optional but checked", () => {
 
   assert.deepEqual(validateEnroll({ name: "  Ada \n Lovelace ", phone: "555 016856", email: "  " }), {
     ok: true,
-    value: { name: "Ada Lovelace", phone: "555016856", email: null },
+    value: { name: "Ada Lovelace", phone: "555016856", email: null, birthday: null },
   });
   assert.equal(validateEnroll({ name: "Ada", phone: "5550100", email: "ada@example.com" }).ok, true);
 });
@@ -48,4 +48,16 @@ test("names: control characters stripped, invisible-only rejected, ZWNJ kept", (
   assert.ok(!invisible.ok && invisible.errors.name);
   const persian = validateEnroll({ name: "\u0645\u06cc\u200c\u0631\u0648\u062f", phone: "5550101234" });
   assert.ok(persian.ok && persian.value.name.includes("\u200c"));
+});
+
+test("birthday is an optional month and day, kept on the placeholder year 2000", () => {
+  const stored = (birthday: string) => {
+    const r = validateEnroll({ name: "Ada", phone: "5550101234", birthday });
+    return r.ok ? r.value.birthday : `error: ${r.errors.birthday}`;
+  };
+  assert.equal(stored(""), null);
+  assert.equal(stored("03-14"), "2000-03-14");
+  assert.equal(stored("02-29"), "2000-02-29");
+  for (const bad of ["02-30", "13-01", "00-10", "04-31", "3-14", "03-", "-14", "2000-03-14"])
+    assert.match(String(stored(bad)), /^error: /, bad);
 });

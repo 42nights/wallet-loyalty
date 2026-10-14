@@ -2,11 +2,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DEFAULT_TEMPLATE, EARN_RATE, type TemplateKey } from "@/lib/config";
+import { DEFAULT_TEMPLATE, DEFAULT_TIMEZONE, EARN_RATE, STAMP_GOAL, type TemplateKey } from "@/lib/config";
 import {
   MIN_PASSWORD, SLUG_RE, colorBody, generatePassword, slugify, themeHex,
 } from "@/lib/admin/merchant";
-import { ColorFields, EarnHint, TemplatePicker, WalletPreview, type Colors } from "../../fields";
+import { ColorFields, EarnHint, LoyaltyFields, TemplatePicker, TimezoneSelect, WalletPreview, type Colors, type Loyalty } from "../../fields";
 import s from "../../admin.module.css";
 
 type SlugState = "empty" | "invalid" | "checking" | "free" | "taken";
@@ -33,8 +33,11 @@ export default function NewMerchant() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slugEdit, setSlugEdit] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
   const [template, setTemplate] = useState<TemplateKey>(DEFAULT_TEMPLATE);
   const [earnRate, setEarnRate] = useState("10");
+  const [loyalty, setLoyalty] = useState<Loyalty>({ mode: "points", goal: String(STAMP_GOAL.default), reward: "Free coffee" });
+  const stamps = loyalty.mode === "stamps";
   const [colorsEdit, setColorsEdit] = useState<Colors | null>(null);
   const [ownerEdit, setOwnerEdit] = useState<string | null>(null);
   const [ownerPw, setOwnerPw] = useState("");
@@ -90,8 +93,13 @@ export default function NewMerchant() {
       body: JSON.stringify({
         name,
         slug,
+        // the column defaults to Pacific: send it only when picked, so a create
+        // works on a database without the column yet
+        ...(timezone !== DEFAULT_TIMEZONE ? { timezone } : {}),
         template,
         earnRate: Number(earnRate),
+        // only a stamp card writes the stamp columns (points = the schema defaults)
+        ...(stamps ? { loyaltyMode: "stamps", stampGoal: Number(loyalty.goal), stampReward: loyalty.reward } : {}),
         ...colorBody(colors, template),
         owner: { username: ownerUser, password: ownerPw },
         cashier: withCashier ? { username: cashierUser, password: cashierPw } : undefined,
@@ -195,19 +203,26 @@ export default function NewMerchant() {
               </div>
               <span className={`${s.hint} ${hintClass}`} aria-live="polite">{hintText}</span>
             </div>
+            <TimezoneSelect value={timezone} onChange={setTimezone} />
           </div>
 
           <div className={`panel ${s.section}`}>
             <div className={s.sectionT}><span className={s.step}>2</span>Rewards</div>
             <div className={s.field}>
-              <span className="label">Redeem buttons at the counter</span>
-              <TemplatePicker value={template} onChange={setTemplate} />
+              <span className="label">Loyalty card</span>
+              <LoyaltyFields value={loyalty} onChange={setLoyalty} />
             </div>
-            <label className={s.field}>
-              <span className="label">Points per $1 spent</span>
-              <input type="number" inputMode="decimal" min={EARN_RATE.min} max={EARN_RATE.max} step="any" value={earnRate} onChange={(e) => setEarnRate(e.target.value)} required />
-              <EarnHint rate={Number(earnRate)} template={template} />
-            </label>
+            <div className={s.field}>
+              <span className="label">{stamps ? "Card style (colours and default art)" : "Redeem buttons at the counter"}</span>
+              <TemplatePicker value={template} onChange={setTemplate} rewards={!stamps} />
+            </div>
+            {!stamps && (
+              <label className={s.field}>
+                <span className="label">Points per $1 spent</span>
+                <input type="number" inputMode="decimal" min={EARN_RATE.min} max={EARN_RATE.max} step="any" value={earnRate} onChange={(e) => setEarnRate(e.target.value)} required />
+                <EarnHint rate={Number(earnRate)} template={template} />
+              </label>
+            )}
           </div>
 
           <div className={`panel ${s.section}`}>
@@ -263,7 +278,7 @@ export default function NewMerchant() {
         </div>
 
         <div className={s.side}>
-          <WalletPreview name={name} colors={colors} />
+          <WalletPreview name={name} colors={colors} stampGoal={stamps ? Number(loyalty.goal) || STAMP_GOAL.default : undefined} />
           <div className={s.sideNote}>Live preview. Wallet draws the real card from these colours and the art you upload later.</div>
         </div>
       </div>

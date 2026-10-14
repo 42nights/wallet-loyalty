@@ -8,6 +8,15 @@ import {
   findAction,
   redemptionsFor,
   templateKey,
+  US_TIMEZONES,
+  birthdayTreat,
+  birthdaysOn,
+  canonicalTimezone,
+  describeHappyHour,
+  happyHourMultiplier,
+  localTime,
+  parseHappyHour,
+  type HappyHour,
 } from "./config";
 
 // Redeem buttons come from per-merchant templates. A regression here would
@@ -57,4 +66,50 @@ test("findAction resolves labels from any template and rejects unknown", () => {
   for (const a of ALL_ACTIONS) assert.equal(findAction(a.id), a);
   assert.equal(findAction("does_not_exist"), undefined);
   assert.equal(findAction(""), undefined);
+});
+
+// Earn boosters. Times are fixed UTC instants: 2026-10-14 is a Wednesday and
+// Los Angeles is on PDT (UTC-7), New York on EDT (UTC-4).
+test("happy hour is read on the shop's clock, end exclusive, and strictly validated", () => {
+  const window = { days: [1, 2, 3, 4, 5], start: "15:00", end: "17:00", multiplier: 2 };
+  const la = { happy_hour: window, timezone: "America/Los_Angeles" };
+  assert.equal(happyHourMultiplier(la, new Date("2026-10-14T22:30:00Z")), 2, "Wed 3:30 pm in LA");
+  assert.equal(happyHourMultiplier({ ...la, timezone: "America/New_York" }, new Date("2026-10-14T22:30:00Z")), 1, "6:30 pm in NY");
+  assert.equal(happyHourMultiplier({ ...la, loyalty_mode: "stamps" }, new Date("2026-10-14T22:30:00Z")), 1, "never on a stamp card");
+  assert.equal(happyHourMultiplier(la, new Date("2026-10-15T00:00:00Z")), 1, "5:00 pm sharp is outside");
+  assert.equal(happyHourMultiplier(la, new Date("2026-10-18T22:30:00Z")), 1, "Sunday");
+  assert.equal(happyHourMultiplier({ happy_hour: undefined }, new Date()), 1, "column missing");
+  assert.equal(happyHourMultiplier({ happy_hour: { ...window, multiplier: 5 }, timezone: "x" }), 1, "malformed stored value");
+
+  assert.deepEqual(parseHappyHour({ days: [5, 1], start: "09:05", end: "23:59", multiplier: 3 }), { days: [1, 5], start: "09:05", end: "23:59", multiplier: 3 });
+  assert.equal(parseHappyHour(null), null);
+  for (const bad of [
+    [], "2x", { ...window, days: [] }, { ...window, days: [7] }, { ...window, days: [1, 1] }, { ...window, days: [1.5] },
+    { ...window, start: "3pm" }, { ...window, end: "24:00" }, { ...window, start: "17:00", end: "15:00" },
+    { ...window, start: "15:00", end: "15:00" }, { ...window, multiplier: 1.5 }, { ...window, multiplier: "2" },
+    { ...window, extra: true },
+  ])
+    assert.equal(typeof parseHappyHour(bad), "string", JSON.stringify(bad));
+
+  assert.equal(describeHappyHour(parseHappyHour(window) as HappyHour), "2× points Mon–Fri 3–5 pm");
+  assert.equal(describeHappyHour({ days: [0, 6], start: "11:30", end: "13:00", multiplier: 3 }), "3× points Sat, Sun 11:30 am–1 pm");
+  assert.equal(describeHappyHour({ days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "02:00", multiplier: 2 }), "2× points every day 12–2 am");
+});
+
+test("birthdays: today on the shop's clock, Feb 29 on Feb 28 in common years, bonus = cheapest reward", () => {
+  // 07:59 UTC on Mar 1 is still Feb 28 in Los Angeles (PST, UTC-8)
+  const t = localTime("America/Los_Angeles", new Date("2026-03-01T07:59:00Z"));
+  assert.deepEqual([t.year, t.month, t.day], [2026, 2, 28]);
+  assert.deepEqual(birthdaysOn(t), ["2000-02-28", "2000-02-29"]);
+  assert.deepEqual(birthdaysOn({ year: 2028, month: 2, day: 28 }), ["2000-02-28"]);
+  assert.deepEqual(birthdaysOn({ year: 2028, month: 2, day: 29 }), ["2000-02-29"]);
+  assert.deepEqual(birthdaysOn({ year: 2026, month: 3, day: 1 }), ["2000-03-01"]);
+
+  assert.deepEqual(["cafe", "restaurant", "retail", "nope"].map((k) => birthdayTreat({ redeem_template: k }).bonus), [80, 100, 300, 100]);
+  // a stamp card's treat is one full card, not the template's cheapest points
+  assert.deepEqual(birthdayTreat({ loyalty_mode: "stamps", stamp_goal: 8, stamp_reward: "Free bagel", redeem_template: "cafe" }), { bonus: 8, reward: "Free bagel" });
+
+  for (const z of US_TIMEZONES) assert.equal(canonicalTimezone(z.id), z.id);
+  assert.equal(canonicalTimezone("america/chicago"), "America/Chicago");
+  for (const bad of ["Mars/Olympus", "", null, 42]) assert.equal(canonicalTimezone(bad), null);
 });

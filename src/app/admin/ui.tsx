@@ -56,8 +56,9 @@ function Kpi({ k, v, sub }: { k: string; v: string; sub?: string }) {
 }
 
 // `lead` is the first tile: "Merchants" on the overview, "Last activity" on a
-// merchant page, so both grids stay 8 tiles (4x2 desktop, 2x4 phone).
-export function KpiTiles({ k, lead }: { k: Kpis; lead: { k: string; v: string; sub?: string } }) {
+// merchant page, so both grids stay 8 tiles (4x2 desktop, 2x4 phone). A stamp
+// card shop (`stamps`) counts stamps and has no bills, so no revenue tile.
+export function KpiTiles({ k, lead, stamps = false }: { k: Kpis; lead: { k: string; v: string; sub?: string }; stamps?: boolean }) {
   const redeemPct = k.issued30 ? Math.round((100 * k.redeemed30) / k.issued30) : 0;
   const walletPct = k.cards ? Math.round((100 * k.inWallet) / k.cards) : 0;
   return (
@@ -67,8 +68,8 @@ export function KpiTiles({ k, lead }: { k: Kpis; lead: { k: string; v: string; s
       <Kpi k="In Wallet now" v={nf(k.inWallet)} sub={`${walletPct}% of cards`} />
       <Kpi k="Active cards · 30d" v={nf(k.active30)} sub="earned at least once" />
       <Kpi k="Transactions · 30d" v={nf(k.txns30)} />
-      <Kpi k="Points issued · 30d" v={nf(k.issued30)} sub={`vs ${nf(k.redeemed30)} redeemed (${redeemPct}%)`} />
-      <Kpi k="Tracked revenue · 30d" v={formatMoney(k.revenue30)} sub="bill totals entered at /scan" />
+      <Kpi k={`${stamps ? "Stamps" : "Points"} issued · 30d`} v={nf(k.issued30)} sub={`vs ${nf(k.redeemed30)} redeemed (${redeemPct}%)`} />
+      {!stamps && <Kpi k="Tracked revenue · 30d" v={formatMoney(k.revenue30)} sub="bill totals entered at the counter" />}
       <Kpi k="New cards · 30d" v={nf(k.newCards30)} />
     </div>
   );

@@ -1,5 +1,7 @@
 "use client";
-import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import {
+  EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, US_TIMEZONES, type LoyaltyMode, type TemplateKey,
+} from "@/lib/config";
 import { hexToRgb } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
 import s from "./admin.module.css";
@@ -12,7 +14,9 @@ export type Colors = { bg: string; fg: string; label: string };
 
 const TEMPLATE_KEYS = Object.keys(REDEEM_TEMPLATES) as TemplateKey[];
 
-export function TemplatePicker({ value, onChange }: { value: TemplateKey; onChange: (t: TemplateKey) => void }) {
+// `rewards={false}` (a stamp card): the template only picks the card's colours
+// and default art, so its point-cost buttons are left out.
+export function TemplatePicker({ value, onChange, rewards = true }: { value: TemplateKey; onChange: (t: TemplateKey) => void; rewards?: boolean }) {
   return (
     <div className={s.templates}>
       {TEMPLATE_KEYS.map((key) => {
@@ -23,7 +27,7 @@ export function TemplatePicker({ value, onChange }: { value: TemplateKey; onChan
               {t.label}
               {value === key && <span aria-hidden>✓</span>}
             </div>
-            {t.actions.map((a) => (
+            {rewards && t.actions.map((a) => (
               <div className={s.tplRow} key={a.id}>
                 <span>{a.label}</span>
                 <span>{-a.points} pts</span>
@@ -47,6 +51,76 @@ export function EarnHint({ rate, template }: { rate: number; template: TemplateK
       A {formatMoney(20)} bill earns {Math.round(20 * rate).toLocaleString("en-US")} pts. First reward ({cheapest.label},{" "}
       {-cheapest.points} pts) after about {formatMoney(Math.ceil(-cheapest.points / rate))} spent.
     </span>
+  );
+}
+
+// Points or a stamp card, and the stamp card's goal and reward, as edited
+// (goal kept as typed). `locked` is the reason the mode and goal can't change
+// any more; the reward stays editable.
+export type Loyalty = { mode: LoyaltyMode; goal: string; reward: string };
+
+const MODES: [LoyaltyMode, string, string][] = [
+  ["points", "Points", "Points on every dollar, spent on 4 rewards"],
+  ["stamps", "Stamp card", "1 stamp per item, added at the counter; a full card earns the reward"],
+];
+
+export function LoyaltyFields({ value, onChange, locked }: { value: Loyalty; onChange: (v: Loyalty) => void; locked?: string }) {
+  const goal = Number(value.goal);
+  const goalOk = Number.isInteger(goal) && goal >= STAMP_GOAL.min && goal <= STAMP_GOAL.max;
+  return (
+    <>
+      <div className={s.two}>
+        {MODES.map(([key, name, sub]) => (
+          <button type="button" key={key} className={s.tpl} aria-pressed={value.mode === key} disabled={!!locked}
+            onClick={() => onChange({ ...value, mode: key })}>
+            <div className={s.tplName}>
+              {name}
+              {value.mode === key && <span aria-hidden>✓</span>}
+            </div>
+            <div className={s.hint}>{sub}</div>
+          </button>
+        ))}
+      </div>
+      {value.mode === "stamps" && (
+        <div className={s.two}>
+          <label className={s.field}>
+            <span className="label">Stamps for the reward</span>
+            <input type="number" inputMode="numeric" min={STAMP_GOAL.min} max={STAMP_GOAL.max} step={1} value={value.goal}
+              disabled={!!locked} onChange={(e) => onChange({ ...value, goal: e.target.value })} required />
+          </label>
+          <label className={s.field}>
+            <span className="label">Reward</span>
+            <input value={value.reward} maxLength={STAMP_REWARD_MAX} placeholder="Free coffee"
+              onChange={(e) => onChange({ ...value, reward: e.target.value })} required />
+          </label>
+        </div>
+      )}
+      {value.mode === "stamps" && (
+        <span className={`${s.hint} ${goalOk ? "" : s.bad}`}>
+          {goalOk
+            ? `Customers collect ${goal} stamps, then "${value.reward.trim() || "the reward"}" is theirs and the card starts again.`
+            : `Pick ${STAMP_GOAL.min} to ${STAMP_GOAL.max} stamps`}
+        </span>
+      )}
+      {locked && <span className={s.hint}>{locked}</span>}
+    </>
+  );
+}
+
+// The shop's clock (merchants.timezone). A stored zone outside the US list
+// (set through the API) is shown as-is rather than silently replaced.
+export function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }) {
+  return (
+    <label className={s.field}>
+      <span className="label">Time zone</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {!US_TIMEZONES.some((t) => t.id === value) && <option value={value}>{value}</option>}
+        {US_TIMEZONES.map((t) => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+      <span className={s.hint}>The shop&apos;s clock: happy hour and birthday treats follow it.</span>
+    </label>
   );
 }
 
@@ -95,8 +169,9 @@ function QrMark() {
 }
 
 // HTML approximation of the storeCard buildApplePass() produces: logo + name,
-// POINTS over the strip, UPDATED field, QR. Wallet renders the real thing.
-export function WalletPreview({ name, colors, logo, strip }: { name: string; colors: Colors; logo?: string; strip?: string }) {
+// POINTS over the strip (STAMPS "0 of N" for a stamp card, whose real strip is
+// drawn per card), UPDATED field, QR. Wallet renders the real thing.
+export function WalletPreview({ name, colors, logo, strip, stampGoal }: { name: string; colors: Colors; logo?: string; strip?: string; stampGoal?: number }) {
   const title = name.trim() || "Your business";
   return (
     <div className={s.pass} style={{ background: colors.bg, color: colors.fg }} aria-label="Wallet card preview">
@@ -110,12 +185,12 @@ export function WalletPreview({ name, colors, logo, strip }: { name: string; col
         <span className={s.passOrg}>{title}</span>
       </div>
       <div
-        className={`${s.passStrip} ${strip ? "" : s.passStripEmpty}`}
-        style={strip ? { backgroundImage: `url("${strip}")` } : undefined}
+        className={`${s.passStrip} ${strip && !stampGoal ? "" : s.passStripEmpty}`}
+        style={strip && !stampGoal ? { backgroundImage: `url("${strip}")` } : undefined}
       >
         <div>
-          <div className={s.passLabel} style={{ color: colors.label }}>Points</div>
-          <div className={s.passBig}>0</div>
+          <div className={s.passLabel} style={{ color: colors.label }}>{stampGoal ? "Stamps" : "Points"}</div>
+          <div className={s.passBig}>{stampGoal ? `0 of ${stampGoal}` : 0}</div>
         </div>
       </div>
       <div className={s.passFields}>

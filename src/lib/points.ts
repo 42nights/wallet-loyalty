@@ -10,9 +10,21 @@ export type ApplyResult =
   | { ok: true; newBalance: number; replay: boolean }
   | { ok: false; status: "insufficient"; balance: number }
   | { ok: false; status: "not_found" }
+  | { ok: false; status: "voided" }
   | { ok: false; status: "error"; error: string };
 
 type ApplyRow = { status: string; balance: number | null };
+
+// Every idempotency key the server mints has a colon: "undo:<key>" (undo
+// route), "birthday:<year>:<serial>" (birthday cron), "<campaign id>:<serial>"
+// (campaigns). A client's per-tap key is a bare UUID. A client key with a colon
+// could take one of those first and turn the real row into a replay (an undo
+// that looks done, a treat or campaign credit never given), so the routes that
+// take a client key refuse it.
+export const isServerKey = (key: string) => key.includes(":");
+
+// What staff are told when they try to use a deactivated card (409).
+export const VOIDED_ERROR = "This card is deactivated. The owner can reactivate it on the customer's page.";
 
 export async function applyTransaction(
   ...args: Parameters<typeof applyPoints>
@@ -35,11 +47,26 @@ export async function applyPoints(
   serial: string,
   delta: number,
   reason: string,
-  staffId: string,
+  staffId: string | null, // null = no person (the birthday cron)
   merchantId: string,
   idempotencyKey: string,
   amount?: number | null
 ): Promise<ApplyResult> {
+  // A deactivated card takes no balance change of any kind. Checked here
+  // because every balance change goes through this function: redeem, adjust
+  // and undo (via applyTransaction) and campaigns. select("*") so a database
+  // without passes.voided_at yet behaves as before.
+  // ponytail: a void that commits between this read and the RPC lets that one
+  // in-flight tap through; closing it needs the check inside apply_points.
+  const { data: card, error: cardError } = await db
+    .from("passes")
+    .select("*")
+    .eq("serial", serial)
+    .eq("merchant_id", merchantId)
+    .maybeSingle();
+  if (cardError) return { ok: false, status: "error", error: cardError.message };
+  if (card?.voided_at) return { ok: false, status: "voided" };
+
   const { data, error } = await db.rpc("apply_points", {
     p_serial: serial,
     p_delta: delta,
