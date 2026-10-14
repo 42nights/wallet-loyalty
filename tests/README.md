@@ -113,9 +113,10 @@ prove the oracle can still fail.
 sequential warm-up GET of every route the specs use), and then runs each spec on
 both projects. Specs:
 
-- `enroll.spec.ts`: the enroll form renders. Submitting returns a 200
-  `application/vnd.apple.pkpass` named `loyalty-<serial>.pkpass`. On desktop a
-  download fires, and the downloaded file is the signed zip holding `pass.json`.
+- `enroll.spec.ts`: POST returns `{ cardUrl }`; GETting it serves `application/vnd.apple.pkpass` named
+  `loyalty-<serial>.pkpass` (a signed zip holding `pass.json`). iPhone opens the card (download
+  event + "Your card is ready"); desktop shows the QR screen; an Instagram in-app user agent gets
+  "Open your card in Safari" + copy link; an empty form shows inline errors and sends nothing.
 - `scan.spec.ts`: cashier UI login → /scan → manual serial → earn by bill ($12.50
   at 10x = 125, preview, then balance) → the cafe template's 4 buttons are shown and
   the restaurant buttons are not → Extra Shot redeems (balance 45).
