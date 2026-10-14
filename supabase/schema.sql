@@ -677,3 +677,8 @@ grant usage on schema public to service_role;
 grant all on all tables in schema public to service_role;
 grant all on all sequences in schema public to service_role;
 grant execute on all functions in schema public to service_role;
+
+-- --- Redeem templates (per merchant) ----------------------------------------
+-- Which set of 4 redeem buttons this merchant's /scan shows (config.ts
+-- REDEEM_TEMPLATES). Existing rows default to 'restaurant' = the original set.
+alter table merchants add column if not exists redeem_template text not null default 'restaurant';

@@ -10,7 +10,8 @@ a branded card to Apple Wallet, earn/redeem points via QR scan at the counter,
 and the card updates live. Sold per-merchant.
 
 ## Locked decisions — do not change, do not ask
-- **Earn model** = points-per-dollar with a per-merchant `earn_rate`. The 4 redeem buttons in `src/lib/config.ts` stay fixed as defined.
+- **Earn model** = points-per-dollar with a per-merchant `earn_rate`.
+- **Redeem buttons** come from per-merchant templates in `src/lib/config.ts` (`REDEEM_TEMPLATES`: `restaurant` = the original 4 and the default, `cafe`, `retail`), stored in `merchants.redeem_template`. Each template is exactly 4 buttons. Validate a redeem with `redemptionsFor(merchant.redeem_template)`, never against all templates.
 - **One Pass Type ID** for all merchants; branding (logo/strip/colors) is per-merchant, loaded from Supabase storage at issue time.
 - **Apple Wallet only** for now. Keep the pass/points layer provider-agnostic so Google Wallet can drop in later — but do not build it.
 - **Roles**: `owner` and `cashier`. Dashboard is owner-only.

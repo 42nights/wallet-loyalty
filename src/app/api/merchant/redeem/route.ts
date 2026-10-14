@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStaff } from "@/lib/auth";
-import { findAction } from "@/lib/config";
+import { redemptionsFor } from "@/lib/config";
 import { applyTransaction } from "@/lib/points";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
@@ -9,7 +9,7 @@ export const runtime = "nodejs"; // applyTransaction pushes via APNs (http2) —
 
 // POST /api/merchant/redeem  body: { serial, actionId } | { serial, amount }
 // Header: Idempotency-Key (required) — a per-tap UUID so a retry can't double-apply.
-//   actionId → one of the fixed redeem buttons in config.ts (negative delta).
+//   actionId → one of the merchant's template redeem buttons (config.ts, negative delta).
 //   amount   → a bill total; earns round(merchant.earn_rate * amount) points.
 export async function POST(req: NextRequest) {
   const staff = await getStaff();
@@ -28,6 +28,16 @@ export async function POST(req: NextRequest) {
   const { serial, actionId, amount } = await req.json().catch(() => ({}));
   if (!serial) return NextResponse.json({ error: "No serial" }, { status: 400 });
 
+  // select("*") so a database that hasn't run the redeem_template migration
+  // yet still works (templateKey() falls back to the default template).
+  const { data: merchant } = await db
+    .from("merchants")
+    .select("*")
+    .eq("id", staff.merchantId)
+    .single();
+  if (!merchant)
+    return NextResponse.json({ error: "No merchant" }, { status: 403 });
+
   let delta: number;
   let reason: string;
   let billAmount: number | null = null;
@@ -37,18 +47,12 @@ export async function POST(req: NextRequest) {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000)
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
-    const { data: merchant } = await db
-      .from("merchants")
-      .select("earn_rate")
-      .eq("id", staff.merchantId)
-      .single();
-    if (!merchant)
-      return NextResponse.json({ error: "No merchant" }, { status: 403 });
     delta = Math.round(Number(merchant.earn_rate) * amt);
     reason = "earn:purchase";
     billAmount = amt; // persist the raw bill $ for real revenue analytics
   } else {
-    const action = findAction(actionId);
+    // only this merchant's template buttons are redeemable here
+    const action = redemptionsFor(merchant.redeem_template).find((a) => a.id === actionId);
     if (!action)
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     delta = action.points;
