@@ -14,48 +14,10 @@ import s from "./page.module.css";
 //
 // Copy rule: only claim what exists in the code today. Anything not built yet
 // sits in COMING_SOON and is labelled as such on the page.
-
-// ---------------------------------------------------------------------------
-// Pricing — edit here. Per location, per month, USD. Source: business plan §7.
-// ---------------------------------------------------------------------------
-const PRICING = [
-  {
-    name: "Founding offer",
-    price: 19,
-    tag: "First 10 merchants only",
-    blurb: "Everything in Growth, for the businesses that start with us.",
-    features: ["Everything in Growth", "Your price locked for 12 months", "Limited to the first 10 merchants"],
-    featured: true,
-  },
-  {
-    name: "Starter",
-    price: 29,
-    tag: null,
-    blurb: "The loyalty card and everything you need to run it.",
-    features: [
-      "Your branded Apple Wallet card",
-      "Unlimited members and staff logins",
-      "Counter terminal for any phone or tablet",
-      "Restaurant, café or retail reward set",
-      "Owner dashboard, customer list and segments",
-      "Lost-card re-send by QR code or link",
-    ],
-    featured: false,
-  },
-  {
-    name: "Growth",
-    price: 59,
-    tag: null,
-    blurb: "Starter, plus the tools to bring customers back.",
-    features: [
-      "Everything in Starter",
-      "Bonus-point campaigns for any segment",
-      "Offers on the back of the card",
-      "AI insights: ask your data, weekly digest",
-    ],
-    featured: false,
-  },
-];
+//
+// No prices on the public page (Ayaan, 2026-10-13): early merchants get
+// founding terms by talking to us. The price recommendation stays in the
+// internal business plan.
 
 // Decided but not built. Keep this list honest; remove an item when it ships.
 const COMING_SOON = ["Google Wallet for Android customers"];
@@ -133,15 +95,22 @@ export default async function Landing() {
     { key: "dormant", label: "Dormant", value: 73 },
   ].map((x) => ({ label: x.label, value: x.value, color: SEGMENT_COLORS[x.key] }));
 
+  // Always a second step after the demo. Without SALES_CONTACT_EMAIL there is
+  // no address to offer (and we never make one up), so it points at the demo's
+  // contact note instead; src/instrumentation.ts warns about that in production.
   const ctas = (
     <div className={s.ctas}>
       <Link href="/demo" className={`btn btn-primary ${s.cta}`}>
         See the live demo
       </Link>
-      {mailto && (
+      {mailto ? (
         <a href={mailto} className={`btn btn-ghost ${s.cta}`}>
           Book a call
         </a>
+      ) : (
+        <Link href="/demo#contact" className={`btn btn-ghost ${s.cta}`}>
+          Ask us about a pilot
+        </Link>
       )}
     </div>
   );
@@ -156,7 +125,7 @@ export default async function Landing() {
         <nav className={s.navLinks} aria-label="Sections">
           <a href="#how">How it works</a>
           <a href="#owners">For owners</a>
-          <a href="#pricing">Pricing</a>
+          <a href="#founding">Join early</a>
           <a href="#faq">FAQ</a>
         </nav>
         <Link href="/scan" className={s.staff}>
@@ -287,7 +256,7 @@ export default async function Landing() {
               </div>
               <div>
                 <dt>AI insights</dt>
-                <dd>Ask questions about your customers in plain English, and read a weekly digest. On the Growth plan.</dd>
+                <dd>Ask questions about your customers in plain English, and read a weekly digest.</dd>
               </div>
               <div>
                 <dt>Lost cards</dt>
@@ -373,30 +342,24 @@ export default async function Landing() {
           </table>
         </section>
 
-        <section id="pricing" className={s.section}>
-          <h2>Pricing</h2>
-          <p className={s.sectionLede}>
-            Per location, per month, in US dollars. No hardware to buy: your staff use a phone or tablet you already own.
-          </p>
-          <div className={s.tiers}>
-            {PRICING.map((t) => (
-              <div key={t.name} className={`${s.tier} ${t.featured ? s.featured : ""}`}>
-                <div className={s.tierHead}>
-                  <h3>{t.name}</h3>
-                  {t.tag && <span className={s.tierTag}>{t.tag}</span>}
-                </div>
-                <p className={s.price}>
-                  <b>${t.price}</b> per month, per location
-                </p>
-                <p className={s.tierBlurb}>{t.blurb}</p>
-                <ul>
-                  {t.features.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+        <section id="founding" className={`${s.section} ${s.founding}`}>
+          <div>
+            <h2>Founding merchants</h2>
+            <p className={s.sectionLede}>
+              We are bringing on our first restaurants, cafés and shops one at a time. Businesses that start with us early
+              get founding terms. Talk to us and we will go through them with you.
+            </p>
+            {ctas}
           </div>
+          <ul className={s.perks}>
+            <li>
+              <b>We set it up for you.</b> Send us your logo, your colours and the reward set you want. We create your
+              card, your sign-up link and your staff logins.
+            </li>
+            <li>
+              <b>No hardware to buy.</b> Your staff use a phone or tablet you already have.
+            </li>
+          </ul>
         </section>
 
         <section id="faq" className={s.section}>
