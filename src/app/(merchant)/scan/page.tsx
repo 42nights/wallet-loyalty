@@ -1,10 +1,13 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Action } from "@/lib/config";
+import SendCardPanel from "@/components/SendCardPanel";
+import styles from "./scan.module.css";
 
 type Customer = { serial: string; name: string | null; points: number };
+type PhoneMatch = Customer & { phone: string }; // phone is masked: "••• 1234"
 
 export default function ScanPage() {
   const router = useRouter();
@@ -12,6 +15,8 @@ export default function ScanPage() {
   const [toast, setToast] = useState<{ kind: "ok" | "bad"; msg: string } | null>(null);
   const [flash, setFlash] = useState(false);
   const [manual, setManual] = useState("");
+  const [phone, setPhone] = useState("");
+  const [matches, setMatches] = useState<PhoneMatch[] | null>(null);
   const [bill, setBill] = useState("");
   const [earnRate, setEarnRate] = useState(1);
   const [role, setRole] = useState<string>("cashier");
@@ -90,6 +95,39 @@ export default function ScanPage() {
     setToast(null);
   }
 
+  // Customer forgot their phone / Wallet card: find them by phone number.
+  // One match loads the customer; several show a short pick list.
+  async function findByPhone(e: FormEvent) {
+    e.preventDefault();
+    if (!phone.trim() || busy) return;
+    setBusy(true);
+    setMatches(null);
+    try {
+      const res = await fetch("/api/merchant/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      if (res.status === 401) return router.push("/login");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return setToast({ kind: "bad", msg: data.error || "Lookup failed" });
+      const found: PhoneMatch[] = data.matches ?? [];
+      if (found.length === 0)
+        return setToast({ kind: "bad", msg: "No card with that phone number here" });
+      setToast(null);
+      if (found.length === 1) return pick(found[0]);
+      setMatches(found);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pick(m: PhoneMatch) {
+    setCustomer({ serial: m.serial, name: m.name, points: m.points }); // effect cleanup stops the camera
+    setMatches(null);
+    setPhone("");
+  }
+
   async function apply(body: object, okMsg: string) {
     if (!customer || busy) return; // busy guard: no double-tap
     setBusy(true);
@@ -122,6 +160,8 @@ export default function ScanPage() {
     setCustomer(null);
     setToast(null);
     setBill("");
+    setPhone("");
+    setMatches(null);
   }
 
   // ---- scan view ----
@@ -133,6 +173,7 @@ export default function ScanPage() {
           <div className="row" style={{ gap: 12, marginBottom: 12 }}>
             <Link className="btn btn-ghost" href="/dashboard">Dashboard</Link>
             <Link className="btn btn-ghost" href="/staff">Staff</Link>
+            <Link className="btn btn-ghost" href="/settings">Settings</Link>
           </div>
         )}
         <div className="card stack">
@@ -145,6 +186,24 @@ export default function ScanPage() {
             <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
               onClick={() => manual && lookup(manual.trim())}>Go</button>
           </div>
+          <div className="label" style={{ marginTop: 8 }}>or find by phone</div>
+          <form className="row" onSubmit={findByPhone}>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)}
+              type="tel" inputMode="tel" autoComplete="off" placeholder="phone or last 4 digits" />
+            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
+              type="submit" disabled={busy}>Find</button>
+          </form>
+          {matches && (
+            <div className={styles.picks}>
+              <div className="label">{matches.length} cards match — pick one</div>
+              {matches.map((m) => (
+                <button key={m.serial} className={styles.pick} onClick={() => pick(m)}>
+                  <span className={styles.pickName}>{m.name || "Customer"}</span>
+                  <span className={styles.pickMeta}>{m.phone} · {m.points} pts</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -191,6 +250,8 @@ export default function ScanPage() {
             = {Math.round(earnRate * parseFloat(bill))} pts ({earnRate}× rate)
           </div>
         )}
+
+        <SendCardPanel key={customer.serial} serial={customer.serial} />
 
         <button className="btn btn-primary" onClick={reset}>Scan next customer</button>
       </div>

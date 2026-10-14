@@ -1,11 +1,11 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { getStaff, signCardLink } from "@/lib/auth";
+import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { findAction, PUBLIC_BASE_URL } from "@/lib/config";
+import { findAction } from "@/lib/config";
 import AdjustPoints from "./AdjustPoints";
 import CustomerCRM from "./CustomerCRM";
-import ResendCard from "./ResendCard";
+import SendCardPanel from "@/components/SendCardPanel";
 
 export const runtime = "nodejs";
 
@@ -61,7 +61,6 @@ export default async function CustomerPage({
   if (!p) notFound();
 
   const d = (s: string | null) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
-  const cardLink = `${PUBLIC_BASE_URL}/api/enroll?card=${await signCardLink(p.serial)}`;
 
   return (
     <div className="wrap">
@@ -94,8 +93,9 @@ export default async function CustomerPage({
         <AdjustPoints serial={p.serial} />
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <ResendCard link={cardLink} />
+      <div className="card stack" style={{ marginTop: 12 }}>
+        <div className="label">Lost card? Send it to the customer&apos;s iPhone</div>
+        <SendCardPanel serial={p.serial} />
       </div>
 
       <div style={{ marginTop: 12 }}>

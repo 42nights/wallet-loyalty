@@ -1,0 +1,21 @@
+/* find-by-phone pick list (several cards share the typed digits) */
+.picks { display: flex; flex-direction: column; gap: 8px; }
+.pick {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  font-family: var(--mono);
+  transition: border-color .15s ease;
+}
+.pick:hover, .pick:focus-visible { border-color: var(--accent); }
+.pickName { font-family: var(--display); font-weight: 700; font-size: 16px; }
+.pickMeta { color: var(--muted); font-size: 13px; white-space: nowrap; }
