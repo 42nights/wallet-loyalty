@@ -74,7 +74,6 @@ export default function SettingsForm() {
       setS(data);
       setRate(String(data.earnRate));
       setLimit(String(data.maxBill));
-      setHh(draftOf(data.happyHour));
       setMsg({ kind: "ok", text: okText });
     } finally {
       setBusy(false);
