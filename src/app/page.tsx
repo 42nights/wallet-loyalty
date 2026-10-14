@@ -38,7 +38,7 @@ const PRICING = [
       "Counter terminal for any phone or tablet",
       "Restaurant, café or retail reward set",
       "Owner dashboard, customer list and segments",
-      "Lost-card re-send link",
+      "Lost-card re-send by QR code or link",
     ],
     featured: false,
   },
@@ -58,7 +58,7 @@ const PRICING = [
 ];
 
 // Decided but not built. Keep this list honest; remove an item when it ships.
-const COMING_SOON = ["Re-send a lost card with a QR code at the counter", "Google Wallet for Android customers"];
+const COMING_SOON = ["Google Wallet for Android customers"];
 
 const FAQ: { q: string; a: string }[] = [
   {
@@ -83,7 +83,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What happens if a customer loses their phone or deletes the card?",
-    a: "You send the card again from their customer page, with a link that works for one hour. Their points are safe, because the balance is kept on our side, not on the phone.",
+    a: "Staff find them by phone number at the counter and show a QR code that puts the card back on their iPhone, or share the same link from the customer page. The link works for one hour. Their points are safe, because the balance is kept on our side, not on the phone.",
   },
   {
     q: "Can you text or email my customers?",
@@ -231,8 +231,8 @@ export default async function Landing() {
         <section id="templates" className={s.section}>
           <h2>Rewards that fit what you sell</h2>
           <p className={s.sectionLede}>
-            Pick the reward set for your kind of business. These are the four buttons your staff tap at the counter.
-            Customers earn points on every dollar they spend, at a rate set for your shop.
+            Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
+            Customers earn points on every dollar they spend, at a rate you choose.
           </p>
           <div className={s.templates}>
             {Object.entries(REDEEM_TEMPLATES).map(([key, t]) => (
@@ -291,7 +291,7 @@ export default async function Landing() {
               </div>
               <div>
                 <dt>Lost cards</dt>
-                <dd>Send a customer their card again from their page, with a link that works for one hour.</dd>
+                <dd>Find a customer by phone at the counter and show a QR code that puts their card back on their iPhone. The link works for one hour.</dd>
               </div>
             </dl>
             <div className={s.soon}>
