@@ -3,13 +3,17 @@ import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { merchantFields, UUID_RE } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
+import { loyaltyMode, stampGoal } from "@/lib/config";
+import { refreshMerchantCards } from "@/lib/wallet";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; // a stamp card change pushes card updates (APNs)
 
 type Params = { params: Promise<{ id: string }> };
 
 // PATCH /api/admin/merchants/{id}
-// body: any of { name, earnRate, template, bgColor, fgColor, labelColor }.
+// body: any of { name, earnRate, template, bgColor, fgColor, labelColor,
+//                loyaltyMode, stampGoal, stampReward }.
+// loyaltyMode / stampGoal changes are refused (409) once the shop has a transaction.
 // The slug is deliberately not editable: it is printed on counter posters and
 // baked into links customers already have.
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -23,13 +27,46 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (typeof patch === "string") return NextResponse.json({ error: patch }, { status: 400 });
   if (!Object.keys(patch).length) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
 
+  const stampChange =
+    patch.loyalty_mode !== undefined || patch.stamp_goal !== undefined || patch.stamp_reward !== undefined;
+  const { data: cur } =
+    patch.earn_rate !== undefined || stampChange
+      ? await db.from("merchants").select("*").eq("id", id).maybeSingle()
+      : { data: null };
+  if ((patch.earn_rate !== undefined || stampChange) && !cur)
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Points vs stamps, and how many stamps the reward takes, decide what every
+  // balance on the ledger means: 300 points would become 300 stamps, and a new
+  // goal would move every customer's progress. So both are fixed once the shop
+  // has its first transaction (the reward's name is not, it changes nothing owed).
+  // ponytail: count-then-update, not one statement; a tap landing in between
+  // would keep its old meaning. Only Ayaan switches, before the shop opens.
+  if (
+    (patch.loyalty_mode !== undefined && patch.loyalty_mode !== loyaltyMode(cur?.loyalty_mode)) ||
+    (patch.stamp_goal !== undefined && patch.stamp_goal !== stampGoal(cur?.stamp_goal))
+  ) {
+    const { count, error } = await db
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("merchant_id", id);
+    if (error) return NextResponse.json({ error: "Could not check this shop's transactions" }, { status: 500 });
+    if (count)
+      return NextResponse.json(
+        {
+          error:
+            `This shop already has ${count} transaction${count === 1 ? "" : "s"}. Points vs stamps and the number of ` +
+            "stamps can only change before the first one, because they decide what customers' balances are worth.",
+        },
+        { status: 409 }
+      );
+  }
+
   // Same pair check as owner Settings: the redeem route refuses any single earn
   // above 1,000,000 points, so rate x the owner's bill limit must stay under it
   // or the counter would accept bills it then rejects. The bill limit is the
   // owner's to set (Settings), so name the highest rate that fits instead.
-  if (patch.earn_rate !== undefined) {
-    const { data: cur } = await db.from("merchants").select("*").eq("id", id).maybeSingle();
-    if (!cur) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (patch.earn_rate !== undefined && cur) {
     const bill = Number(cur.max_bill ?? 1000); // 1000 = schema default (un-migrated database)
     if (Math.round(patch.earn_rate * bill) > 1_000_000)
       return NextResponse.json(
@@ -49,5 +86,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
   if (!data?.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // mode, goal and reward are on the face of every card: refresh them in Wallet
+  if (stampChange) await refreshMerchantCards(id);
   return NextResponse.json({ ok: true });
 }

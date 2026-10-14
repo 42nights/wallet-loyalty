@@ -1,4 +1,4 @@
-import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
+import { EARN_RATE, REDEEM_TEMPLATES, STAMP_GOAL, STAMP_REWARD_MAX, type LoyaltyMode, type TemplateKey } from "@/lib/config";
 import { PASS_THEMES } from "@/lib/passThemes";
 
 // Merchant/staff input rules for the creator admin. No server-only imports:
@@ -70,6 +70,9 @@ export type MerchantUpdate = {
   bg_color?: string | null;
   fg_color?: string | null;
   label_color?: string | null;
+  loyalty_mode?: LoyaltyMode;
+  stamp_goal?: number;
+  stamp_reward?: string;
 };
 
 const COLOR_FIELDS = [
@@ -108,6 +111,24 @@ export function merchantFields(b: Record<string, unknown>, partial: boolean): Me
     const v = b[key];
     if (v !== null && !isRgb(v)) return `${label} colour must look like rgb(12,34,56)`;
     out[col] = v;
+  }
+  // The stamp card fields are optional on create AND update: the wizard sends
+  // them only for a stamp card and the editor only when they change, so a points
+  // merchant never writes the new columns (an un-migrated database still works).
+  if (b.loyaltyMode !== undefined) {
+    if (b.loyaltyMode !== "points" && b.loyaltyMode !== "stamps") return "Pick points or a stamp card";
+    out.loyalty_mode = b.loyaltyMode;
+  }
+  if (b.stampGoal !== undefined) {
+    const goal = typeof b.stampGoal === "number" || typeof b.stampGoal === "string" ? Number(b.stampGoal) : NaN;
+    if (!Number.isInteger(goal) || goal < STAMP_GOAL.min || goal > STAMP_GOAL.max)
+      return `A stamp card takes ${STAMP_GOAL.min} to ${STAMP_GOAL.max} stamps`;
+    out.stamp_goal = goal;
+  }
+  if (b.stampReward !== undefined) {
+    const reward = typeof b.stampReward === "string" ? b.stampReward.trim() : "";
+    if (!reward || reward.length > STAMP_REWARD_MAX) return `The reward needs a name of 1 to ${STAMP_REWARD_MAX} characters`;
+    out.stamp_reward = reward;
   }
 
   // One careless colour pick would otherwise ship an unreadable card to every
