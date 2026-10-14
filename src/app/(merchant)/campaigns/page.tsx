@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { loyaltyMode } from "@/lib/config";
+import { loyaltyMode, stampGoal } from "@/lib/config";
 import CampaignsClient from "./CampaignsClient";
 
 export const runtime = "nodejs";
@@ -32,7 +32,11 @@ export default async function CampaignsPage() {
 
   return (
     <div className="wrap">
-      <CampaignsClient segments={segments} mode={loyaltyMode(merchant?.loyalty_mode)} />
+      <CampaignsClient
+        segments={segments}
+        mode={loyaltyMode(merchant?.loyalty_mode)}
+        stampGoal={stampGoal(merchant?.stamp_goal)}
+      />
     </div>
   );
 }

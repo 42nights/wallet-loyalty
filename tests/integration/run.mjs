@@ -590,6 +590,13 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("blank reward name → 400", (await setReward(stOwn, "   ")).status, 400);
   chk("cashier cannot rename the reward → 403", (await setReward(stCash, "Free tea")).status, 403);
   chk("a points shop has no stamp reward to rename → 400", (await setReward(own, "Free tea")).status, 400);
+  // a stamp card's campaign bonus is at most one full card (goal 5)
+  chk("stamp card campaign of 6 bonus stamps → 400 naming the cap",
+    await answer(await req("/api/merchant/campaigns", { method: "POST", body: { name: "Too many", segment: "new", bonusPoints: 6 }, j: stOwn })),
+    "400:A stamp card's bonus is 0 to 5 stamps (one full card)");
+  const stCsv = await req("/api/merchant/export?type=customers", { j: stOwn });
+  chk("stamp card CSV heads its balance column Stamps",
+    (await stCsv.text()).replace(/^\uFEFF/, "").split("\r\n")[0], "Name,Phone,Stamps,Lifetime earned,Lifetime redeemed,Visits,Last seen (UTC)");
 
   // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
   //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and

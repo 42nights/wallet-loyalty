@@ -106,7 +106,11 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
         )}
       </div>
 
-      <KpiTiles k={stats.kpis} lead={{ k: "Last activity", v: ago(stats.lastActivity), sub: "txn or new card" }} />
+      <KpiTiles
+        k={stats.kpis}
+        lead={{ k: "Last activity", v: ago(stats.lastActivity), sub: "txn or new card" }}
+        stamps={loyalty.mode === "stamps"}
+      />
       <DailyCharts daily={stats.daily} />
 
       <div className="dash-grid">

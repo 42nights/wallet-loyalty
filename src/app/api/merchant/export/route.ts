@@ -3,6 +3,7 @@ import { getStaff } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { rateLimit } from "@/lib/ratelimit";
 import { formatPhone } from "@/lib/format";
+import { loyaltyMode } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -52,14 +53,15 @@ const csvLines = (rows: Cell[][]) => rows.map((r) => r.map(cell).join(",") + "\r
 // Only what /customers and a customer's page already show the owner — no
 // email, birthday or consent columns. merchant_customers returns one jsonb
 // value, so PostgREST's max_rows does not cut it: one call, every card.
-async function* customers(m: string): AsyncGenerator<string> {
+// `unit` heads the balance column: "Points", or "Stamps" on a stamp card.
+async function* customers(m: string, unit: string): AsyncGenerator<string> {
   const { data, error } = await db.rpc("merchant_customers", {
     p_merchant: m, p_search: null, p_sort: "name", p_limit: 1_000_000, p_offset: 0,
   });
   if (error) throw new Error(`export customers failed: ${error.message}`);
   const list = (data as { customers?: Customer[] } | null)?.customers ?? [];
   yield csvLines([
-    ["Name", "Phone", "Points", "Lifetime earned", "Lifetime redeemed", "Visits", "Last seen (UTC)"],
+    ["Name", "Phone", unit, "Lifetime earned", "Lifetime redeemed", "Visits", "Last seen (UTC)"],
     ...list.map((c) => [c.customer_name, formatPhone(c.customer_phone), c.points, c.lifetime_earned, c.lifetime_redeemed, c.visits, utc(c.last_seen)]),
   ]);
 }
@@ -67,8 +69,8 @@ async function* customers(m: string): AsyncGenerator<string> {
 // The whole ledger in id (insert) order: a unique key, so offset pages never
 // overlap, and a row added mid-export lands at the end. Stops on an empty page
 // rather than a short one, so a lower max_rows can't silently cut the file.
-async function* transactions(m: string): AsyncGenerator<string> {
-  let chunk: Cell[][] = [["Date (UTC)", "Customer", "Phone", "Kind", "Reason", "Points", "Bill ($)", "Staff"]];
+async function* transactions(m: string, unit: string): AsyncGenerator<string> {
+  let chunk: Cell[][] = [["Date (UTC)", "Customer", "Phone", "Kind", "Reason", unit, "Bill ($)", "Staff"]];
   for (let from = 0; ; ) {
     const { data, error } = await db
       .from("transactions")
@@ -104,13 +106,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Slow down" }, { status: 429 });
 
   const m = staff.merchantId;
-  const chunks = type === "customers" ? customers(m) : transactions(m);
-  const [first, { data: merchant }] = await Promise.all([
-    // The first chunk is read before any byte is sent, so a failing query
-    // still answers 500 instead of a file cut short.
-    chunks.next().catch((e: Error) => (console.error(e.message), null)),
-    db.from("merchants").select("slug").eq("id", m).maybeSingle(),
-  ]);
+  // "*": loyalty_mode may not exist yet (then it's points)
+  const { data: merchant } = await db.from("merchants").select("*").eq("id", m).maybeSingle();
+  const unit = loyaltyMode(merchant?.loyalty_mode) === "stamps" ? "Stamps" : "Points";
+  const chunks = type === "customers" ? customers(m, unit) : transactions(m, unit);
+  // The first chunk is read before any byte is sent, so a failing query
+  // still answers 500 instead of a file cut short.
+  const first = await chunks.next().catch((e: Error) => (console.error(e.message), null));
   if (!first) return NextResponse.json({ error: "Export failed" }, { status: 500 });
 
   const slug = String(merchant?.slug ?? "").replace(/[^\w-]/g, "") || "shop";

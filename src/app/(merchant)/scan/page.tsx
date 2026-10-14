@@ -313,12 +313,15 @@ export default function ScanPage() {
             <span className={styles.todayTitle}>Today</span>
             {/* closed, the headline numbers still show */}
             <span className={styles.todayPeek}>
-              {todayOpen ? "your taps since midnight" : `${nf(today?.customers)} served · ${nf(today?.points)} pts`}
+              {todayOpen
+                ? "your taps since midnight"
+                : `${nf(today?.customers)} served · ${nf(today?.points)} ${unitLabel(mode, today?.points ?? 0, true)}`}
             </span>
           </summary>
           <dl className={styles.todayGrid}>
             <div><dt>Customers</dt><dd>{nf(today?.customers)}</dd></div>
-            <div><dt>Points given</dt><dd>{nf(today?.points)}</dd></div>
+            {/* the route sums every earn: delta, so on a stamp card these are stamps */}
+            <div><dt>{mode === "stamps" ? "Stamps given" : "Points given"}</dt><dd>{nf(today?.points)}</dd></div>
             <div><dt>Rewards</dt><dd>{nf(today?.rewards)}</dd></div>
             <div><dt>Undos</dt><dd>{nf(today?.undos)}</dd></div>
           </dl>

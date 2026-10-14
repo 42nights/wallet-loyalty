@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { unitLabel, type LoyaltyMode } from "@/lib/config";
 
-const MAX_BONUS = 100_000; // the campaigns route's own cap
+const MAX_BONUS = 100_000; // the campaigns route's own cap (a stamp card: its goal)
 const MAX_TARGETS = 2000; // the route sends to at most this many cards per campaign
 const nf = (n: number) => n.toLocaleString();
 
@@ -21,10 +21,20 @@ type Campaign = {
   lift: Lift | null;
 };
 
-// `mode`: a stamp card gives bonus stamps, and has no lift (campaign_lift counts
-// bills, earn:purchase, which a stamp card never records), so lift is not shown.
-export default function CampaignsClient({ segments, mode }: { segments: Segment[]; mode: LoyaltyMode }) {
+// `mode`: a stamp card gives bonus stamps, at most one full card (`stampGoal`),
+// and has no lift (campaign_lift counts bills, earn:purchase, which a stamp card
+// never records), so lift is not shown.
+export default function CampaignsClient({
+  segments,
+  mode,
+  stampGoal,
+}: {
+  segments: Segment[];
+  mode: LoyaltyMode;
+  stampGoal: number;
+}) {
   const stamps = mode === "stamps";
+  const maxBonus = stamps ? stampGoal : MAX_BONUS;
   const u = (n: number) => unitLabel(mode, n, true);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [name, setName] = useState("");
@@ -90,8 +100,8 @@ export default function CampaignsClient({ segments, mode }: { segments: Segment[
   function review() {
     setMsg(null);
     if (!name.trim()) return setMsg({ kind: "bad", text: "Give the campaign a name first." });
-    if (!(bonusPts >= 0) || bonusPts > MAX_BONUS)
-      return setMsg({ kind: "bad", text: `Bonus must be a whole number of ${unitLabel(mode, 2)} from 0 to ${nf(MAX_BONUS)}.` });
+    if (!(bonusPts >= 0) || bonusPts > maxBonus)
+      return setMsg({ kind: "bad", text: `Bonus must be a whole number of ${unitLabel(mode, 2)} from 0 to ${nf(maxBonus)}.` });
     if (bonusPts === 0 && !offer.trim())
       return setMsg({ kind: "bad", text: `Add bonus ${unitLabel(mode, 2)}, an offer, or both.` });
     setConfirming(true);
