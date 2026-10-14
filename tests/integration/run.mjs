@@ -141,6 +141,8 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const redeem = (j, body, key = randomUUID()) =>
     req("/api/merchant/redeem", { method: "POST", body, headers: { "Idempotency-Key": key }, j });
   const balanceOf = async (r) => (await r.json()).newBalance;
+  // "<status>:<error>": the reason a request was refused, not just that it was
+  const answer = async (r) => `${r.status}:${(await r.json().catch(() => ({}))).error}`;
   const register = (dev, card, pushToken) =>
     req(`/api/v1/devices/${dev}/registrations/${PTI}/${card.serial}`, {
       method: "POST", body: { pushToken }, headers: { Authorization: `ApplePass ${card.authToken}` },
@@ -529,7 +531,8 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const tokV = `t-${run}-tok-void`;
   chk("register device on the card", (await register(devV, vc, tokV)).status, 201);
   chk("a cashier cannot deactivate → 403", (await setVoid(cash, { serial: vc.serial, reason: "fraud" })).status, 403);
-  chk("another shop's owner cannot deactivate → 404", (await setVoid(restOwn, { serial: vc.serial, reason: "fraud" })).status, 404);
+  chk("another shop's owner cannot deactivate → 404",
+    await answer(await setVoid(restOwn, { serial: vc.serial, reason: "fraud" })), "404:Card not found");
   chk("no reason → 400", (await setVoid(own, { serial: vc.serial })).status, 400);
   chk("unknown reason → 400", (await setVoid(own, { serial: vc.serial, reason: "bored" })).status, 400);
   mock.clear();
@@ -547,8 +550,10 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("undo of the earn made before the void refused → 409", (await undo(cash, vk)).status, 409);
   chk("send-card link refused → 409", (await cardLink(own, vc.serial)).status, 409);
   chk("a card link minted before the void stops working → 410", (await req(earlyLink.slice(B.length))).status, 410);
-  chk("re-enrolling the same number is still refused (decision: the card holds it) → 409",
-    (await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } })).status, 409);
+  // decision: a deactivated card keeps its number, so no second card is made
+  const again = await req("/api/enroll", { method: "POST", body: { name: "Again", phone: vPhone, slug: cafe.slug } });
+  const [stillVoid] = await rows(db.from("passes").select("voided_at").eq("serial", vc.serial));
+  chk("re-enrolling its number → 409, and the card stays deactivated", `${again.status}:${Boolean(stillVoid?.voided_at)}`, "409:true");
   const vPass = await latestPass(vc);
   chk("Wallet card reads DEACTIVATED (header | primary)",
     `${field(vPass, "headerFields", "balance")}|${field(vPass, "primaryFields", "points")}`, "DEACTIVATED|Deactivated");
@@ -556,17 +561,21 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
     `${(vPass.barcodes ?? []).length}:${vPass.storeCard?.headerFields?.[0]?.changeMessage ?? "none"}`, "0:none");
   const vLedger = await rows(db.from("transactions").select("delta").eq("serial", vc.serial));
   chk("refusals wrote nothing: one ledger row, +100", vLedger.map((t) => t.delta).join(","), "100");
-  chk("another shop's owner cannot reactivate → 404", (await reactivate(restOwn, vc.serial)).status, 404);
+  chk("another shop's owner cannot reactivate → 404", await answer(await reactivate(restOwn, vc.serial)), "404:Card not found");
   chk("a cashier cannot reactivate → 403", (await reactivate(cash, vc.serial)).status, 403);
   mock.clear();
   chk("owner reactivates the card", (await reactivate(own, vc.serial)).status, 200);
   chk("reactivating pushes to the card's device", pushesTo(tokV).length, 1);
+  // one check: on its own each of these also passes on a card never deactivated
   const vk2 = randomUUID();
-  chk("after reactivating: earn works", await balanceOf(await redeem(cash, { serial: vc.serial, amount: 5 }, vk2)), 150);
-  chk("after reactivating: reward works", await balanceOf(await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })), 70);
-  chk("after reactivating: undo works", `${(await undo(cash, vk2)).status}`, "200");
-  chk("after reactivating: adjustment works", (await adjust(own, vc.serial, 10)).status, 200);
-  chk("after reactivating: card link works", (await cardLink(own, vc.serial)).status, 200);
+  const restored = [
+    await balanceOf(await redeem(cash, { serial: vc.serial, amount: 5 }, vk2)),
+    await balanceOf(await redeem(cash, { serial: vc.serial, actionId: "extra_shot" })),
+    await balanceOf(await undo(cash, vk2)),
+    await balanceOf(await adjust(own, vc.serial, 10)),
+    (await cardLink(own, vc.serial)).status,
+  ];
+  chk("after reactivating: earn, reward, undo, adjust (balances) and card link work again", restored.join(","), "150,70,20,30,200");
   const rPass = await latestPass(vc);
   chk("re-downloaded card shows the balance, QR and change message again",
     `${field(rPass, "primaryFields", "points")}:${(rPass.barcodes ?? []).length}:${Boolean(rPass.storeCard?.headerFields?.[0]?.changeMessage)}`, "30:1:true");
@@ -581,11 +590,12 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   await login(rvOwn, rv.owner);
   await login(rvCash, rv.cashier);
   const settingsPatch = (j, body) => req("/api/merchant/settings", { method: "PATCH", body, j });
-  chk("review link http:// → 400", (await settingsPatch(rvOwn, { reviewUrl: "http://example.com/review" })).status, 400);
-  chk("review link javascript: → 400", (await settingsPatch(rvOwn, { reviewUrl: "javascript:alert(1)" })).status, 400);
+  const notHttps = "400:Enter the full review link, starting with https://";
+  chk("review link http:// → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "http://example.com/review" })), notHttps);
+  chk("review link javascript: → 400", await answer(await settingsPatch(rvOwn, { reviewUrl: "javascript:alert(1)" })), notHttps);
   chk("review link over 500 characters → 400",
-    (await settingsPatch(rvOwn, { reviewUrl: `https://example.com/${"a".repeat(481)}` })).status, 400);
-  chk("a cashier cannot set it → 403", (await settingsPatch(rvCash, { reviewUrl: "https://example.com/r" })).status, 403);
+    await answer(await settingsPatch(rvOwn, { reviewUrl: `https://example.com/${"a".repeat(481)}` })),
+    "400:Use a review link of 500 characters or fewer");
   const reg = await createCard(db, rv.id, { name: "Regular" });
   const devR = `t-${run}-dev-review`;
   const tokR = `t-${run}-tok-review`;
@@ -598,22 +608,24 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("owner saves an https review link", `${sv.status}:${(await sv.json()).reviewUrl}`, `200:${reviewUrl}`);
   chk("saving pushes the merchant's card", pushesTo(tokR).length, 1);
   chk("the card appears in passesUpdatedSince", await listed(await updatable(devR, tagR), reg.serial), true);
-  chk("2 visits: no review field yet", field(await latestPass(reg), "backFields", "review"), undefined);
+  const second = field(await latestPass(reg), "backFields", "review");
   await redeem(rvCash, { serial: reg.serial, amount: 5 });
   const third = (await latestPass(reg)).storeCard?.backFields?.find((f) => f.key === "review");
-  chk("3 visits: 'Enjoying <name>?' review field", third?.label, `Enjoying Test rev ${run}?`);
+  chk("review field only from the 3rd visit (2 visits | 3 visits)", `${second ?? "none"}|${third?.label}`, `none|Enjoying Test rev ${run}?`);
   chk("its link is the saved URL, HTML-escaped",
     third?.attributedValue, `<a href='https://g.page/r/${run}/review?a=1&#38;b=2'>Leave us a review</a>`);
-  chk("location that isn't 'lat, lng' → 400", (await settingsPatch(rvOwn, { location: "Main St" })).status, 400);
-  chk("latitude above 90 → 400", (await settingsPatch(rvOwn, { location: "91, 10" })).status, 400);
-  chk("longitude below -180 → 400", (await settingsPatch(rvOwn, { location: "10, -181" })).status, 400);
+  const outOfRange = "400:Latitude goes from -90 to 90 and longitude from -180 to 180";
+  chk("location that isn't 'lat, lng' → 400", await answer(await settingsPatch(rvOwn, { location: "Main St" })),
+    "400:Paste the coordinates as lat, lng, like 37.77493, -122.41942");
+  chk("latitude above 90 → 400", await answer(await settingsPatch(rvOwn, { location: "91, 10" })), outOfRange);
+  chk("longitude below -180 → 400", await answer(await settingsPatch(rvOwn, { location: "10, -181" })), outOfRange);
   const sl = await settingsPatch(rvOwn, { location: " 37.77493,-122.41942 " });
   chk("owner saves a pasted location", `${sl.status}:${(await sl.json()).location}`, "200:37.77493, -122.41942");
   const loc = (await latestPass(reg)).locations ?? [];
   chk("the pass carries it with relevantText",
     loc.map((l) => `${l.latitude},${l.longitude},${l.relevantText}`).join("|"), `37.77493,-122.41942,Show your Test rev ${run} card`);
-  chk("clearing the location → 200", (await settingsPatch(rvOwn, { location: "" })).status, 200);
-  chk("cleared: the pass has no locations", JSON.stringify((await latestPass(reg)).locations ?? null), "null");
+  const cleared = (await settingsPatch(rvOwn, { location: "" })).status;
+  chk("clearing the location → 200 and the pass has none", `${cleared}:${JSON.stringify((await latestPass(reg)).locations ?? null)}`, "200:null");
 
   // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
   //     refuses a rate the shop's bill limit would turn into earns over the
@@ -640,9 +652,9 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
   const admPatch = (body) => req(`/api/admin/merchants/${adm.id}`, { method: "PATCH", body, j: admin });
-  chk("admin review link javascript: → 400", (await admPatch({ reviewUrl: "javascript:alert(1)" })).status, 400);
-  chk("admin review link http:// → 400", (await admPatch({ reviewUrl: "http://example.com/r" })).status, 400);
-  chk("admin location out of range → 400", (await admPatch({ location: "40.7, 200" })).status, 400);
+  chk("admin review link javascript: → 400", await answer(await admPatch({ reviewUrl: "javascript:alert(1)" })), notHttps);
+  chk("admin review link http:// → 400", await answer(await admPatch({ reviewUrl: "http://example.com/r" })), notHttps);
+  chk("admin location out of range → 400", await answer(await admPatch({ location: "40.7, 200" })), outOfRange);
   chk("admin saves a review link and a location", (await admPatch({ reviewUrl: "https://example.com/r", location: "40.7128, -74.006" })).status, 200);
   const [admRow] = await rows(db.from("merchants").select("review_url, latitude, longitude").eq("id", adm.id));
   chk("stored as given", `${admRow?.review_url}|${admRow?.latitude}|${admRow?.longitude}`, "https://example.com/r|40.7128|-74.006");
