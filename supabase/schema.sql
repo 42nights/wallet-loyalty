@@ -502,21 +502,24 @@ create or replace function detect_anomalies(
   -- Staff over-issue, built for shops with 1-5 staff. (The old rule, a z-score
   -- across staff, could never fire there: with population stddev no value can
   -- exceed mu + sqrt(n-1)*sd, so it needed 6+ staff.) Instead: flag a staff
-  -- member when any single earn they rang up in the window is more than 5x the
-  -- merchant's median earn. The median covers the window plus the 90 days
-  -- before it and needs at least 10 earns, so a new shop's first sales can't
-  -- flag anyone. 'issued' is everything that staff member issued in the window
-  -- (same number as staff_activity.points_issued).
+  -- member when any single bill they rang up in the window is more than 5x the
+  -- merchant's median bill. Bills (transactions.amount), not points: comparing
+  -- points flagged every honest cashier for months after an owner raised the
+  -- earn rate. The median covers the window plus the 90 days before it and
+  -- needs at least 10 bills, so a new shop's first sales can't flag anyone;
+  -- earns recorded before bill amounts were stored (amount null) are ignored.
+  -- 'issued' is everything that staff member issued in the window (same number
+  -- as staff_activity.points_issued).
   earn_base as (
-    select percentile_cont(0.5) within group (order by delta) as med, count(*) as n
+    select percentile_cont(0.5) within group (order by amount) as med, count(*) as n
       from transactions
-     where merchant_id = p_merchant and reason like 'earn:%' and delta > 0
+     where merchant_id = p_merchant and reason = 'earn:purchase' and amount is not null
        and created_at >= p_from - interval '90 days'
   ), flagged as (
     select distinct t.staff_id
       from transactions t, earn_base b
-     where t.merchant_id = p_merchant and t.reason like 'earn:%' and t.created_at >= p_from
-       and b.n >= 10 and t.delta > 5 * b.med
+     where t.merchant_id = p_merchant and t.reason = 'earn:purchase' and t.amount is not null
+       and t.created_at >= p_from and b.n >= 10 and t.amount > 5 * b.med
   ), over_issue as (
     select 'staff_over_issue' as kind, 'warn' as severity,
            jsonb_build_object('staff', st.username, 'issued',
