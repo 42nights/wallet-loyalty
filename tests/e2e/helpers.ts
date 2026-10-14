@@ -11,6 +11,7 @@ export const fx: {
   cashier: Login;
   scanCards: Record<string, Card>;
   searchCard: Card;
+  stamps: { cashier: Login; cards: Record<string, Card> }; // a 5-stamp "Free latte" shop
 } = JSON.parse(process.env.E2E_FIXTURE ?? "null");
 
 // Every spec uses this `test`: it fails a test whose page saw any 5xx. Without
