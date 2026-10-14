@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { digitsOf, maskPhone, phoneMatches, phoneSuffixPattern } from "./phone";
+import { MIN_PHONE_DIGITS, digitsOf, maskPhone, phoneMatches, phoneSuffixPattern } from "./phone";
 
 // A false match here loads the wrong customer at the counter, and points get
 // credited/redeemed on someone else's card.
@@ -25,6 +25,12 @@ test("db pre-filter pattern is digits + \\D* only, anchored at the end", () => {
   const re = new RegExp(phoneSuffixPattern("1234"));
   assert.ok(re.test("+1 555-010-12 34"));
   assert.ok(!re.test("+1 555-010-1243"));
+});
+
+test("lookups need a full local number, never just the last 4", () => {
+  assert.ok(MIN_PHONE_DIGITS >= 7);
+  assert.ok(digitsOf("1234").length < MIN_PHONE_DIGITS);
+  assert.ok(digitsOf("555-0101").length >= MIN_PHONE_DIGITS);
 });
 
 test("masked phone shows only the last 4 digits", () => {

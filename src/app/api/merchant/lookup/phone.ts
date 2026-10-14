@@ -1,9 +1,14 @@
 // Find-by-phone at the counter. Phones are stored exactly as the customer typed
 // them at enrollment ("+1 555-010-1234", "5550101234", "(555) 010-1234"…), so
 // we compare digits only and match from the END of the number: the customer can
-// give the full number with or without the country code, or just the last 4.
-
-export const MIN_PHONE_DIGITS = 4;
+// give the full number with or without the country code.
+//
+// At least 7 digits are required. A last-4 search returned other customers'
+// serials, and with "Send card to phone" that let anyone who knew four digits
+// walk away with someone else's Wallet card (and an auto-loaded single match
+// put earn/redeem on the wrong ledger). The full local number is the minimum
+// proof of identity the counter can ask for.
+export const MIN_PHONE_DIGITS = 7;
 
 export function digitsOf(s: string | null): string {
   return (s ?? "").replace(/\D/g, "");

@@ -25,18 +25,22 @@ export default function ScanPage() {
   const scannerRef = useRef<any>(null);
   const scanningRef = useRef(false);
 
-  // load this merchant's earn rate (bill → points preview) and redeem buttons
+  // load this merchant's earn rate (bill → points preview) and redeem buttons.
+  // Re-run on "Scan next customer" too: the counter tablet keeps /scan open all
+  // day, and an owner changing the template in Settings would otherwise leave
+  // it showing buttons the server now rejects.
+  async function loadMe() {
+    const res = await fetch("/api/merchant/me");
+    if (res.status === 401) return router.push("/login");
+    if (res.ok) {
+      const me = await res.json();
+      if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
+      if (me.role) setRole(me.role);
+      if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
+    }
+  }
   useEffect(() => {
-    (async () => {
-      const res = await fetch("/api/merchant/me");
-      if (res.status === 401) return router.push("/login");
-      if (res.ok) {
-        const me = await res.json();
-        if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
-        if (me.role) setRole(me.role);
-        if (Array.isArray(me.redemptions)) setRedemptions(me.redemptions);
-      }
-    })();
+    loadMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -157,6 +161,7 @@ export default function ScanPage() {
   }
 
   function reset() {
+    loadMe();
     setCustomer(null);
     setToast(null);
     setBill("");
@@ -189,7 +194,7 @@ export default function ScanPage() {
           <div className="label" style={{ marginTop: 8 }}>or find by phone</div>
           <form className="row" onSubmit={findByPhone}>
             <input value={phone} onChange={(e) => setPhone(e.target.value)}
-              type="tel" inputMode="tel" autoComplete="off" placeholder="phone or last 4 digits" />
+              type="tel" inputMode="tel" autoComplete="off" placeholder="customer's phone number" />
             <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
               type="submit" disabled={busy}>Find</button>
           </form>
