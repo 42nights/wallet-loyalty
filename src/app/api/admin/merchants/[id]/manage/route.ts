@@ -21,7 +21,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!m) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const username = supportUsername(m);
-  const find = () => db.from("staff").select("id").eq("username", username).eq("merchant_id", m.id).maybeSingle();
+  // role too: a same-shop cashier that held this name before the prefix was
+  // reserved has a password a real person knows — never sign in as that row.
+  const find = () =>
+    db.from("staff").select("id").eq("username", username).eq("merchant_id", m.id).eq("role", "owner").maybeSingle();
   let { data: row } = await find();
   if (!row) {
     // A random password nobody ever sees: the row can't be signed in to at /login.
