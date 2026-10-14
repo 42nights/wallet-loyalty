@@ -6,6 +6,7 @@ import { rateLimit, clientIp } from "@/lib/ratelimit";
 import { signCardLink, verifyCardLink } from "@/lib/auth";
 import { PUBLIC_BASE_URL } from "@/lib/config";
 import { validateEnroll } from "./validate";
+import { assertPassConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,13 @@ export const runtime = "nodejs";
 // as a QR to scan with the iPhone, so a desktop or Android visit no longer uses
 // up the phone number on a card that cannot be added there (apple-wallet#1).
 export async function POST(req: NextRequest) {
+  try {
+    assertPassConfig();
+  } catch (e) {
+    console.error("enroll disabled:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Sign-up is temporarily unavailable." }, { status: 503 });
+  }
+
   // Public + creates rows → rate-limit by IP to prevent abuse.
   const allowed = await rateLimit(`enroll:${clientIp(req)}`, 20, 60);
   if (!allowed)
@@ -85,6 +93,10 @@ export async function POST(req: NextRequest) {
 // GET /api/enroll?card=<signed link>  → the signed .pkpass. Used by the enroll
 // page's cardUrl and by staff "re-send card" links.
 export async function GET(req: NextRequest) {
+  // Each hit signs a pass, and a link stays valid for an hour → cap replays.
+  if (!(await rateLimit(`enroll-get:${clientIp(req)}`, 30, 60)))
+    return new NextResponse("Too many requests", { status: 429 });
+
   const serial = await verifyCardLink(req.nextUrl.searchParams.get("card") ?? "");
   if (!serial)
     return new NextResponse("This card link has expired. Ask staff for a new one.", { status: 410 });

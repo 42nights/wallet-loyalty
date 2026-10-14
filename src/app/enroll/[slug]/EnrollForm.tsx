@@ -9,11 +9,20 @@ import s from "./EnrollForm.module.css";
 // iPadOS Safari reports a Mac user agent by default, which the Safari branch
 // covers. Everything else gets a QR to scan with an iPhone instead.
 function canAddToWallet(ua: string): boolean {
+  if (inAppBrowser(ua)) return false;
   if (/iPhone|iPad|iPod/.test(ua)) return true;
   return /Macintosh/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/.test(ua);
 }
 
-type Done = { cardUrl: string; qr: string | null }; // qr is set off Apple devices
+// Links opened inside Instagram, Facebook, TikTok, Snapchat… load in the app's
+// own web view, which cannot show the Wallet sheet — a .pkpass there goes
+// nowhere. Those visitors get the card link to open in Safari instead.
+function inAppBrowser(ua: string): boolean {
+  return /FBAN|FBAV|Instagram|Line\/|TikTok|musical_ly|Snapchat|Twitter/i.test(ua);
+}
+
+// qr is set off Apple devices; inApp = an iPhone stuck in an app's web view
+type Done = { cardUrl: string; qr: string | null; inApp: boolean };
 
 export default function EnrollForm({
   slug,
@@ -27,6 +36,7 @@ export default function EnrollForm({
   const [email, setEmail] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   // "info" = already enrolled (not the customer's fault), "bad" = a real failure.
   const [notice, setNotice] = useState<{ text: string; tone: "info" | "bad" } | null>(null);
@@ -66,12 +76,16 @@ export default function EnrollForm({
         // A normal GET of the signed link: the response is the .pkpass, so the
         // Wallet sheet opens over this page and the success screen stays behind it.
         window.location.href = cardUrl;
-        setDone({ cardUrl, qr: null });
+        setDone({ cardUrl, qr: null, inApp: false });
       } else {
         // SVG stays crisp at any size; level L keeps the long signed link to
         // fewer, larger modules (a screen is a clean surface to scan from).
         const svg = await QRCode.toString(cardUrl, { type: "svg", margin: 2, errorCorrectionLevel: "L" });
-        setDone({ cardUrl, qr: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` });
+        setDone({
+          cardUrl,
+          qr: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+          inApp: inAppBrowser(navigator.userAgent),
+        });
       }
     } catch {
       setNotice({
@@ -115,11 +129,30 @@ export default function EnrollForm({
       <div className="wrap">
         {brand}
         <div className="card stack" role="status">
-          <div className={s.title}>You&rsquo;re in! Now add it on your iPhone</div>
-          {/* Apple's suggested wording for a page opened on another device. */}
-          <p className={s.lead}>
-            To add this card to Wallet, open this web page on your iPhone or iPod touch.
-          </p>
+          {done.inApp ? (
+            <>
+              <div className={s.title}>You&rsquo;re in! Open your card in Safari</div>
+              <p className={s.lead}>
+                This app&rsquo;s browser can&rsquo;t add cards to Wallet. Tap <b>•••</b> and choose{" "}
+                <b>Open in browser</b>, or copy your card link and paste it into Safari.
+              </p>
+              <button
+                type="button"
+                className={`btn btn-primary ${s.linkBtn}`}
+                onClick={() => navigator.clipboard?.writeText(done.cardUrl).then(() => setCopied(true), () => {})}
+              >
+                {copied ? "Link copied" : "Copy my card link"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className={s.title}>You&rsquo;re in! Now add it on your iPhone</div>
+              {/* Apple's suggested wording for a page opened on another device. */}
+              <p className={s.lead}>
+                To add this card to Wallet, open this web page on your iPhone or iPod touch.
+              </p>
+            </>
+          )}
           <img
             className={s.qr}
             src={done.qr}

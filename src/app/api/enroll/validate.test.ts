@@ -27,3 +27,12 @@ test("name and phone are required, email is optional but checked", () => {
   });
   assert.equal(validateEnroll({ name: "Ada", phone: "5550100", email: "ada@example.com" }).ok, true);
 });
+
+test("names: control characters stripped, invisible-only rejected, ZWNJ kept", () => {
+  const ok = validateEnroll({ name: "Ann\u0000a\u200B", phone: "5550101234" });
+  assert.ok(ok.ok && ok.value.name === "Ann a");
+  const invisible = validateEnroll({ name: "\u200B\u200C\uFEFF", phone: "5550101234" });
+  assert.ok(!invisible.ok && invisible.errors.name);
+  const persian = validateEnroll({ name: "\u0645\u06cc\u200c\u0631\u0648\u062f", phone: "5550101234" });
+  assert.ok(persian.ok && persian.value.name.includes("\u200c"));
+});

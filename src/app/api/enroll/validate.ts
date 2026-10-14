@@ -28,8 +28,15 @@ export function validateEnroll(input: {
 
   // Collapse inner whitespace too: the name is printed on the Wallet card, and a
   // pasted newline or tab would break that line.
-  const name = typeof input.name === "string" ? input.name.trim().replace(/\s+/g, " ") : "";
-  if (!name) errors.name = "Enter your name.";
+  // Control characters and invisible spacers are stripped first: a NUL broke the
+  // insert (500). ZWNJ/ZWJ (U+200C/D) stay — Persian, Arabic-script and Indic
+  // names and emoji need them — but a name with nothing visible is rejected
+  // instead of printing an empty MEMBER line on the card.
+  const name =
+    typeof input.name === "string"
+      ? input.name.replace(/[\u0000-\u001F\u007F\u200B\u2060\uFEFF]/g, " ").trim().replace(/\s+/g, " ")
+      : "";
+  if (!name.replace(/[\u200C\u200D]/g, "").trim()) errors.name = "Enter your name.";
   else if (name.length > NAME_MAX) errors.name = `Use ${NAME_MAX} characters or fewer.`;
 
   const rawPhone = typeof input.phone === "string" ? input.phone.trim() : "";
