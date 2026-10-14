@@ -23,6 +23,8 @@ const MUTATE = process.env.MUTATE === "1";
 // The app under test gets a per-run admin password (process env beats
 // .env.local), so the admin checks never need the real one.
 const ADMIN_PW = `itest-admin-${randomUUID()}`;
+// Same idea for the birthday cron's bearer secret.
+const CRON_PW = `itest-cron-${randomUUID()}`;
 const LOG = join(ROOT, "test-results", "integration", "next.log");
 
 let fail = 0;
@@ -73,6 +75,7 @@ function startNext(apnsPort, env) {
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
       PUBLIC_BASE_URL: B,
       ADMIN_PASSWORD: ADMIN_PW,
+      CRON_SECRET: CRON_PW,
     },
   });
 }
@@ -533,6 +536,120 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+  // a 2x happy hour doubles what one bill can credit, so 10 x 100000 no longer fits
+  await rows(db.from("merchants").update({ happy_hour: { days: [1], start: "15:00", end: "17:00", multiplier: 2 } }).eq("id", adm.id).select("id"));
+  const doubled = await setRate(10);
+  chk("admin rate counts the owner's 2× happy hour (10 x 100000 x 2 → 400, at most 5)",
+    `${doubled.status}:${/at most 5\b/.test((await doubled.json()).error ?? "")}`, "400:true");
+
+  // --- birthday treat: shop time zone (set in /admin), optional month + day at
+  //     enroll, and the daily cron that credits it once per card per year ------
+  console.log("birthday treat");
+  // The suite is plain JS, so it reads shop clocks with Intl itself.
+  const KIRI = "Pacific/Kiritimati"; // UTC+14: a calendar day ahead of the US most of the day
+  const LA = "America/Los_Angeles";
+  const mmdd = (tz, d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, month: "2-digit", day: "2-digit" }).format(d);
+  const bd = await createMerchant(db, run, { key: "bday", template: "cafe", earnRate: 10 });
+  const off = await createMerchant(db, run, { key: "nobday", template: "cafe", earnRate: 10 });
+  const tzSet = (timezone) => req(`/api/admin/merchants/${bd.id}`, { method: "PATCH", body: { timezone }, j: admin });
+  chk("admin: a time zone Intl doesn't know → 400", (await tzSet("Mars/Olympus")).status, 400);
+  const tzOk = await tzSet("pacific/kiritimati");
+  chk("admin: time zone saved in Intl's spelling",
+    `${tzOk.status}:${(await rows(db.from("merchants").select("timezone").eq("id", bd.id)))[0]?.timezone}`, `200:${KIRI}`);
+  const bdOwn = jar();
+  const bdCash = jar();
+  await login(bdOwn, bd.owner);
+  await login(bdCash, bd.cashier);
+  chk("owner turns the birthday treat on",
+    (await (await req("/api/merchant/settings", { method: "PATCH", body: { birthdayReward: true }, j: bdOwn })).json()).birthdayReward, true);
+  const enrol = async (m, birthday) => {
+    const phone = "+1556" + String(Math.floor(1e6 + Math.random() * 9e6));
+    const r = await req("/api/enroll", { method: "POST", body: { name: "Birthday Test", phone, birthday, slug: m.slug } });
+    const [c] = await rows(db.from("passes").select("serial, auth_token, birthday").eq("merchant_id", m.id).eq("customer_phone", phone));
+    return { status: r.status, serial: c?.serial, authToken: c?.auth_token, birthday: c?.birthday ?? null };
+  };
+  const today = mmdd(KIRI);
+  const bad = await req("/api/enroll", { method: "POST", body: { name: "x", phone: "+15569990000", birthday: "02-30", slug: bd.slug } });
+  chk("enroll: an impossible birthday (02-30) → 400 on the birthday field", `${bad.status}:${Boolean((await bad.json()).fields?.birthday)}`, "400:true");
+  const bToday = await enrol(bd, today);
+  const bOther = await enrol(bd, mmdd(KIRI, new Date(Date.now() - 86_400_000))); // yesterday on the shop's clock
+  const bOff = await enrol(off, mmdd(LA));
+  chk("enroll stores month + day on year 2000, and nothing while the treat is off",
+    `${bToday.status}:${bToday.birthday}|${bOff.status}:${bOff.birthday}`, `200:2000-${today}|200:null`);
+  // the toggle-off shop's card gets a birthday that IS today, so skipping it means something
+  await rows(db.from("passes").update({ birthday: `2000-${mmdd(LA)}` }).eq("serial", bOff.serial).select("serial"));
+  const year = new Intl.DateTimeFormat("en-US", { timeZone: KIRI, year: "numeric" }).format(new Date());
+  const planted = `birthday:${year}:${bOther.serial}`;
+  chk("the cron's key prefix is refused from clients (redeem, adjust)", [
+    (await redeem(bdCash, { serial: bOther.serial, amount: 1 }, planted)).status,
+    (await req("/api/merchant/adjust", { method: "POST", body: { serial: bOther.serial, delta: 5 }, headers: { "Idempotency-Key": planted }, j: bdOwn })).status,
+  ].join(","), "400,400");
+  const cron = (auth) => req("/api/cron/birthday", { headers: auth ? { Authorization: auth } : {} });
+  chk("cron: no secret, a wrong one, or no Bearer → 401",
+    [(await cron()).status, (await cron("Bearer nope")).status, (await cron(CRON_PW)).status].join(","), "401,401,401");
+  const devB = `t-${run}-dev-bday`;
+  const tokB = `t-${run}-tok-bday`;
+  chk("register device on the birthday card", (await register(devB, bToday, tokB)).status, 201);
+  mock.clear();
+  const run1 = await cron(`Bearer ${CRON_PW}`);
+  const run2 = await cron(`Bearer ${CRON_PW}`);
+  chk("cron runs twice the same day", `${run1.status},${run2.status}`, "200,200");
+  const bLedger = await rows(db.from("transactions").select("serial, delta, staff_id, idempotency_key")
+    .eq("reason", "bonus:birthday").in("serial", [bToday.serial, bOther.serial, bOff.serial]));
+  chk("one credit across both runs, only to the card whose birthday is today on the shop's clock (+80 = cafe's cheapest reward, no staff, key birthday:<year>:<serial>)",
+    bLedger.map((t) => `${t.serial === bToday.serial}:${t.delta}:${t.staff_id}:${t.idempotency_key === `birthday:${year}:${bToday.serial}`}`).join(","),
+    "true:80:null:true");
+  chk("birthday card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", bToday.serial)))[0]?.points, 80);
+  chk("the credit pushed the card once; the replay pushed nothing", pushesTo(tokB).length, 1);
+  const onDay = new Date(`2000-${today}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+  chk("card back: BIRTHDAY line", field(await latestPass(bToday), "backFields", "birthday"), `80 bonus points on ${onDay}`);
+
+  // --- happy hour: a weekly window on the shop's clock multiplies bill earns
+  //     at the counter; the ledger keeps earn:purchase and the raw bill ---------
+  console.log("happy hour");
+  const hm = await createMerchant(db, run, { key: "hh", template: "cafe", earnRate: 10 });
+  const hmOwn = jar();
+  const hmCash = jar();
+  await login(hmOwn, hm.owner);
+  await login(hmCash, hm.cashier);
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // "now" in the merchant's (default) time zone. A run that crosses local
+  // midnight or sits in 23:59 can fail these; rerun.
+  const wd = DAYS.indexOf(new Intl.DateTimeFormat("en-US", { timeZone: LA, weekday: "short" }).format(new Date()));
+  const allDay = (days) => ({ days, start: "00:00", end: "23:59", multiplier: 2 });
+  const setHh = (happyHour, extra = {}) => req("/api/merchant/settings", { method: "PATCH", body: { ...extra, happyHour }, j: hmOwn });
+  const hc = await createCard(db, hm.id, { name: "Happy Card" });
+  const devH = `t-${run}-dev-hh`;
+  const tokH = `t-${run}-tok-hh`;
+  chk("register device on the happy-hour card", (await register(devH, hc, tokH)).status, 201);
+  // sent with a valid bill limit, so a route that ignored happyHour would save (200)
+  const invalid = [{ ...allDay([7]) }, { ...allDay([wd]), start: "17:00", end: "15:00" }, { ...allDay([wd]), multiplier: 4 },
+    { ...allDay([wd]), extra: 1 }, { ...allDay([]) }, "2x", { ...allDay([wd]), end: "5pm" }];
+  const invalidStatus = [];
+  for (const w of invalid) invalidStatus.push((await setHh(w, { maxBill: 1000 })).status);
+  chk("malformed happy-hour windows → 400", invalidStatus.join(","), invalid.map(() => 400).join(","));
+  mock.clear();
+  const on = await setHh(allDay([wd]));
+  chk("owner saves a 2× window covering now", `${on.status}:${JSON.stringify((await on.json()).happyHour)}`, `200:${JSON.stringify(allDay([wd]))}`);
+  chk("the settings change pushed the card", pushesTo(tokH).length, 1);
+  chk("/me tells /scan happy hour is on", (await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour, 2);
+  const inWin = await (await redeem(hmCash, { serial: hc.serial, amount: 10 })).json();
+  const bigIn = await (await redeem(hmCash, { serial: hc.serial, amount: 600 })).json();
+  chk("card back: HAPPY HOUR line", field(await latestPass(hc), "backFields", "happyhour"), `2× points ${DAYS[wd]} 12 am–11:59 pm`);
+  chk("window moved off today", (await setHh(allDay([0, 1, 2, 3, 4, 5, 6].filter((d) => d !== wd)))).status, 200);
+  const outWin = await (await redeem(hmCash, { serial: hc.serial, amount: 10 })).json();
+  chk("$10 @10x: doubled inside the window, normal outside (points:happyHour)",
+    `${inWin.points}:${inWin.happyHour}|${outWin.points}:${outWin.happyHour}`, "200:2|100:null");
+  chk("big-bill confirm shows the multiplied points", `${bigIn.confirm?.points}:${bigIn.happyHour}`, "12000:2");
+  const hLedger = await rows(db.from("transactions").select("reason, amount, delta").eq("serial", hc.serial).order("id"));
+  chk("ledger keeps reason earn:purchase and the raw bill",
+    hLedger.map((t) => `${t.reason}:${Number(t.amount)}:${t.delta}`).join(","), "earn:purchase:10:200,earn:purchase:10:100");
+  chk("happy-hour card: cached balance equals the ledger", (await rows(db.from("passes").select("points").eq("serial", hc.serial)))[0]?.points, 300);
+  chk("happy hour off", `${(await setHh(null)).status}:${(await (await req("/api/merchant/me", { j: hmCash })).json()).happyHour}`, "200:null");
+  chk("bill limit 100000 at 10 pts/$1", (await setCap(hmOwn, 100000)).status, 200);
+  const tooRich = await setHh(allDay([wd]));
+  chk("the 1,000,000 cap counts the multiplier (2× at 10 x 100000 → 400 naming 50000)",
+    `${tooRich.status}:${/happy hour, the bill limit can be at most 50000\b/.test((await tooRich.json()).error ?? "")}`, "400:true");
 }
 
 // ---------------------------------------------------------------------------
