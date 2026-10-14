@@ -67,8 +67,8 @@ export default function CardStatus({
       <div>
         <div className="label">Deactivate card</div>
         <div className="label" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "none", marginBottom: 0 }}>
-          Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet. Its {unit}
-          and history are kept, and you can reactivate it.
+          Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet.
+          Its {unit} and history are kept, and you can reactivate it.
         </div>
         <div style={{ marginTop: 8, lineHeight: 1.5 }}>
           <b>Lost phone?</b> Use Send card to phone instead — it is the same card.

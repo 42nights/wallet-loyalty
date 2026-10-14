@@ -374,8 +374,8 @@ export default function SettingsForm() {
               <div className={styles.help}>
                 The sign-up page asks for an optional birthday (month and day). On the day, the member&apos;s card gets{" "}
                 <b>{s.birthdayBonus} bonus {unitLabel(s.mode, s.birthdayBonus)}</b>
-                {stamps ? ", a full card" : ", the price of your cheapest reward"}: enough for {s.birthdayTreat}. Cards
-                less than a month old wait until next year.
+                {stamps ? ", a full card" : ", the price of your cheapest reward"} ({s.birthdayTreat}). Cards less than a
+                month old wait until next year.
               </div>
             </div>
             <label className={styles.check}>
@@ -401,8 +401,8 @@ export default function SettingsForm() {
               <div className="label" id="review-h">Review link</div>
               <div className={styles.help}>
                 From a customer&apos;s 3rd visit, the back of their card shows &ldquo;Enjoying {s.merchantName}? Leave us a
-                review&rdquo; with this link (for example your Google review link). It never earns points. Leave empty
-                for none.
+                review&rdquo; with this link (for example your Google review link). It never earns {unitLabel(s.mode, 2)}.
+                Leave empty for none.
               </div>
             </div>
             <form className="row" onSubmit={saveReview}>
