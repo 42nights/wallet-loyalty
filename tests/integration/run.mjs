@@ -264,6 +264,7 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   console.log("template scoping");
   const me = await (await req("/api/merchant/me", { j: cash })).json();
   chk("cafe /me template", me.template, "cafe");
+  chk("cafe /me maxBill (schema default)", me.maxBill, 1000);
   chk("cafe /me buttons", me.redemptions?.map((a) => a.id).join(","), "free_coffee,free_pastry,size_upgrade,extra_shot");
   chk("cafe cashier: restaurant 'drinks' → 400", (await redeem(cash, { serial: gc.serial, actionId: "drinks" })).status, 400);
   const rc = await createCard(db, rest.id, { name: "Restaurant Card" });
@@ -343,7 +344,7 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("bill exactly at the cap (1000, confirmed) earns", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 1000, confirm: true })), 20000);
   const over = await redeem(capCash, { serial: cc.serial, amount: 1000.01, confirm: true });
   chk("bill over the cap → 422 even when confirmed", over.status, 422);
-  chk("422 message names the limit", /limit of 1000\b/.test((await over.json()).error ?? ""), true);
+  chk("422 message names the limit in dollars", /limit of \$1,000\.00 /.test((await over.json()).error ?? ""), true);
   chk("422 wrote nothing to the ledger", await ledgerRows(), 3);
   chk("cashier cannot change the cap", (await setCap(capCash, 5000)).status, 403);
   chk("cap below 10 → 400", (await setCap(capOwn, 9.99)).status, 400);
@@ -355,6 +356,71 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("1500 confirmed now earns", await balanceOf(await redeem(capCash, { serial: cc.serial, amount: 1500, confirm: true })), 35000);
   chk("cap card: cached balance equals the ledger",
     (await rows(db.from("passes").select("points").eq("serial", cc.serial)))[0]?.points, 35000);
+
+  // --- undo: POST /api/merchant/undo reverses one counter tap by its
+  //     Idempotency-Key, through apply_points (new row, key "undo:<key>") -------
+  console.log("undo");
+  const uc = await createCard(db, cafe.id, { name: "Undo Card" });
+  const undo = (j, idempotencyKey) =>
+    req("/api/merchant/undo", { method: "POST", body: { idempotencyKey }, j });
+  const devU = `t-${run}-dev-undo`;
+  const tokU = `t-${run}-tok-undo`;
+  chk("register device on the undo card", (await register(devU, uc, tokU)).status, 201);
+  const k1 = randomUUID();
+  chk("earn $20 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 20 }, k1)), 200);
+  mock.clear();
+  const u1 = await undo(cash, k1);
+  chk("undo the earn → balance restored", `${u1.status}:${(await u1.json()).newBalance}`, "200:0");
+  chk("undo pushes to the card's device like any balance change", pushesTo(tokU).length, 1);
+  const u2 = await undo(cash, k1);
+  const u2j = await u2.json();
+  chk("second undo is a replay, not a second reversal", `${u2.status}:${u2j.newBalance}:${u2j.replay}`, "200:0:true");
+  chk("a replayed undo pushes nothing", pushesTo(tokU).length, 1);
+  const rev = await rows(db.from("transactions").select("delta, reason, staff_id").eq("serial", uc.serial).eq("idempotency_key", `undo:${k1}`));
+  chk("exactly one reversal row: -200 undo:earn:purchase by the cashier",
+    rev.map((t) => `${t.delta}:${t.reason}:${t.staff_id === cafe.cashier.id}`).join(","), "-200:undo:earn:purchase:true");
+
+  const cash2 = jar();
+  const c2 = { username: `t-${run}-cafe-cashier2`, password: randomUUID() };
+  chk("owner adds a second cashier", (await req("/api/merchant/staff", { method: "POST", body: c2, j: own })).status, 200);
+  chk("second cashier login", (await login(cash2, c2)).status, 200);
+  const k2 = randomUUID();
+  chk("earn $30 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 30 }, k2)), 300);
+  chk("another shop's cashier can't see the tap → 404", (await undo(other, k2)).status, 404);
+  chk("another cashier of the same shop → 403", (await undo(cash2, k2)).status, 403);
+  chk("an unknown key → 404", (await undo(cash, randomUUID())).status, 404);
+  chk("no key → 400", (await req("/api/merchant/undo", { method: "POST", body: {}, j: cash })).status, 400);
+  chk("logged out → 401", (await req("/api/merchant/undo", { method: "POST", body: { idempotencyKey: k2 } })).status, 401);
+  const u3 = await undo(own, k2);
+  chk("the owner may undo a cashier's tap", `${u3.status}:${(await u3.json()).newBalance}`, "200:0");
+
+  const k3 = randomUUID();
+  const k4 = randomUUID();
+  chk("earn $10 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 10 }, k3)), 100);
+  chk("redeem extra_shot (80)", await balanceOf(await redeem(cash, { serial: uc.serial, actionId: "extra_shot" }, k4)), 20);
+  const u4 = await undo(cash, k3);
+  const u4j = await u4.json();
+  chk("undoing an earn whose points were spent → 422", `${u4.status}:${u4j.error}`, "422:Those points were already used");
+  chk("that 422 carries the real balance", u4j.balance, 20);
+  const u5 = await undo(cash, k4);
+  chk("undo the reward → the points come back", `${u5.status}:${(await u5.json()).newBalance}`, "200:100");
+  chk("an undo can't itself be undone", (await undo(cash, `undo:${k4}`)).status, 400);
+
+  const k5 = randomUUID();
+  chk("earn $5 @10x", await balanceOf(await redeem(cash, { serial: uc.serial, amount: 5 }, k5)), 150);
+  // age the tap past the 2-minute window (test-only: the delta is untouched)
+  await rows(db.from("transactions").update({ created_at: new Date(Date.now() - 3 * 60_000).toISOString() })
+    .eq("merchant_id", cafe.id).eq("idempotency_key", k5).select("id"));
+  chk("after 2 minutes → refused (409)", (await undo(cash, k5)).status, 409);
+  const k6 = randomUUID();
+  chk("owner adjust +10", (await req("/api/merchant/adjust", {
+    method: "POST", body: { serial: uc.serial, delta: 10 }, headers: { "Idempotency-Key": k6 }, j: own,
+  })).status, 200);
+  chk("a manual adjustment isn't a counter tap → 400", (await undo(own, k6)).status, 400);
+  const uLedger = await rows(db.from("transactions").select("delta").eq("serial", uc.serial));
+  const uCached = (await rows(db.from("passes").select("points").eq("serial", uc.serial)))[0]?.points;
+  chk("undo card: ledger sum equals the cached balance",
+    `${uLedger.reduce((a, t) => a + t.delta, 0)}=${uCached}`, "160=160");
 
   // --- anomaly rule: detect_anomalies flags a single 1,000,000-point earn by
   //     a shop's only cashier (the old cross-staff z-score needed 6+ staff) and

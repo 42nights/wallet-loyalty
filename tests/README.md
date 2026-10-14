@@ -88,7 +88,7 @@ What it covers:
   and the re-downloaded pass shows the new balance.
 - **410 pruning**: the mock answers 410, a redeem pushes, and the device row and
   its registrations are gone.
-- **template scoping**: `/me` returns the cafe buttons. A cafe cashier can't redeem
+- **template scoping**: `/me` returns the cafe buttons (and `maxBill`). A cafe cashier can't redeem
   `drinks` and a restaurant cashier can't redeem `free_coffee` (both 400), while
   each can redeem its own template's actions.
 - **campaigns**: an offer-only campaign makes the card show up in
@@ -102,6 +102,13 @@ What it covers:
   directly; half or more without `confirm: true` is a 409 carrying the points and
   writes nothing; a bill over the cap is a 422 even when confirmed. Only an owner
   can change the cap, only to 10–100000, and a raised cap is honoured.
+- **undo**: `POST /api/merchant/undo` with an earn's key restores the balance and
+  pushes once; a second undo is a replay (one `undo:<key>` row, no second push).
+  Another shop's cashier gets 404, another cashier of the same shop 403, the owner
+  may undo. Undoing an earn whose points were spent is a 422 "Those points were
+  already used"; undoing a reward gives the points back; an undo row, a tap older
+  than 2 minutes (409) and a manual adjustment can't be undone. Ledger sum equals
+  the cached balance.
 - **anomaly rule**: on a fresh merchant, 10 normal earns give `detect_anomalies`
   `[]`; one confirmed 1,000,000-point earn by its cashier gives exactly one
   `staff_over_issue` naming that cashier.
@@ -129,8 +136,10 @@ both projects. Specs:
   reward is disabled with "needs N · has 0" → "abc" shows the inline amount hint →
   "12,50" earns 125 at 10x (preview, balance, bill cleared) → the cafe template's 4
   buttons are shown and the restaurant buttons are not → Extra Shot redeems
-  (balance 45) → a 600 bill shows the inline confirm with +6000 pts, Cancel credits
-  nothing, confirming credits it (6045). A second test: `/scan?denied=1` shows
+  (balance 45), its toast offers Undo for 10 s (skipped with Playwright's clock) →
+  5000 shows the inline over-limit message and no points preview → a 600 bill shows
+  the inline confirm with $600.00 and +6000 pts, Cancel credits nothing, confirming
+  credits it (6045) → Undo takes it back (45). A second test: `/scan?denied=1` shows
   "That page is for owners".
 - `owner.spec.ts`: owner /dashboard shows the 5 KPIs; /customers search finds the
   fixture customer by name and by phone and opens their page; a cashier on
