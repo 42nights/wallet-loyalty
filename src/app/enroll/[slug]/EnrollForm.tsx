@@ -24,12 +24,15 @@ function inAppBrowser(ua: string): boolean {
 // qr is set off Apple devices; inApp = an iPhone stuck in an app's web view
 type Done = { cardUrl: string; qr: string | null; inApp: boolean };
 
+// unit: what the card counts, "points" or "stamps"
 export default function EnrollForm({
   slug,
   merchantName,
+  unit,
 }: {
   slug: string;
   merchantName: string;
+  unit: string;
 }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -110,7 +113,7 @@ export default function EnrollForm({
         <div className="card stack" role="status">
           <div className={s.title}>Your card is ready</div>
           <p className={s.lead}>
-            Tap <b>Add</b> in the Wallet sheet to save your {merchantName} card. Your points
+            Tap <b>Add</b> in the Wallet sheet to save your {merchantName} card. Your {unit}
             update on it automatically.
           </p>
           <a className={`btn btn-primary ${s.linkBtn}`} href={done.cardUrl}>

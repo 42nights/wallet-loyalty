@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatPhone } from "@/lib/format";
+import { unitLabel, type LoyaltyMode } from "@/lib/config";
 
 type Cust = {
   serial: string;
@@ -17,7 +18,7 @@ type Cust = {
 const PAGE = 50; // the API's default page size, sent explicitly
 const nf = (n: number) => n.toLocaleString();
 
-export default function CustomersTable() {
+export default function CustomersTable({ mode }: { mode: LoyaltyMode }) {
   const router = useRouter();
   const [rows, setRows] = useState<Cust[]>([]);
   const [total, setTotal] = useState(0);
@@ -88,7 +89,7 @@ export default function CustomersTable() {
             style={{ width: "auto", padding: "0 12px" }}
           >
             <option value="recent">Recent</option>
-            <option value="points">Points</option>
+            <option value="points">{mode === "stamps" ? "Stamps" : "Points"}</option>
             <option value="lifetime">Lifetime</option>
             <option value="name">Name</option>
           </select>
@@ -110,7 +111,7 @@ export default function CustomersTable() {
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{nf(c.points)} pts</div>
+              <div style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{nf(c.points)} {unitLabel(mode, c.points, true)}</div>
               <div className="label">
                 {c.last_seen ? new Date(c.last_seen).toLocaleDateString(undefined, { dateStyle: "medium" }) : "never"}
               </div>

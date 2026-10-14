@@ -1,25 +1,28 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { unitLabel, type LoyaltyMode } from "@/lib/config";
 
 const MAX = 1_000_000; // the adjust route's own cap
 const nf = (n: number) => n.toLocaleString();
 
 // `balance` comes from the server page and refreshes after each adjustment,
-// so the confirm step always shows the real resulting balance.
-export default function AdjustPoints({ serial, balance }: { serial: string; balance: number }) {
+// so the confirm step always shows the real resulting balance. `mode` only
+// picks the word: a stamp card adjusts stamps, through the same route.
+export default function AdjustPoints({ serial, balance, mode }: { serial: string; balance: number; mode: LoyaltyMode }) {
+  const u = unitLabel(mode, 2);
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
 
-  // Whole points only: "50" — not "-5", "1.5", "abc" or an empty box.
+  // Whole numbers only: "50" — not "-5", "1.5", "abc" or an empty box.
   const n = /^\d+$/.test(amount.trim()) ? Number(amount.trim()) : NaN;
 
   function valid(): boolean {
-    if (!(n > 0)) setMsg({ kind: "bad", text: "Enter a whole number of points above 0, like 50." });
-    else if (n > MAX) setMsg({ kind: "bad", text: `You can adjust up to ${nf(MAX)} points at a time.` });
+    if (!(n > 0)) setMsg({ kind: "bad", text: `Enter a whole number of ${u} above 0, like ${mode === "stamps" ? 2 : 50}.` });
+    else if (n > MAX) setMsg({ kind: "bad", text: `You can adjust up to ${nf(MAX)} ${u} at a time.` });
     else return true;
     return false;
   }
@@ -41,7 +44,7 @@ export default function AdjustPoints({ serial, balance }: { serial: string; bala
     if (res.status === 422)
       return setMsg({ kind: "bad", text: `That would take the balance below zero (it's ${nf(d.balance ?? balance)}).` });
     if (!res.ok) return setMsg({ kind: "bad", text: d.error || "Couldn't adjust the balance. Try again." });
-    setMsg({ kind: "ok", text: `Done — balance is now ${nf(d.newBalance)} points.` });
+    setMsg({ kind: "ok", text: `Done — balance is now ${nf(d.newBalance)} ${u}.` });
     setAmount("");
     router.refresh();
   }
@@ -55,7 +58,7 @@ export default function AdjustPoints({ serial, balance }: { serial: string; bala
   function askRemove() {
     if (!valid()) return;
     if (n > balance)
-      return setMsg({ kind: "bad", text: `They only have ${nf(balance)} points — you can remove up to ${nf(balance)}.` });
+      return setMsg({ kind: "bad", text: `They only have ${nf(balance)} ${u} — you can remove up to ${nf(balance)}.` });
     setMsg(null);
     setConfirming(true);
   }
@@ -71,8 +74,8 @@ export default function AdjustPoints({ serial, balance }: { serial: string; bala
           setMsg(null);
         }}
         inputMode="numeric"
-        placeholder="points"
-        aria-label="Points to add or remove"
+        placeholder={u}
+        aria-label={`${u[0].toUpperCase()}${u.slice(1)} to add or remove`}
         aria-invalid={msg?.kind === "bad" || undefined}
       />
       <div className="grid2">
@@ -85,7 +88,7 @@ export default function AdjustPoints({ serial, balance }: { serial: string; bala
       </div>
       {confirming && (
         <div className="confirm">
-          Remove <b>{nf(n)}</b> points? Their balance goes from {nf(balance)} to <b>{nf(balance - n)}</b>.
+          Remove <b>{nf(n)}</b> {u}? Their balance goes from {nf(balance)} to <b>{nf(balance - n)}</b>.
           <div className="row">
             <button className="btn btn-primary" disabled={busy} onClick={() => send(-n)}>
               {busy ? "…" : `Yes, remove ${nf(n)}`}

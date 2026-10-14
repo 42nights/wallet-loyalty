@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
+import { unitLabel } from "@/lib/config";
 import EnrollForm from "./EnrollForm";
 
 export const runtime = "nodejs";
@@ -12,13 +13,14 @@ export default async function EnrollPage({
 }) {
   const { slug } = await params;
 
+  // "*" so a database without the loyalty_mode column still serves the page
   const { data: merchant } = await db
     .from("merchants")
-    .select("id, name")
+    .select("*")
     .eq("slug", slug)
     .single();
 
   if (!merchant) notFound();
 
-  return <EnrollForm slug={slug} merchantName={merchant.name} />;
+  return <EnrollForm slug={slug} merchantName={merchant.name} unit={unitLabel(merchant.loyalty_mode, 2)} />;
 }
