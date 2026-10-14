@@ -78,8 +78,8 @@ test("owner: Enter in the new-tag box makes the tag and tags this customer", asy
 });
 
 test("owner deactivates a card with a reason, /scan shows it deactivated, then reactivates it", async ({ page }, info) => {
-  const card = fx.voidCards[info.project.name];
-  await apiLogin(page, fx.owner);
+  const { owner, card } = fx.voidCards[info.project.name];
+  await apiLogin(page, owner);
   await page.goto(`/customers/${card.serial}`);
   await page.getByRole("button", { name: "Deactivate card" }).click();
   const yes = page.getByRole("button", { name: "Yes, deactivate" });

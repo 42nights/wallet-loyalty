@@ -14,10 +14,13 @@ export default async function globalSetup(config) {
   try {
     const m = await createMerchant(db, run, { key: "e2e", template: "cafe", earnRate: 10 });
     const scanCards = {};
+    // The deactivate journey gets a shop (and owner) per project: the shared
+    // owner already logs in 10 times a run, the login limit per minute.
     const voidCards = {};
     for (const p of config.projects) {
       scanCards[p.name] = await createCard(db, m.id, { name: `Scan ${p.name}` });
-      voidCards[p.name] = await createCard(db, m.id, { name: `Void ${p.name}` });
+      const v = await createMerchant(db, run, { key: `void-${p.name}`, template: "cafe", earnRate: 10 });
+      voidCards[p.name] = { owner: v.owner, card: await createCard(db, v.id, { name: `Void ${p.name}` }) };
     }
     // The happy-hour journey switches a merchant's happy hour on, which would
     // double the points the /scan journey above asserts, so it gets its own
