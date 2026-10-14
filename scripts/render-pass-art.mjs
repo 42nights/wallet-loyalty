@@ -65,15 +65,22 @@ const MOTIFS = {
   // third: wide at the base, tapering to a point, gone by mid-height. Caramel
   // rather than the terracotta label colour, so it reads as steam.
   cafe: () => {
-    const wisp = ([x, w, top, sway, lean]) =>
-      `<path d="M${x - w / 2} 152C${x - w / 2 - sway} 124 ${x + sway} 104 ${x + lean} ${top}` +
-      `C${x + sway + w * 0.35} 106 ${x + w / 2 - sway} 126 ${x + w / 2} 152Z"/>`;
+    // Each wisp: a centre line swaying on a sine, offset to both sides by a
+    // half width that narrows to nothing at the tip.
+    const wisp = ([x0, w, top, amp, phase]) => {
+      const pts = Array.from({ length: 25 }, (_, i) => {
+        const f = i / 24;
+        return [x0 + amp * Math.sin(phase + f * Math.PI * 1.6), 150 - (150 - top) * f, (w / 2) * (1 - f) ** 0.8];
+      });
+      const side = (list, dir) => list.map(([x, y, hw]) => `${(x + dir * hw).toFixed(1)} ${y.toFixed(1)}`).join("L");
+      return `<path d="M${side(pts, -1)}L${side([...pts].reverse(), 1)}Z"/>`;
+    };
     return `
-      <linearGradient id="steam" gradientUnits="userSpaceOnUse" x1="0" y1="144" x2="0" y2="66">
-        <stop offset="0" stop-color="rgb(208,167,120)" stop-opacity=".3"/>
+      <linearGradient id="steam" gradientUnits="userSpaceOnUse" x1="0" y1="144" x2="0" y2="70">
+        <stop offset="0" stop-color="rgb(208,167,120)" stop-opacity=".36"/>
         <stop offset="1" stop-color="rgb(208,167,120)" stop-opacity="0"/>
       </linearGradient>
-      <g fill="url(#steam)">${[[282, 18, 62, 9, 6], [313, 24, 50, 12, -6], [343, 16, 68, 8, 7]].map(wisp).join("")}</g>`;
+      <g fill="url(#steam)">${[[284, 14, 56, 6, 0], [314, 18, 44, 8, 2.2], [343, 12, 62, 5, 1]].map(wisp).join("")}</g>`;
   },
   // Art-deco fan: half rings on a baseline, alternating heavy and hairline,
   // around a small solid sun. Everything sits inside the strip.
