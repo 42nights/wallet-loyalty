@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hashPassword, isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { PUBLIC_BASE_URL } from "@/lib/config";
-import { merchantFields, MIN_PASSWORD, SLUG_RE, USERNAME_RE } from "@/lib/admin/merchant";
+import { isSupportUsername, merchantFields, MIN_PASSWORD, SLUG_RE, SUPPORT_RESERVED, USERNAME_RE } from "@/lib/admin/merchant";
 
 export const runtime = "nodejs"; // bcrypt hashing — keep off edge
 
@@ -27,6 +27,7 @@ function login(v: unknown, role: Login["role"]): Login | string {
   const password = typeof o.password === "string" ? o.password : "";
   if (!USERNAME_RE.test(username))
     return `${role} username must be 3-40 characters: lowercase letters, digits, . _ -`;
+  if (isSupportUsername(username)) return SUPPORT_RESERVED;
   if (password.length < MIN_PASSWORD || password.length > 128)
     return `${role} password must be at least ${MIN_PASSWORD} characters`;
   return { username, password, role };

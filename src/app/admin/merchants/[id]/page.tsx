@@ -95,15 +95,24 @@ export default async function AdminMerchantPage({ params }: { params: Promise<{ 
             {ago(stats.lastActivity)} · created {m.created_at ? day(m.created_at) : "—"}
           </div>
         </div>
-        {enrollUrl && (
-          <Link
-            href={`/settings/poster?merchant=${m.id}`}
-            className="btn btn-ghost"
-            style={{ width: "auto", padding: "12px 18px", fontSize: 15, textDecoration: "none" }}
-          >
-            Print sign-up poster
-          </Link>
-        )}
+        <div className={s.actions}>
+          {enrollUrl && (
+            <Link
+              href={`/settings/poster?merchant=${m.id}`}
+              className="btn btn-ghost"
+              style={{ width: "auto", padding: "12px 18px", fontSize: 15, textDecoration: "none" }}
+            >
+              Print sign-up poster
+            </Link>
+          )}
+          {/* Signs you in to this shop's owner dashboard as its 42nights
+              support login. A plain POST: the admin cookie is SameSite=Lax. */}
+          <form method="post" action={`/api/admin/merchants/${m.id}/manage`}>
+            <button className="btn btn-primary" type="submit" style={{ padding: "12px 18px", fontSize: 15 }}>
+              Manage as owner
+            </button>
+          </form>
+        </div>
       </div>
 
       <KpiTiles

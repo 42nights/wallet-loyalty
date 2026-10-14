@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword, isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
-import { generatePassword, UUID_RE } from "@/lib/admin/merchant";
+import { generatePassword, isSupportUsername, SUPPORT_NO_PASSWORD, UUID_RE } from "@/lib/admin/merchant";
 
 export const runtime = "nodejs"; // bcrypt hashing — keep off edge
 
@@ -14,6 +14,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (!(await isAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { data: target } = await db.from("staff").select("username").eq("id", id).maybeSingle();
+  if (target && isSupportUsername(target.username))
+    return NextResponse.json({ error: SUPPORT_NO_PASSWORD }, { status: 400 });
 
   const password = generatePassword();
   const { data, error } = await db

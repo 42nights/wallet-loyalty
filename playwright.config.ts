@@ -14,6 +14,9 @@ const LOCAL = dotenv.parse(readFileSync(".env.local"));
 // One id per run, set in the main process and inherited by the workers; global
 // setup tags its fixtures with it and cleanup deletes everything carrying it.
 process.env.E2E_RUN ??= Date.now().toString(36) + Math.random().toString(16).slice(2, 8);
+// The app under test gets a per-run admin password (process env beats
+// .env.local), so the /admin journey never needs the real one.
+process.env.E2E_ADMIN_PW ??= `e2e-admin-${process.env.E2E_RUN}`;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -55,6 +58,7 @@ export default defineConfig({
       PUBLIC_BASE_URL: BASE,
       SUPABASE_URL: LOCAL.SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY: LOCAL.SUPABASE_SERVICE_ROLE_KEY,
+      ADMIN_PASSWORD: process.env.E2E_ADMIN_PW,
     },
   },
 });

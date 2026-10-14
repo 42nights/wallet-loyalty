@@ -18,6 +18,7 @@ export default async function MerchantLayout({ children }: { children: React.Rea
   return (
     <>
       <StaffHeader
+        merchantId={staff.merchantId}
         merchantName={merchant?.name ?? "Your shop"}
         username={staff.username}
         role={staff.role}

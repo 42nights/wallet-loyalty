@@ -10,6 +10,9 @@ export default async function globalSetup(config) {
   await preflight(env);
   const db = adminClient(env);
   const run = process.env.E2E_RUN;
+  // Same as the integration runner: the global admin-login bucket is shared by
+  // every run on this (preflighted, local) database, so start with a fresh one.
+  await db.from("rate_limits").delete().like("bucket", "admin-login%");
 
   try {
     const m = await createMerchant(db, run, { key: "e2e", template: "cafe", earnRate: 10 });
@@ -41,7 +44,7 @@ export default async function globalSetup(config) {
       stampCards[p.name] = await createCard(db, st.id, { name: `Stamps ${p.name}` });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
-      run, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, voidCards, searchCard, happy,
+      run, merchantId: m.id, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, voidCards, searchCard, happy,
       stamps: { cashier: st.cashier, cards: stampCards },
     });
 
@@ -56,6 +59,7 @@ export default async function globalSetup(config) {
       "/api/merchant/redeem", "/api/merchant/undo", "/api/merchant/today", "/api/merchant/customers", "/api/merchant/void",
       "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
       "/settings", "/api/merchant/settings", "/settings/poster",
+      "/admin/login", "/api/admin/login", `/admin/merchants/${m.id}`, `/api/admin/merchants/${m.id}/manage`,
     ])
       await fetch(base + p, { redirect: "manual" });
   } catch (e) {

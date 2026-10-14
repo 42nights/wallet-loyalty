@@ -6,6 +6,7 @@ type Card = { serial: string; name: string; phone: string | null };
 // Written by global-setup.mjs before the workers start.
 export const fx: {
   run: string;
+  merchantId: string; // the café shop of slug / owner / cashier
   slug: string;
   owner: Login;
   cashier: Login;

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireOwner, hashPassword } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { SUPPORT_NO_PASSWORD, isSupportUsername } from "@/lib/admin/merchant";
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string }> };
 
-// DELETE /api/merchant/staff/{id} — remove a cashier in the owner's merchant.
+// DELETE /api/merchant/staff/{id} — remove a cashier, or the 42nights support
+// login (the creator's next "Manage as owner" makes it again), in the owner's
+// merchant.
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const owner = await requireOwner();
   if (!owner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -17,12 +20,12 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const { data: target } = await db
     .from("staff")
-    .select("id, role")
+    .select("id, role, username")
     .eq("id", id)
     .eq("merchant_id", owner.merchantId)
     .single();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (target.role !== "cashier")
+  if (target.role !== "cashier" && !isSupportUsername(target.username))
     return NextResponse.json({ error: "Only cashiers can be removed" }, { status: 403 });
 
   const { error } = await db
@@ -50,11 +53,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const { data: target } = await db
     .from("staff")
-    .select("id")
+    .select("id, username")
     .eq("id", id)
     .eq("merchant_id", owner.merchantId)
     .single();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (isSupportUsername(target.username))
+    return NextResponse.json({ error: SUPPORT_NO_PASSWORD }, { status: 400 });
 
   const password_hash = await hashPassword(password);
   const { error } = await db

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { isSupportUsername } from "@/lib/admin/merchant";
 import s from "../../admin.module.css";
 
 type Member = { id: string; username: string; role: string; created_at: string | null };
@@ -31,16 +32,19 @@ export default function StaffList({ staff }: { staff: Member[] }) {
         <div className={s.staffRow} key={m.id}>
           <div style={{ minWidth: 0 }}>
             <div className={s.staffName}>{m.username}</div>
-            <div className={s.role}>{m.role}</div>
+            {/* made by "Manage as owner"; it has no password to reset */}
+            <div className={s.role}>{isSupportUsername(m.username) ? "42nights support" : m.role}</div>
           </div>
-          <button
-            type="button"
-            className={`btn btn-ghost ${s.smallBtn}`}
-            onClick={() => reset(m)}
-            disabled={busyId !== null}
-          >
-            {busyId === m.id ? "…" : "Reset password"}
-          </button>
+          {!isSupportUsername(m.username) && (
+            <button
+              type="button"
+              className={`btn btn-ghost ${s.smallBtn}`}
+              onClick={() => reset(m)}
+              disabled={busyId !== null}
+            >
+              {busyId === m.id ? "…" : "Reset password"}
+            </button>
+          )}
         </div>
       ))}
       {shown && (
