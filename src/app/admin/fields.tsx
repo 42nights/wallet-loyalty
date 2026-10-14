@@ -1,6 +1,7 @@
 "use client";
 import { EARN_RATE, REDEEM_TEMPLATES, type TemplateKey } from "@/lib/config";
 import { hexToRgb } from "@/lib/admin/merchant";
+import { formatMoney } from "@/lib/format";
 import s from "./admin.module.css";
 
 // Form pieces shared by the onboarding wizard and the merchant editor.
@@ -35,7 +36,7 @@ export function TemplatePicker({ value, onChange }: { value: TemplateKey; onChan
   );
 }
 
-// "A $20 bill earns 200 pts; first reward after ~$8" — makes the earn rate
+// "A $20.00 bill earns 200 pts; first reward after ~$8.00" — makes the earn rate
 // concrete against the chosen template's cheapest reward.
 export function EarnHint({ rate, template }: { rate: number; template: TemplateKey }) {
   if (!(rate >= EARN_RATE.min && rate <= EARN_RATE.max))
@@ -43,8 +44,8 @@ export function EarnHint({ rate, template }: { rate: number; template: TemplateK
   const cheapest = REDEEM_TEMPLATES[template].actions.reduce((a, b) => (-b.points < -a.points ? b : a));
   return (
     <span className={s.hint}>
-      A $20 bill earns {Math.round(20 * rate).toLocaleString("en-US")} pts. First reward ({cheapest.label},{" "}
-      {-cheapest.points} pts) after about ${Math.ceil(-cheapest.points / rate).toLocaleString("en-US")} spent.
+      A {formatMoney(20)} bill earns {Math.round(20 * rate).toLocaleString("en-US")} pts. First reward ({cheapest.label},{" "}
+      {-cheapest.points} pts) after about {formatMoney(Math.ceil(-cheapest.points / rate))} spent.
     </span>
   );
 }
@@ -120,7 +121,9 @@ export function WalletPreview({ name, colors, logo, strip }: { name: string; col
       <div className={s.passFields}>
         <div>
           <div className={s.passLabel} style={{ color: colors.label }}>Updated</div>
-          <div className={s.passValue} suppressHydrationWarning>{new Date().toLocaleDateString("en-GB")}</div>
+          <div className={s.passValue} suppressHydrationWarning>
+            {new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+          </div>
         </div>
       </div>
       <div className={s.passQr}>
