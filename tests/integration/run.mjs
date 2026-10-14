@@ -533,6 +533,76 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   });
   chk("admin create with rate 1000 → 400", created.status, 400);
   chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
+
+  // --- CSV export: owner-only downloads of the customer list and the ledger,
+  //     scoped to the session's shop, formula-safe, paged past 1000 rows ------
+  console.log("csv export");
+  const csv = async (type, j) => {
+    const r = await req(`/api/merchant/export?type=${type}`, { j });
+    const buf = Buffer.from(await r.arrayBuffer());
+    const lines = buf.toString("utf8").replace(/^\uFEFF/, "").split("\r\n");
+    return { r, bom: buf.subarray(0, 3).toString("hex") === "efbbbf", head: lines[0], rows: lines.slice(1, -1) };
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const shown = `(555) ${phone.slice(5, 8)}-${phone.slice(8)}`;
+  await createCard(db, cafe.id, { name: '=HYPERLINK("http://evil.example","click")' });
+  const cust = await csv("customers", own);
+  chk("owner customers export → 200", cust.r.status, 200);
+  chk("content-type is utf-8 CSV", cust.r.headers.get("content-type"), "text/csv; charset=utf-8");
+  chk("filename carries the slug and the date",
+    cust.r.headers.get("content-disposition"), `attachment; filename="${cafe.slug}-customers-${today}.csv"`);
+  chk("file starts with a UTF-8 BOM", cust.bom, true);
+  chk("customers header row", cust.head, "Name,Phone,Points,Lifetime earned,Lifetime redeemed,Visits,Last seen (UTC)");
+  chk("one row per cafe card",
+    cust.rows.length, (await rows(db.from("passes").select("serial").eq("merchant_id", cafe.id))).length);
+  chk("own row: phone as shown, 45 pts, 125 earned, 80 redeemed, 1 visit",
+    cust.rows.some((l) => l.startsWith(`Smoke Test,${shown},45,125,80,1,20`)), true);
+  chk("formula name gets a leading ' and RFC 4180 quoting",
+    cust.rows.includes(`"'=HYPERLINK(""http://evil.example"",""click"")",,0,0,0,0,`), true);
+  chk("another shop's customer never appears", cust.rows.some((l) => l.includes("Restaurant Card")), false);
+  const restOwn = jar();
+  await login(restOwn, rest.owner);
+  chk("…while that shop's own export lists it",
+    (await csv("customers", restOwn)).rows.some((l) => l.startsWith("Restaurant Card,")), true);
+
+  const tx = await csv("transactions", own);
+  chk("owner transactions export → 200", tx.r.status, 200);
+  chk("transactions filename",
+    tx.r.headers.get("content-disposition"), `attachment; filename="${cafe.slug}-transactions-${today}.csv"`);
+  chk("transactions header row", tx.head, "Date (UTC),Customer,Phone,Kind,Reason,Points,Bill ($),Staff");
+  chk("one row per cafe ledger entry",
+    tx.rows.length, (await rows(db.from("transactions").select("id").eq("merchant_id", cafe.id))).length);
+  chk("the earn: customer, kind, points, bill, cashier",
+    tx.rows.some((l) => l.endsWith(`,Smoke Test,${shown},earn,earn:purchase,125,12.5,${cafe.cashier.username}`)), true);
+  chk("the reward: its -80 stays a number",
+    tx.rows.some((l) => l.endsWith(`,Smoke Test,${shown},redeem,redeem:extra_shot,-80,,${cafe.cashier.username}`)), true);
+  chk("kinds as the ledger records them",
+    [...new Set(tx.rows.map((l) => l.split(",")[3]))].sort().join(","), "adjust,campaign,earn,redeem,undo");
+  chk("another shop's ledger never appears", tx.rows.some((l) => l.includes("Restaurant Card")), false);
+  chk("cashier: customers export → 403", (await req("/api/merchant/export?type=customers", { j: cash })).status, 403);
+  chk("cashier: transactions export → 403", (await req("/api/merchant/export?type=transactions", { j: cash })).status, 403);
+  chk("logged out → 401", (await req("/api/merchant/export?type=transactions")).status, 401);
+  chk("unknown export type → 400", (await req("/api/merchant/export?type=staff", { j: own })).status, 400);
+
+  // PostgREST hands back at most 1000 rows a request: a shop with 1005 cards
+  // and 1005 ledger rows must get all of them, each once.
+  const bulk = await createMerchant(db, run, { key: "bulk", template: "cafe", earnRate: 10 });
+  const bulkOwn = jar();
+  await login(bulkOwn, bulk.owner);
+  const N = 1005;
+  const bulkCards = Array.from({ length: N }, (_, i) => ({
+    serial: randomUUID(), merchant_id: bulk.id, customer_name: `Bulk ${i}`, points: 0, auth_token: randomUUID(),
+  }));
+  await rows(db.from("passes").insert(bulkCards).select("serial"));
+  for (let i = 0; i < N; i += 50)
+    await Promise.all(Array.from({ length: Math.min(50, N - i) }, () => rows(db.rpc("apply_points", {
+      p_serial: bulkCards[0].serial, p_delta: 1, p_reason: "adjust:manual",
+      p_staff: bulk.owner.id, p_merchant: bulk.id, p_idempo: randomUUID(),
+    }))));
+  const bc = await csv("customers", bulkOwn);
+  chk(`customers export: all ${N} cards, none twice`, `${bc.rows.length}/${new Set(bc.rows).size}`, `${N}/${N}`);
+  const bt = await csv("transactions", bulkOwn);
+  chk(`transactions export: all ${N} ledger rows`, bt.rows.length, N);
 }
 
 // ---------------------------------------------------------------------------

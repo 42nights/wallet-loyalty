@@ -16,6 +16,7 @@ type Cust = {
 
 const PAGE = 50; // the API's default page size, sent explicitly
 const nf = (n: number) => n.toLocaleString();
+const EXPORT_BTN = { padding: "12px", fontSize: 15, textAlign: "center", textDecoration: "none" } as const;
 
 export default function CustomersTable() {
   const router = useRouter();
@@ -74,6 +75,19 @@ export default function CustomersTable() {
 
   return (
     <div className="wrap">
+      {/* Plain links: the route's Content-Disposition names the file. Exports
+          are always everyone, whatever the search box holds. */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="label">Download CSV</div>
+        <div className="row">
+          <a className="btn btn-ghost" href="/api/merchant/export?type=customers" download style={EXPORT_BTN}>
+            Customers
+          </a>
+          <a className="btn btn-ghost" href="/api/merchant/export?type=transactions" download style={EXPORT_BTN}>
+            Transactions
+          </a>
+        </div>
+      </div>
       <div className="card stack">
         <div className="row">
           <input
