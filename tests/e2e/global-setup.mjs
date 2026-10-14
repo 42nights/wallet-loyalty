@@ -34,6 +34,7 @@ export default async function globalSetup(config) {
       "/login", `/enroll/${m.slug}`, "/scan", "/dashboard", "/customers", `/customers/${searchCard.serial}`,
       "/api/merchant/login", "/api/enroll", "/api/merchant/me", "/api/merchant/lookup",
       "/api/merchant/redeem", "/api/merchant/customers",
+      "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
     ])
       await fetch(base + p, { redirect: "manual" });
   } catch (e) {
