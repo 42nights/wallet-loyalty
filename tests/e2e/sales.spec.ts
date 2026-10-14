@@ -2,8 +2,8 @@ import { SAMPLES } from "../../src/app/demo/samples";
 import { test, expect } from "./helpers";
 
 // The public pages: / and /demo. No fixtures, no login. The e2e server runs
-// without SALES_CONTACT_EMAIL (it is not in .env.local), so the second call to
-// action is "Ask us about a pilot", never an email link.
+// without SALES_BOOKING_URL (it is not in .env.local), so the second call to
+// action is "Ask us about a pilot", never a booking link.
 
 test("landing: no prices, founding section, section links and a next step", async ({ page }) => {
   await page.goto("/");
@@ -20,7 +20,7 @@ test("landing: no prices, founding section, section links and a next step", asyn
   // F5: always a next step after the demo, and no made-up address
   const hero = page.locator("main section").first();
   await expect(hero.getByRole("link", { name: "See the live demo" })).toHaveAttribute("href", "/demo");
-  await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Book a call" })).toHaveCount(0);
   const pilot = hero.getByRole("link", { name: "Ask us about a pilot" });
   await expect(pilot).toHaveAttribute("href", "/demo#contact");
   await pilot.click();
