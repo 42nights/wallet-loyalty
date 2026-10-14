@@ -20,7 +20,7 @@ import { startMockApns } from "./mock-apns.mjs";
 const PORT = 3190;
 const B = `http://localhost:${PORT}`;
 const MUTATE = process.env.MUTATE === "1";
-const LOG = join(ROOT, "test-results", "integration-next.log");
+const LOG = join(ROOT, "test-results", "integration", "next.log");
 
 let fail = 0;
 let total = 0;
@@ -52,7 +52,7 @@ async function waitFor(cond, ms) {
 }
 
 function startNext(apnsPort) {
-  mkdirSync(join(ROOT, "test-results"), { recursive: true });
+  mkdirSync(join(ROOT, "test-results", "integration"), { recursive: true });
   const log = openSync(LOG, "w");
   // Own process group (detached) so teardown can kill npx + next + its workers
   // together. Process env beats .env.local in Next, so these overrides win.
