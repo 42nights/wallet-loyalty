@@ -8,6 +8,9 @@ import {
   redemptionsFor,
   assertPassConfig,
   templateKey,
+  birthdayBonus,
+  describeHappyHour,
+  happyHourOf,
 } from "@/lib/config";
 import { withDefaultArt } from "@/lib/passDefaults";
 import { PASS_THEMES } from "@/lib/passThemes";
@@ -26,7 +29,8 @@ const STORAGE_BUCKET = "pass-assets";
 
 // The merchants row is read with select("*") so a database that has not run a
 // later migration still issues passes; the columns those migrations add
-// (earn_rate, redeem_template) are therefore optional here.
+// (earn_rate, redeem_template, birthday_reward, happy_hour) are therefore
+// optional here.
 type MerchantRow = {
   id: string;
   name: string;
@@ -36,6 +40,8 @@ type MerchantRow = {
   assets_updated_at: string | null;
   earn_rate?: number | string | null;
   redeem_template?: string | null;
+  birthday_reward?: boolean | null;
+  happy_hour?: unknown;
 };
 
 // Apple wants rgb(r,g,b) strings — hex makes a pass silently un-addable. Accept
@@ -104,6 +110,7 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
     updatedAt = new Date(),
     offerText,
     customerName,
+    birthday,
   } = data;
 
   let merchant: MerchantRow | null = null;
@@ -203,12 +210,23 @@ export async function buildApplePass(data: PassData): Promise<Buffer> {
   }
   const parsedRate = Number(merchant?.earn_rate ?? 1);
   const rate = Number.isFinite(parsedRate) ? parsedRate : 1;
+  pass.backFields.push({
+    key: "earn",
+    label: "HOW TO EARN",
+    value: `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
+  });
+  // The earn boosters, under the earn line. The window is the shop's own wall
+  // clock ("3-5 pm"), which is the customer's too: they shop there.
+  const happyHour = happyHourOf(merchant?.happy_hour);
+  if (happyHour) {
+    pass.backFields.push({ key: "happyhour", label: "HAPPY HOUR", value: describeHappyHour(happyHour) });
+  }
+  // Only on cards that gave a birthday: a member without one would never get it.
+  if (merchant?.birthday_reward === true && birthday) {
+    const on = new Date(`${birthday}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+    pass.backFields.push({ key: "birthday", label: "BIRTHDAY", value: `${birthdayBonus(merchant)} bonus points on ${on}` });
+  }
   pass.backFields.push(
-    {
-      key: "earn",
-      label: "HOW TO EARN",
-      value: `${rate} point${rate === 1 ? "" : "s"} per 1.00 spent`,
-    },
     {
       key: "rewards",
       label: "REWARDS",

@@ -3,13 +3,14 @@ import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { merchantFields, UUID_RE } from "@/lib/admin/merchant";
 import { formatMoney } from "@/lib/format";
+import { happyHourOf } from "@/lib/config";
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string }> };
 
 // PATCH /api/admin/merchants/{id}
-// body: any of { name, earnRate, template, bgColor, fgColor, labelColor }.
+// body: any of { name, earnRate, template, bgColor, fgColor, labelColor, timezone }.
 // The slug is deliberately not editable: it is printed on counter posters and
 // baked into links customers already have.
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -27,16 +28,18 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // above 1,000,000 points, so rate x the owner's bill limit must stay under it
   // or the counter would accept bills it then rejects. The bill limit is the
   // owner's to set (Settings), so name the highest rate that fits instead.
+  // The owner's happy-hour multiplier counts: the cap is on what's credited.
   if (patch.earn_rate !== undefined) {
     const { data: cur } = await db.from("merchants").select("*").eq("id", id).maybeSingle();
     if (!cur) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const bill = Number(cur.max_bill ?? 1000); // 1000 = schema default (un-migrated database)
-    if (Math.round(patch.earn_rate * bill) > 1_000_000)
+    const mult = happyHourOf(cur.happy_hour)?.multiplier ?? 1;
+    if (Math.round(patch.earn_rate * bill * mult) > 1_000_000)
       return NextResponse.json(
         {
           error:
-            `At ${patch.earn_rate} points per $1, this shop's bill limit of ${formatMoney(bill)} could earn over ` +
-            `1,000,000 points at once. Use at most ${Math.floor((10 * 1_000_000) / bill) / 10}, ` +
+            `At ${patch.earn_rate} points per $1, this shop's bill limit of ${formatMoney(bill)}${mult > 1 ? ` and its ${mult}× happy hour` : ""} could earn over ` +
+            `1,000,000 points at once. Use at most ${Math.floor((10 * 1_000_000) / (bill * mult)) / 10}, ` +
             "or have the owner lower the bill limit in Settings.",
         },
         { status: 400 }

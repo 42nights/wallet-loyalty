@@ -24,7 +24,7 @@ const alreadyEnrolled = () =>
     { status: 409 }
   );
 
-// POST /api/enroll  body: { name, phone, email?, consent?, slug }
+// POST /api/enroll  body: { name, phone, email?, birthday? ("MM-DD"), consent?, slug }
 // Resolves slug → merchant, validates the fields, creates the card and returns
 // JSON { cardUrl }: a 1-hour signed link to the GET below, which serves the
 // .pkpass. A link instead of the binary lets the page decide per device: an
@@ -56,11 +56,13 @@ export async function POST(req: NextRequest) {
       { error: Object.values(check.errors)[0], fields: check.errors },
       { status: 400 }
     );
-  const { name, phone, email } = check.value;
+  const { name, phone, email, birthday } = check.value;
 
+  // select("*"): birthday_reward is a later column; a database without it
+  // reads as "off" (undefined !== true).
   const { data: merchant } = await db
     .from("merchants")
-    .select("id")
+    .select("*")
     .eq("slug", slug)
     .single();
   if (!merchant)
@@ -95,6 +97,8 @@ export async function POST(req: NextRequest) {
     customer_name: name,
     customer_phone: phone, // normalised, so the unique index catches format variants
     customer_email: email,
+    // only collected while the shop has the birthday treat on (the form asks then)
+    birthday: merchant.birthday_reward === true ? birthday : null,
     marketing_consent: hasConsent,
     consent_at: hasConsent ? new Date().toISOString() : null,
     consent_source: hasConsent ? "enroll_form" : null,
@@ -134,6 +138,7 @@ export async function GET(req: NextRequest) {
     updatedAt: new Date(pass.updated_at),
     offerText: pass.offer_text ?? null,
     customerName: pass.customer_name ?? null,
+    birthday: pass.birthday ?? null,
   });
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,

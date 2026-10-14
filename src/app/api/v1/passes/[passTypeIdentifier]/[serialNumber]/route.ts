@@ -20,21 +20,23 @@ type PassRow = {
   updated_at: string;
   customer_name: string | null;
   offer_text?: string | null;
+  birthday?: string | null;
 };
 
 export async function GET(req: NextRequest, { params }: Params) {
   const { serialNumber } = await params;
 
-  // offer_text is a Phase-4 column. Select it, but if the DB hasn't run that
-  // migration yet, fall back to the base columns — a missing column must NEVER
-  // break the live-update path (this is the lifeline that keeps cards fresh).
+  // offer_text is a Phase-4 column (birthday a Phase-2 one). Select them, but
+  // if the DB hasn't run those migrations yet, fall back to the base columns —
+  // a missing column must NEVER break the live-update path (this is the
+  // lifeline that keeps cards fresh).
   const base = "serial, merchant_id, points, auth_token, updated_at, customer_name";
   let { data: pass, error } = await db
     .from("passes")
-    .select(`${base}, offer_text`)
+    .select(`${base}, offer_text, birthday`)
     .eq("serial", serialNumber)
     .single<PassRow>();
-  if (error && /offer_text/i.test(error.message ?? "")) {
+  if (error && /offer_text|birthday/i.test(error.message ?? "")) {
     ({ data: pass } = await db
       .from("passes")
       .select(base)
@@ -60,6 +62,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     updatedAt: new Date(pass.updated_at),
     offerText: pass.offer_text ?? null,
     customerName: pass.customer_name,
+    birthday: pass.birthday ?? null,
   });
 
   return new NextResponse(new Uint8Array(buffer), {
