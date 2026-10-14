@@ -1,10 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import dotenv from "dotenv";
 
 // End-to-end suite (npm run test:e2e). Starts its own `next dev` on :3191 and
 // runs every spec on a desktop and an iPhone viewport. Fixture merchant/staff/
 // cards come from tests/e2e/global-setup.mjs (own fixtures, cleaned up after).
 const PORT = 3191;
 const BASE = `http://localhost:${PORT}`;
+// global-setup preflights these as local; pin them so a shell-exported
+// SUPABASE_URL cannot point the app under test at another database. (Parsed
+// here rather than via tests/fixtures.mjs: Playwright loads this file as CJS.)
+const LOCAL = dotenv.parse(readFileSync(".env.local"));
 // One id per run, set in the main process and inherited by the workers; global
 // setup tags its fixtures with it and cleanup deletes everything carrying it.
 process.env.E2E_RUN ??= Date.now().toString(36) + Math.random().toString(16).slice(2, 8);
@@ -47,6 +53,8 @@ export default defineConfig({
       APNS_HOST: "https://127.0.0.1:9", // nothing listens: no push can ever leave the machine
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
       PUBLIC_BASE_URL: BASE,
+      SUPABASE_URL: LOCAL.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: LOCAL.SUPABASE_SERVICE_ROLE_KEY,
     },
   },
 });

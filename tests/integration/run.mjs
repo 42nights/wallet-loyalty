@@ -51,7 +51,7 @@ async function waitFor(cond, ms) {
   return false;
 }
 
-function startNext(apnsPort) {
+function startNext(apnsPort, env) {
   mkdirSync(join(ROOT, "test-results", "integration"), { recursive: true });
   const log = openSync(LOG, "w");
   // Own process group (detached) so teardown can kill npx + next + its workers
@@ -62,6 +62,10 @@ function startNext(apnsPort) {
     stdio: ["ignore", log, log],
     env: {
       ...process.env,
+      // Pin the exact Supabase that preflight() verified as local, so a
+      // SUPABASE_URL exported in the shell can never point the app elsewhere.
+      SUPABASE_URL: env.supabaseUrl,
+      SUPABASE_SERVICE_ROLE_KEY: env.serviceKey,
       APNS_HOST: `https://127.0.0.1:${apnsPort}`,
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
       PUBLIC_BASE_URL: B,
@@ -221,6 +225,13 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   const changed = sinceBefore.status === 200 ? await sinceBefore.json() : {};
   chk("passesUpdatedSince=<tag before> lists the serial", changed.serialNumbers?.includes(wl.serial) ?? false, true);
   chk("passesUpdatedSince=<tag after> lists nothing (204)", (await updatable(devW, changed.lastUpdated)).status, 204);
+  // Wallet echoes the tag back verbatim; it must survive being sent unencoded
+  // (a '+' would decode to a space and silently break the update loop).
+  chk("tag needs no URL encoding", /^[\w.:-]+$/.test(changed.lastUpdated ?? ""), true);
+  const rawTag = (t) => req(`/api/v1/devices/${devW}/registrations/${PTI}?passesUpdatedSince=${t}`);
+  chk("unencoded tag after lists nothing (204)", (await rawTag(changed.lastUpdated)).status, 204);
+  const legacy = new Date(Date.parse(changed.lastUpdated) - 60_000).toISOString().replace("Z", "+00:00");
+  chk("legacy '+00:00' tag sent raw still filters (200, not a silent 204)", (await rawTag(legacy)).status, 200);
   chk("re-downloaded pass shows the new balance", field(await latestPass(wl), "primaryFields", "points"), "100");
 
   // --- 410 pruning: APNs says the token is dead → the device row is deleted ---
@@ -287,10 +298,11 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   // --- card link (owner re-send) ---------------------------------------------
   console.log("card link");
   chk("GET /api/enroll?card=garbage → 410", (await req("/api/enroll?card=garbage")).status, 410);
-  const html = await (await req(`/customers/${serial}`, { j: own })).text();
-  const link = html.match(/(https?:\/\/[^"'\s\\]+?)\/api\/enroll\?card=([\w.-]+)/);
-  chk("owner page renders a signed card link on PUBLIC_BASE_URL", link?.[1], B);
-  const reissue = await req(`/api/enroll?card=${link?.[2]}`);
+  const cl = await req("/api/merchant/card-link", { method: "POST", body: { serial }, j: own });
+  chk("owner mints a card link", cl.status, 200);
+  const { url = "" } = cl.status === 200 ? await cl.json() : {};
+  chk("card link points at PUBLIC_BASE_URL", url.startsWith(`${B}/api/enroll?card=`), true);
+  const reissue = await req(url.slice(B.length));
   chk("signed card link re-issues the pass", reissue.status, 200);
   if (reissue.status === 200) {
     const p = unzipPass(Buffer.from(await reissue.arrayBuffer())).pass;
@@ -337,7 +349,7 @@ async function main() {
   console.log(`run ${run} — app ${B}`);
   try {
     mock = await startMockApns();
-    next = startNext(mock.port);
+    next = startNext(mock.port, env);
     await waitReady(next);
     await checks({ db, run, mock, passTypeId: env.passTypeId, tmp });
   } catch (e) {
