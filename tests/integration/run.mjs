@@ -20,6 +20,9 @@ import { startMockApns } from "./mock-apns.mjs";
 const PORT = Number(process.env.TEST_PORT) || 3190; // TEST_PORT lets parallel worktrees run the suite side by side
 const B = `http://localhost:${PORT}`;
 const MUTATE = process.env.MUTATE === "1";
+// The app under test gets a per-run admin password (process env beats
+// .env.local), so the admin checks never need the real one.
+const ADMIN_PW = `itest-admin-${randomUUID()}`;
 const LOG = join(ROOT, "test-results", "integration", "next.log");
 
 let fail = 0;
@@ -69,6 +72,7 @@ function startNext(apnsPort, env) {
       APNS_HOST: `https://127.0.0.1:${apnsPort}`,
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
       PUBLIC_BASE_URL: B,
+      ADMIN_PASSWORD: ADMIN_PW,
     },
   });
 }
@@ -384,6 +388,31 @@ async function checks({ db, run, mock, passTypeId: PTI, tmp }) {
   chk("it is staff_over_issue / warn", `${flagged[0]?.kind}/${flagged[0]?.severity}`, "staff_over_issue/warn");
   chk("it names the cashier and what they issued",
     `${flagged[0]?.detail?.staff}:${flagged[0]?.detail?.issued}`, `${an.cashier.username}:1001650`);
+
+  // --- admin earn rate: the creator admin takes Settings' range (0.1-100) and
+  //     refuses a rate the shop's bill limit would turn into earns over the
+  //     redeem route's 1,000,000-point cap ---------------------------------------
+  console.log("admin earn rate");
+  const adm = await createMerchant(db, run, { key: "adm", template: "cafe", earnRate: 10 });
+  const admin = jar();
+  chk("admin login", (await req("/api/admin/login", { method: "POST", body: { password: ADMIN_PW }, j: admin })).status, 200);
+  const setRate = (earnRate) => req(`/api/admin/merchants/${adm.id}`, { method: "PATCH", body: { earnRate }, j: admin });
+  const rateNow = async () => Number((await rows(db.from("merchants").select("earn_rate").eq("id", adm.id)))[0]?.earn_rate);
+  chk("admin rate above 100 → 400", (await setRate(150)).status, 400);
+  chk("admin rate below 0.1 → 400", (await setRate(0.05)).status, 400);
+  chk("admin rate 100 at the default 1000 bill limit → 200", (await setRate(100)).status, 200);
+  await rows(db.from("merchants").update({ earn_rate: 10, max_bill: 100000 }).eq("id", adm.id).select("id"));
+  const pair = await setRate(20);
+  chk("admin rate 20 with a 100000 bill limit → 400", pair.status, 400);
+  chk("400 names the highest rate that fits (10)", /at most 10\b/.test((await pair.json()).error ?? ""), true);
+  chk("refused rate left earn_rate alone", await rateNow(), 10);
+  chk("rate 10 x 100000 = exactly 1,000,000 → 200", (await setRate(10)).status, 200);
+  const created = await req("/api/admin/merchants", {
+    method: "POST", j: admin,
+    body: { name: "Too generous", slug: `t-${run}-admnew`, earnRate: 1000 },
+  });
+  chk("admin create with rate 1000 → 400", created.status, 400);
+  chk("400 states the range", /between 0\.1 and 100/.test((await created.json()).error ?? ""), true);
 }
 
 // ---------------------------------------------------------------------------
