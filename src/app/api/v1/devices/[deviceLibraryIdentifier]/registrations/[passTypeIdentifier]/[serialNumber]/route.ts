@@ -69,5 +69,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     .eq("device_lib_id", deviceLibraryIdentifier)
     .eq("serial", serialNumber);
 
+  // Apple: "Delete the device entry from the device table if the registration
+  // table has no more entries for that device" — don't keep push tokens for
+  // devices that no longer hold any of our cards.
+  // ponytail: count-then-delete is not atomic; a register for another card on
+  // the same device landing in between loses that registration until Wallet
+  // re-registers. Move both into one SQL function if that ever shows up.
+  const { count } = await db
+    .from("registrations")
+    .select("serial", { count: "exact", head: true })
+    .eq("device_lib_id", deviceLibraryIdentifier);
+  if (count === 0)
+    await db.from("devices").delete().eq("device_lib_id", deviceLibraryIdentifier);
+
   return new NextResponse(null, { status: 200 });
 }
