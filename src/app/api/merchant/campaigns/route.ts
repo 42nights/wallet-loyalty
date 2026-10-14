@@ -78,6 +78,22 @@ export async function POST(req: NextRequest) {
   if (bonus === 0 && !offerText)
     return NextResponse.json({ error: "Add bonus points or an offer" }, { status: 400 });
 
+  if (!existing) {
+    const { data: pending } = await db
+      .from("campaigns")
+      .select("id")
+      .eq("merchant_id", m)
+      .eq("segment", segment)
+      .eq("status", "draft")
+      .limit(1)
+      .maybeSingle();
+    if (pending)
+      return NextResponse.json(
+        { error: "A campaign to this segment hasn't finished sending. Use Finish sending in History." },
+        { status: 409 }
+      );
+  }
+
   // Resolve the target serials from the live segment RPC (single source of truth
   // for the RFM ladder — no duplicated logic here).
   const { data: seg } = await db.rpc("merchant_segments", { p_merchant: m });
@@ -110,14 +126,16 @@ export async function POST(req: NextRequest) {
   }
   const reason = `campaign:${campaignId}`;
 
+  const failed = new Set<string>();
   if (offerText) {
-    const updatedAt = new Date().toISOString();
     for (let i = 0; i < serials.length; i += WRITE_CHUNK) {
-      await db
+      const chunk = serials.slice(i, i + WRITE_CHUNK);
+      const { error } = await db
         .from("passes")
-        .update({ offer_text: offerText, updated_at: updatedAt })
+        .update({ offer_text: offerText, updated_at: new Date().toISOString() })
         .eq("merchant_id", m)
-        .in("serial", serials.slice(i, i + WRITE_CHUNK));
+        .in("serial", chunk);
+      if (error) chunk.forEach((serial) => failed.add(serial));
     }
   }
 
@@ -130,18 +148,21 @@ export async function POST(req: NextRequest) {
           const serial = serials[next++];
           const r = await applyPoints(serial, bonus, reason, owner.id, m, `${campaignId}:${serial}`, null);
           if (r.ok) credited.add(serial);
+          else if (r.status === "error") failed.add(serial);
         }
       })
     );
   }
 
-  await db.from("campaign_sends").upsert(
-    serials.map((serial) => ({
-      campaign_id: campaignId,
-      merchant_id: m,
-      serial,
-      points_applied: credited.has(serial) ? bonus : 0,
-    })),
+  const { error: sendsErr } = await db.from("campaign_sends").upsert(
+    serials
+      .filter((serial) => !failed.has(serial))
+      .map((serial) => ({
+        campaign_id: campaignId,
+        merchant_id: m,
+        serial,
+        points_applied: credited.has(serial) ? bonus : 0,
+      })),
     { onConflict: "campaign_id,serial" }
   );
 
@@ -150,6 +171,15 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.warn("campaign notify failed:", e instanceof Error ? e.message : e);
   }
+
+  if (failed.size || sendsErr)
+    return NextResponse.json(
+      {
+        error: `Sent to ${serials.length - failed.size} of ${serials.length}. Use Finish sending in History to retry the rest.`,
+        campaignId,
+      },
+      { status: 502 }
+    );
 
   await db
     .from("campaigns")

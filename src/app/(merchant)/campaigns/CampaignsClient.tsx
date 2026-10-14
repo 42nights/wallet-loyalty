@@ -43,20 +43,26 @@ export default function CampaignsClient({ segments }: { segments: Segment[] }) {
   async function post(body: object): Promise<boolean> {
     setBusy(true);
     setMsg(null);
-    const r = await fetch("/api/merchant/campaigns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setBusy(false);
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      setMsg({ kind: "bad", text: d.error || "Failed" });
+    try {
+      const r = await fetch("/api/merchant/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setMsg({ kind: "bad", text: d.error || "Failed" });
+        return false;
+      }
+      setMsg({ kind: "ok", text: `Sent to ${d.targeted} customer${d.targeted === 1 ? "" : "s"}.` });
+      return true;
+    } catch {
+      setMsg({ kind: "bad", text: "Network error. Check History before sending again." });
       return false;
+    } finally {
+      setBusy(false);
+      await load().catch(() => {});
     }
-    setMsg({ kind: "ok", text: `Sent to ${d.targeted} customer${d.targeted === 1 ? "" : "s"}.` });
-    await load();
-    return true;
   }
 
   async function send() {
