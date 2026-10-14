@@ -8,7 +8,9 @@ export const runtime = "nodejs";
 // points per 1 unit of currency. The settings form mirrors these as input
 // min/max; this route is the authority.
 const EARN_RATE_MIN = 0.1;
-const EARN_RATE_MAX = 1000;
+// The redeem route caps one earn at 1,000,000 points, so at rate r any bill above
+// 1,000,000 / r is refused at the counter. 100 keeps bills up to 10,000 working.
+const EARN_RATE_MAX = 100;
 
 type MerchantRow = { name: string; slug: string | null; earn_rate: number | string; redeem_template?: string | null };
 

@@ -71,7 +71,7 @@ export default function SettingsForm() {
   }
 
   const rateNum = Number(rate);
-  const rateValid = rate.trim() !== "" && rateNum >= 0.1 && rateNum <= 1000;
+  const rateValid = rate.trim() !== "" && rateNum >= 0.1 && rateNum <= 100;
 
   return (
     <div className="wrap">
@@ -133,14 +133,14 @@ export default function SettingsForm() {
           <section className="card stack" aria-labelledby="rate-h">
             <div>
               <div className="label" id="rate-h">Earn rate</div>
-              <div className={styles.help}>Points per 1.00 spent (0.1 – 1000).</div>
+              <div className={styles.help}>Points per 1.00 spent (0.1 – 100).</div>
             </div>
             <form className="row" onSubmit={saveRate}>
               <input
                 type="number"
                 inputMode="decimal"
                 min={0.1}
-                max={1000}
+                max={100}
                 step="any"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
@@ -159,7 +159,7 @@ export default function SettingsForm() {
               {rateValid ? (
                 <>A {EXAMPLE_BILL.toFixed(2)} bill earns <b>{Math.round(rateNum * EXAMPLE_BILL)}</b> points</>
               ) : (
-                <span style={{ color: "var(--bad)" }}>Enter a rate between 0.1 and 1000</span>
+                <span style={{ color: "var(--bad)" }}>Enter a rate between 0.1 and 100</span>
               )}
             </div>
           </section>
