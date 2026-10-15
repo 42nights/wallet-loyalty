@@ -6,6 +6,7 @@ import { Donut, SEGMENT_COLORS, TrendChart } from "./(merchant)/dashboard/charts
 import ThemeToggle from "./(merchant)/dashboard/ThemeToggle";
 import { LockBanner, Phone, WalletCard } from "./demo/WalletCard";
 import { SAMPLES, SAMPLE_SERIAL, qrPath } from "./demo/samples";
+import Reveal from "./landing/Reveal";
 import s from "./page.module.css";
 
 // Public landing page — what Ayaan shows a restaurant owner (decision D5).
@@ -15,9 +16,8 @@ import s from "./page.module.css";
 // Copy rule: only claim what exists in the code today. Anything not built yet
 // sits in COMING_SOON and is labelled as such on the page.
 //
-// No prices on the public page (Ayaan, 2026-10-13): early merchants get
-// founding terms by talking to us. The price recommendation stays in the
-// internal business plan.
+// No prices on the public page (Ayaan, 2026-10-13). The price recommendation
+// stays in the internal business plan.
 
 // Decided but not built. Keep this list honest; remove an item when it ships.
 const COMING_SOON = ["Google Wallet for Android customers"];
@@ -57,13 +57,36 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-const COMPARE: { row: string; paper: string; app: string; wallet: string }[] = [
-  { row: "What the customer installs", paper: "Nothing, but they must carry it", app: "An app and an account", wallet: "Nothing. Wallet is built into iPhone" },
-  { row: "Forgotten at home", paper: "All the time", app: "Only if they deleted the app", wallet: "It lives on their phone" },
-  { row: "Stamps can be copied or shared", paper: "Yes", app: "Depends on the app", wallet: "No. Only your staff add points" },
-  { row: "Shows you who your regulars are", paper: "No", app: "Yes", wallet: "Yes, with segments and campaigns" },
-  { row: "What it takes to start", paper: "A print run", app: "Design, build and App Store review", wallet: "We set it up for you" },
+// Read in five seconds: a mark per cell, a few words, the Wallet column last.
+// The marks are drawn, so screen readers get VERDICT[mark] before each cell.
+type Verdict = "good" | "mixed" | "poor";
+const VERDICT: Record<Verdict, string> = { good: "Good", mixed: "Mixed", poor: "Poor" };
+const OPTIONS = ["Paper punch card", "Your own app", "42nights Wallet card"];
+const COMPARE: { row: string; cells: [Verdict, string][] }[] = [
+  { row: "Customer installs", cells: [["good", "Nothing"], ["poor", "An app and an account"], ["good", "Nothing, built into iPhone"]] },
+  { row: "Forgotten at home", cells: [["poor", "All the time"], ["mixed", "Only if deleted"], ["good", "Lives on their phone"]] },
+  { row: "Stamps copied or shared", cells: [["poor", "Easy to copy"], ["mixed", "Depends on the app"], ["good", "Only your staff add points"]] },
+  { row: "Shows your regulars", cells: [["poor", "Nothing recorded"], ["good", "Yes"], ["good", "Yes, with segments"]] },
+  { row: "Effort to start", cells: [["mixed", "A print run"], ["poor", "Build and App Store review"], ["good", "We set it up"]] },
 ];
+
+function Mark({ v }: { v: Verdict }) {
+  return (
+    <svg className={`${s.mark} ${s[v]}`} viewBox="0 0 20 20" aria-hidden="true">
+      {v === "good" ? (
+        <>
+          <circle cx="10" cy="10" r="9" fill="currentColor" />
+          <path d="M6 10.4l2.6 2.6L14 7.4" className={s.tick} />
+        </>
+      ) : (
+        <>
+          <circle cx="10" cy="10" r="8.25" className={s.ring} />
+          {v === "mixed" ? <path d="M10 1.75a8.25 8.25 0 0 0 0 16.5z" fill="currentColor" /> : <path d="M7 7l6 6M13 7l-6 6" className={s.ring} />}
+        </>
+      )}
+    </svg>
+  );
+}
 
 export const metadata: Metadata = {
   title: "42nights Wallet Loyalty | Loyalty cards in Apple Wallet",
@@ -117,13 +140,12 @@ export default async function Landing() {
     <div className={s.page}>
       <header className={s.nav}>
         <Link href="/" className={s.brand}>
-          <span className={s.mark} aria-hidden="true" />
+          <span className={s.brandMark} aria-hidden="true" />
           42nights <span className={s.brandSub}>Wallet Loyalty</span>
         </Link>
         <nav className={s.navLinks} aria-label="Sections">
           <a href="#how">How it works</a>
           <a href="#owners">For owners</a>
-          <a href="#founding">Join early</a>
           <a href="#faq">FAQ</a>
         </nav>
         <Link href="/scan" className={s.staff}>
@@ -146,7 +168,7 @@ export default async function Landing() {
             </p>
           </div>
 
-          <div className={s.heroArt} aria-hidden="true">
+          <div className={s.heroArt} aria-hidden="true" data-hero-art>
             <div className={s.punch}>
               <div className={s.punchHead}>
                 <b>{cafe.name}</b>
@@ -159,7 +181,13 @@ export default async function Landing() {
               </div>
             </div>
             <div className={s.heroPhone}>
-              <Phone banner={<LockBanner name={cafe.name} colors={cafe.colors} points={305} shown />}>
+              <Phone
+                banner={
+                  <div className={s.bannerDrop}>
+                    <LockBanner name={cafe.name} colors={cafe.colors} points={305} shown />
+                  </div>
+                }
+              >
                 <div className={s.cardOffset}>
                   <WalletCard name={cafe.name} colors={cafe.colors} points={305} updated={updated} qr={qr} />
                 </div>
@@ -169,23 +197,23 @@ export default async function Landing() {
         </section>
 
         <section id="how" className={s.section}>
-          <h2>Three steps, no app</h2>
+          <h2 data-reveal>Three steps, no app</h2>
           <ol className={s.steps}>
-            <li>
+            <li data-reveal>
               <h3>The customer scans your QR code</h3>
               <p>
                 It opens your sign-up page. They type their name and phone number and add the card to Apple Wallet.
                 Nothing to install, no password to remember.
               </p>
             </li>
-            <li>
+            <li data-reveal>
               <h3>Staff scan the card at the counter</h3>
               <p>
                 Type the bill amount and the points are added, or tap a reward to redeem it. Any phone or tablet with a
                 camera works.
               </p>
             </li>
-            <li>
+            <li data-reveal>
               <h3>The balance updates on the card</h3>
               <p>
                 After each visit the new balance shows on the card in their Wallet, so customers always know how close
@@ -196,16 +224,16 @@ export default async function Landing() {
         </section>
 
         <section id="templates" className={s.section}>
-          <h2>Rewards that fit what you sell</h2>
-          <p className={s.sectionLede}>
+          <h2 data-reveal>Rewards that fit what you sell</h2>
+          <p className={s.sectionLede} data-reveal>
             Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
             Customers earn points on every dollar they spend, at a rate you choose. Prefer a classic stamp card? Your card
-            can count stamps instead: 1 stamp per item, added at the counter, no bill to type, and a full card earns the
+            can count stamps instead: staff add 1 to 3 stamps per tap, no bill to type, and a full card earns the
             reward you pick.
           </p>
           <div className={s.templates}>
             {Object.entries(REDEEM_TEMPLATES).map(([key, t]) => (
-              <div key={key} className={s.template}>
+              <div key={key} className={s.template} data-reveal>
                 <h3>{t.label}</h3>
                 <ul className={s.keys}>
                   {t.actions.map((a) => (
@@ -222,12 +250,12 @@ export default async function Landing() {
 
         <section id="owners" className={`${s.section} ${s.owners}`}>
           <div>
-            <h2>See who your regulars are</h2>
-            <p className={s.sectionLede}>
+            <h2 data-reveal>See who your regulars are</h2>
+            <p className={s.sectionLede} data-reveal>
               Every scan lands in a dashboard only the owner can open. Cashier logins work the counter; the numbers stay
               with you.
             </p>
-            <dl className={s.features}>
+            <dl className={s.features} data-reveal>
               <div>
                 <dt>Dashboard</dt>
                 <dd>Members, active members, points issued and redeemed, repeat rate, and a heatmap of your busiest hours.</dd>
@@ -263,7 +291,7 @@ export default async function Landing() {
                 <dd>Find a customer by phone at the counter and show a QR code that puts their card back on their iPhone. The link works for one hour.</dd>
               </div>
             </dl>
-            <div className={s.soon}>
+            <div className={s.soon} data-reveal>
               <span className={s.soonTag}>Coming soon</span>
               <ul>
                 {COMING_SOON.map((c) => (
@@ -274,7 +302,7 @@ export default async function Landing() {
           </div>
 
           <figure className={s.dash} aria-label={`Sample owner dashboard for ${cafe.name}`}>
-            <div className={s.dashKpis}>
+            <div className={s.dashKpis} data-reveal>
               <div className="panel">
                 <span className="panel-t">Members</span>
                 <b>{cafe.kpis.members}</b>
@@ -288,7 +316,7 @@ export default async function Landing() {
                 <b>{Math.round(cafe.kpis.repeat * 100)}%</b>
               </div>
             </div>
-            <div className="panel">
+            <div className="panel" data-reveal>
               <div className="panel-h">
                 <span className="panel-t">Points flow</span>
                 <span className={s.panelNote}>last 14 days</span>
@@ -300,7 +328,7 @@ export default async function Landing() {
                 ]}
               />
             </div>
-            <div className="panel">
+            <div className="panel" data-reveal>
               <div className="panel-h">
                 <span className="panel-t">Segments</span>
               </div>
@@ -311,62 +339,56 @@ export default async function Landing() {
         </section>
 
         <section id="why" className={s.section}>
-          <h2>Why a Wallet card</h2>
-          <p className={s.sectionLede}>
+          <h2 data-reveal>Why a Wallet card</h2>
+          <p className={s.sectionLede} data-reveal>
             Paper cards get lost and copied. A custom app is expensive, and most customers will not install it for a free
             coffee. A Wallet card sits in between.
           </p>
-          <table className={s.compare}>
-            <thead>
-              <tr>
-                <td />
-                <th scope="col">Paper punch card</th>
-                <th scope="col">Your own app</th>
-                <th scope="col" className={s.us}>
-                  42nights Wallet card
-                </th>
+          {/* Explicit roles: the phone layout restyles rows as grids, which
+              drops native table semantics in some browsers. */}
+          <table className={s.compare} role="table">
+            <thead role="rowgroup">
+              <tr role="row" data-reveal>
+                <td role="cell" />
+                {OPTIONS.map((o, i) => (
+                  <th key={o} scope="col" role="columnheader" className={i === 2 ? s.us : undefined}>
+                    {o}
+                  </th>
+                ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {COMPARE.map((r) => (
-                <tr key={r.row}>
-                  <th scope="row">{r.row}</th>
-                  <td data-label="Paper card">{r.paper}</td>
-                  <td data-label="Own app">{r.app}</td>
-                  <td data-label="42nights" className={s.us}>
-                    {r.wallet}
-                  </td>
+                <tr key={r.row} role="row" data-reveal>
+                  <th scope="row" role="rowheader">
+                    {r.row}
+                  </th>
+                  {r.cells.map(([v, text], i) => (
+                    <td key={i} role="cell" className={i === 2 ? s.us : undefined}>
+                      <span className={s.cell}>
+                        <Mark v={v} />
+                        <span>
+                          <span className={s.sr}>{VERDICT[v]}: </span>
+                          {text}
+                        </span>
+                      </span>
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
-
-        <section id="founding" className={`${s.section} ${s.founding}`}>
-          <div>
-            <h2>Founding merchants</h2>
-            <p className={s.sectionLede}>
-              We are bringing on our first restaurants, cafés and shops one at a time. Businesses that start with us early
-              get founding terms. Talk to us and we will go through them with you.
-            </p>
-            {ctas}
-          </div>
-          <ul className={s.perks}>
-            <li>
-              <b>We set it up for you.</b> Send us your logo, your colours and the reward set you want. We create your
-              card, your sign-up link and your staff logins.
-            </li>
-            <li>
-              <b>No hardware to buy.</b> Your staff use a phone or tablet you already have.
-            </li>
-          </ul>
+          <p className={s.takeaway} data-reveal>
+            <Mark v="good" />
+            Only the Wallet card gets a check in every row.
+          </p>
         </section>
 
         <section id="faq" className={s.section}>
-          <h2>Questions owners ask</h2>
+          <h2 data-reveal>Questions owners ask</h2>
           <div className={s.faq}>
             {FAQ.map((f) => (
-              <details key={f.q}>
+              <details key={f.q} data-reveal>
                 <summary>{f.q}</summary>
                 <p>{f.a}</p>
               </details>
@@ -375,11 +397,11 @@ export default async function Landing() {
         </section>
 
         <section className={`${s.section} ${s.closing}`}>
-          <h2>Try it before you decide.</h2>
-          <p className={s.sectionLede}>
+          <h2 data-reveal>Try it before you decide.</h2>
+          <p className={s.sectionLede} data-reveal>
             The demo runs in your browser with sample data. Ring up a bill, redeem a reward and watch the card change.
           </p>
-          {ctas}
+          <div data-reveal>{ctas}</div>
         </section>
       </main>
 
@@ -389,6 +411,7 @@ export default async function Landing() {
         <Link href="/demo">Demo</Link>
         <p>Apple, Apple Wallet and iPhone are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
       </footer>
+      <Reveal />
     </div>
   );
 }
