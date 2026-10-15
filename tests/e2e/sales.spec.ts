@@ -5,16 +5,16 @@ import { test, expect } from "./helpers";
 // without SALES_BOOKING_URL (it is not in .env.local), so the second call to
 // action is "Ask us about a pilot", never a booking link.
 
-test("landing: no prices, founding section, section links and a next step", async ({ page }) => {
+test("landing: no prices, no founding section, section links and a next step", async ({ page }) => {
   await page.goto("/");
 
   // pricing is hidden on the public page (Ayaan, 2026-10-13)
   await expect(page.locator("main")).not.toContainText(/pricing|per month|per location/i);
-  await expect(page.getByRole("heading", { name: "Founding merchants" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Founding merchants" })).toHaveCount(0);
 
   // F13: the section links stay on screen at phone width too
   const nav = page.getByRole("navigation", { name: "Sections" });
-  for (const name of ["How it works", "For owners", "Join early", "FAQ"])
+  for (const name of ["How it works", "For owners", "FAQ"])
     await expect(nav.getByRole("link", { name })).toBeInViewport();
 
   // F5: always a next step after the demo, and no made-up address
