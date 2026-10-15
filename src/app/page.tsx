@@ -4,9 +4,20 @@ import { cookies } from "next/headers";
 import { BOOKING_URL, REDEEM_TEMPLATES } from "@/lib/config";
 import { Donut, SEGMENT_COLORS, TrendChart } from "./(merchant)/dashboard/charts";
 import ThemeToggle from "./(merchant)/dashboard/ThemeToggle";
-import { LockBanner, Phone, WalletCard } from "./demo/WalletCard";
 import { SAMPLES, SAMPLE_SERIAL, qrPath } from "./demo/samples";
-import Reveal from "./landing/Reveal";
+import {
+  HowScreens,
+  LockScreen,
+  OwnerScreen,
+  Paper,
+  ReadyScreen,
+  RewardsScreen,
+  StoryPhone,
+  WhyScreen,
+  runs,
+  type Story as StoryData,
+} from "./landing/screens";
+import Story from "./landing/Story";
 import s from "./page.module.css";
 
 // Public landing page — what Ayaan shows a restaurant owner (decision D5).
@@ -104,8 +115,13 @@ export const metadata: Metadata = {
 export default async function Landing() {
   const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
   const cafe = SAMPLES[0];
-  const qr = qrPath(SAMPLE_SERIAL);
   const updated = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // One phone tells the product story down the page (landing/Story.tsx). Each
+  // section's lane holds its own phone, which is also where the travelling
+  // one lands; data-beats marks where a chapter of that story starts. One
+  // customer runs through it: Sam's card at 120 points is the hero, and How
+  // it works shows how it got there.
+  const story: StoryData = { cafe, diner: SAMPLES[1], qr: runs(qrPath(SAMPLE_SERIAL)), updated };
   const segments = [
     { key: "vip", label: "VIP", value: 41 },
     { key: "regular", label: "Regular", value: 96 },
@@ -169,239 +185,259 @@ export default async function Landing() {
           </div>
 
           <div className={s.heroArt} aria-hidden="true" data-hero-art>
-            <div className={s.punch}>
-              <div className={s.punchHead}>
-                <b>{cafe.name}</b>
-                <span>Buy 9 coffees, the 10th is on us</span>
-              </div>
-              <div className={s.holes}>
-                {Array.from({ length: 10 }, (_, i) => (
-                  <span key={i} className={i < 7 ? s.stamped : undefined} />
-                ))}
-              </div>
-            </div>
+            <Paper name={cafe.name} className={s.punch} />
             <div className={s.heroPhone}>
-              <Phone
-                banner={
-                  <div className={s.bannerDrop}>
-                    <LockBanner name={cafe.name} colors={cafe.colors} points={305} shown />
-                  </div>
-                }
-              >
-                <div className={s.cardOffset}>
-                  <WalletCard name={cafe.name} colors={cafe.colors} points={305} updated={updated} qr={qr} />
-                </div>
-              </Phone>
+              <StoryPhone slot="static" intro>
+                <LockScreen story={story} rest />
+              </StoryPhone>
             </div>
           </div>
         </section>
 
-        <section id="how" className={s.section}>
-          <h2 data-reveal>Three steps, no app</h2>
-          <ol className={s.steps}>
-            <li data-reveal>
-              <h3>The customer scans your QR code</h3>
-              <p>
-                It opens your sign-up page. They type their name and phone number and add the card to Apple Wallet.
-                Nothing to install, no password to remember.
-              </p>
-            </li>
-            <li data-reveal>
-              <h3>Staff scan the card at the counter</h3>
-              <p>
-                Type the bill amount and the points are added, or tap a reward to redeem it. Any phone or tablet with a
-                camera works.
-              </p>
-            </li>
-            <li data-reveal>
-              <h3>The balance updates on the card</h3>
-              <p>
-                After each visit the new balance shows on the card in their Wallet, so customers always know how close
-                the next reward is.
-              </p>
-            </li>
-          </ol>
+        <section id="how" className={`${s.section} ${s.scrolly} ${s.left}`}>
+          <div>
+            <h2>Three steps, no app</h2>
+            <ol className={s.steps}>
+              <li data-beats="scan join add wallet">
+                <h3>The customer scans your QR code</h3>
+                <p>
+                  It opens your sign-up page. They type their name and phone number and add the card to Apple Wallet.
+                  Nothing to install, no password to remember.
+                </p>
+              </li>
+              <li data-beats="counter">
+                <h3>Staff scan the card at the counter</h3>
+                <p>
+                  Type the bill amount and the points are added, or tap a reward to redeem it. Any phone or tablet with a
+                  camera works.
+                </p>
+              </li>
+              <li data-beats="notify">
+                <h3>The balance updates on the card</h3>
+                <p>
+                  After each visit the new balance shows on the card in their Wallet, so customers always know how close
+                  the next reward is.
+                </p>
+              </li>
+            </ol>
+          </div>
+          <div className={s.lane} data-lane aria-hidden="true">
+            <StoryPhone slot="pin">
+              <HowScreens story={story} />
+            </StoryPhone>
+          </div>
         </section>
 
-        <section id="templates" className={s.section}>
-          <h2 data-reveal>Rewards that fit what you sell</h2>
-          <p className={s.sectionLede} data-reveal>
-            Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
-            Customers earn points on every dollar they spend, at a rate you choose. Prefer a classic stamp card? Your card
-            can count stamps instead: staff add 1 to 3 stamps per tap, no bill to type, and a full card earns the
-            reward you pick.
-          </p>
-          <div className={s.templates}>
-            {Object.entries(REDEEM_TEMPLATES).map(([key, t]) => (
-              <div key={key} className={s.template} data-reveal>
-                <h3>{t.label}</h3>
-                <ul className={s.keys}>
-                  {t.actions.map((a) => (
-                    <li key={a.id}>
-                      <span>{a.label}</span>
-                      <small>{-a.points} pts</small>
-                    </li>
+        <section id="templates" className={`${s.section} ${s.scrolly}`}>
+          <div>
+            <h2 data-beats="points stamps stamp">Rewards that fit what you sell</h2>
+            <p className={s.sectionLede}>
+              Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
+              Customers earn points on every dollar they spend, at a rate you choose. Prefer a classic stamp card? Your card
+              can count stamps instead: staff add 1 to 3 stamps per tap, no bill to type, and a full card earns the
+              reward you pick.
+            </p>
+            <div className={s.templates}>
+              {Object.entries(REDEEM_TEMPLATES).map(([key, t]) => (
+                <div key={key} className={s.template}>
+                  <h3>{t.label}</h3>
+                  <ul className={s.keys}>
+                    {t.actions.map((a) => (
+                      <li key={a.id}>
+                        <span>{a.label}</span>
+                        <small>{-a.points} pts</small>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className={s.lane} data-lane aria-hidden="true">
+            <StoryPhone slot="pin">
+              <RewardsScreen story={story} />
+            </StoryPhone>
+          </div>
+        </section>
+
+        <section id="owners" className={`${s.section} ${s.scrolly} ${s.left}`}>
+          <div className={s.owners}>
+            <div>
+              <h2 data-beats="dash">See who your regulars are</h2>
+              <p className={s.sectionLede}>
+                Every scan lands in a dashboard only the owner can open. Cashier logins work the counter; the numbers stay
+                with you.
+              </p>
+              <dl className={s.features}>
+                <div>
+                  <dt>Dashboard</dt>
+                  <dd>Members, active members, points issued and redeemed, repeat rate, and a heatmap of your busiest hours.</dd>
+                </div>
+                <div>
+                  <dt>Customer list</dt>
+                  <dd>Search by name or phone, open anyone&apos;s visit history, add tags and notes, and adjust points by hand.</dd>
+                </div>
+                <div data-beats="risk">
+                  <dt>Segments</dt>
+                  <dd>
+                    Customers are grouped for you: VIP, Regular, New, Active, At-risk, Lapsed and Dormant. At-risk means a
+                    regular with three or more visits who has not been back in a month.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Campaigns</dt>
+                  <dd>
+                    Give a segment bonus points and put an offer on the back of their card. Two weeks later you see what
+                    share of them came back and spent.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Staff</dt>
+                  <dd>Add cashier logins, reset their passwords, and see how many transactions each one rang up.</dd>
+                </div>
+                <div>
+                  <dt>AI insights</dt>
+                  <dd>Ask questions about your customers in plain English, and read a weekly digest.</dd>
+                </div>
+                <div>
+                  <dt>Lost cards</dt>
+                  <dd>Find a customer by phone at the counter and show a QR code that puts their card back on their iPhone. The link works for one hour.</dd>
+                </div>
+              </dl>
+              <div className={s.soon}>
+                <span className={s.soonTag}>Coming soon</span>
+                <ul>
+                  {COMING_SOON.map((c) => (
+                    <li key={c}>{c}</li>
                   ))}
                 </ul>
               </div>
-            ))}
+            </div>
+
+            <figure className={s.dash} aria-label={`Sample owner dashboard for ${cafe.name}`}>
+              <div className={s.dashKpis}>
+                <div className="panel">
+                  <span className="panel-t">Members</span>
+                  <b>{cafe.kpis.members}</b>
+                </div>
+                <div className="panel">
+                  <span className="panel-t">Active · 30d</span>
+                  <b>{cafe.kpis.active}</b>
+                </div>
+                <div className="panel">
+                  <span className="panel-t">Repeat rate</span>
+                  <b>{Math.round(cafe.kpis.repeat * 100)}%</b>
+                </div>
+              </div>
+              <div className="panel">
+                <div className="panel-h">
+                  <span className="panel-t">Points flow</span>
+                  <span className={s.panelNote}>last 14 days</span>
+                </div>
+                <TrendChart
+                  series={[
+                    { label: "Issued", color: "var(--c-issued)", data: cafe.issued14 },
+                    { label: "Redeemed", color: "var(--c-redeemed)", data: cafe.redeemed14 },
+                  ]}
+                />
+              </div>
+              <div className="panel">
+                <div className="panel-h">
+                  <span className="panel-t">Segments</span>
+                </div>
+                <Donut label="members" segments={segments} size={140} thickness={20} />
+              </div>
+              <figcaption className={s.panelNote}>Sample data for a café. The real dashboard shows your own customers.</figcaption>
+            </figure>
+          </div>
+          <div className={s.lane} data-lane aria-hidden="true">
+            <StoryPhone slot="pin">
+              <OwnerScreen story={story} />
+            </StoryPhone>
           </div>
         </section>
 
-        <section id="owners" className={`${s.section} ${s.owners}`}>
+        <section id="why" className={`${s.section} ${s.scrolly}`}>
           <div>
-            <h2 data-reveal>See who your regulars are</h2>
-            <p className={s.sectionLede} data-reveal>
-              Every scan lands in a dashboard only the owner can open. Cashier logins work the counter; the numbers stay
-              with you.
+            <h2 data-beats="why">Why a Wallet card</h2>
+            <p className={s.sectionLede}>
+              Paper cards get lost and copied. A custom app is expensive, and most customers will not install it for a free
+              coffee. A Wallet card sits in between.
             </p>
-            <dl className={s.features} data-reveal>
-              <div>
-                <dt>Dashboard</dt>
-                <dd>Members, active members, points issued and redeemed, repeat rate, and a heatmap of your busiest hours.</dd>
-              </div>
-              <div>
-                <dt>Customer list</dt>
-                <dd>Search by name or phone, open anyone&apos;s visit history, add tags and notes, and adjust points by hand.</dd>
-              </div>
-              <div>
-                <dt>Segments</dt>
-                <dd>
-                  Customers are grouped for you: VIP, Regular, New, Active, At-risk, Lapsed and Dormant. At-risk means a
-                  regular with three or more visits who has not been back in a month.
-                </dd>
-              </div>
-              <div>
-                <dt>Campaigns</dt>
-                <dd>
-                  Give a segment bonus points and put an offer on the back of their card. Two weeks later you see what
-                  share of them came back and spent.
-                </dd>
-              </div>
-              <div>
-                <dt>Staff</dt>
-                <dd>Add cashier logins, reset their passwords, and see how many transactions each one rang up.</dd>
-              </div>
-              <div>
-                <dt>AI insights</dt>
-                <dd>Ask questions about your customers in plain English, and read a weekly digest.</dd>
-              </div>
-              <div>
-                <dt>Lost cards</dt>
-                <dd>Find a customer by phone at the counter and show a QR code that puts their card back on their iPhone. The link works for one hour.</dd>
-              </div>
-            </dl>
-            <div className={s.soon} data-reveal>
-              <span className={s.soonTag}>Coming soon</span>
-              <ul>
-                {COMING_SOON.map((c) => (
-                  <li key={c}>{c}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <figure className={s.dash} aria-label={`Sample owner dashboard for ${cafe.name}`}>
-            <div className={s.dashKpis} data-reveal>
-              <div className="panel">
-                <span className="panel-t">Members</span>
-                <b>{cafe.kpis.members}</b>
-              </div>
-              <div className="panel">
-                <span className="panel-t">Active · 30d</span>
-                <b>{cafe.kpis.active}</b>
-              </div>
-              <div className="panel">
-                <span className="panel-t">Repeat rate</span>
-                <b>{Math.round(cafe.kpis.repeat * 100)}%</b>
-              </div>
-            </div>
-            <div className="panel" data-reveal>
-              <div className="panel-h">
-                <span className="panel-t">Points flow</span>
-                <span className={s.panelNote}>last 14 days</span>
-              </div>
-              <TrendChart
-                series={[
-                  { label: "Issued", color: "var(--c-issued)", data: cafe.issued14 },
-                  { label: "Redeemed", color: "var(--c-redeemed)", data: cafe.redeemed14 },
-                ]}
-              />
-            </div>
-            <div className="panel" data-reveal>
-              <div className="panel-h">
-                <span className="panel-t">Segments</span>
-              </div>
-              <Donut label="members" segments={segments} size={140} thickness={20} />
-            </div>
-            <figcaption className={s.panelNote}>Sample data for a café. The real dashboard shows your own customers.</figcaption>
-          </figure>
-        </section>
-
-        <section id="why" className={s.section}>
-          <h2 data-reveal>Why a Wallet card</h2>
-          <p className={s.sectionLede} data-reveal>
-            Paper cards get lost and copied. A custom app is expensive, and most customers will not install it for a free
-            coffee. A Wallet card sits in between.
-          </p>
-          {/* Explicit roles: the phone layout restyles rows as grids, which
-              drops native table semantics in some browsers. */}
-          <table className={s.compare} role="table">
-            <thead role="rowgroup">
-              <tr role="row" data-reveal>
-                <td role="cell" />
-                {OPTIONS.map((o, i) => (
-                  <th key={o} scope="col" role="columnheader" className={i === 2 ? s.us : undefined}>
-                    {o}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              {COMPARE.map((r) => (
-                <tr key={r.row} role="row" data-reveal>
-                  <th scope="row" role="rowheader">
-                    {r.row}
-                  </th>
-                  {r.cells.map(([v, text], i) => (
-                    <td key={i} role="cell" className={i === 2 ? s.us : undefined}>
-                      <span className={s.cell}>
-                        <Mark v={v} />
-                        <span>
-                          <span className={s.sr}>{VERDICT[v]}: </span>
-                          {text}
-                        </span>
-                      </span>
-                    </td>
+            {/* Explicit roles: the phone layout restyles rows as grids, which
+                drops native table semantics in some browsers. */}
+            <table className={s.compare} role="table">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <td role="cell" />
+                  {OPTIONS.map((o, i) => (
+                    <th key={o} scope="col" role="columnheader" className={i === 2 ? s.us : undefined}>
+                      {o}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className={s.takeaway} data-reveal>
-            <Mark v="good" />
-            Only the Wallet card gets a check in every row.
-          </p>
+              </thead>
+              <tbody role="rowgroup">
+                {COMPARE.map((r) => (
+                  <tr key={r.row} role="row">
+                    <th scope="row" role="rowheader">
+                      {r.row}
+                    </th>
+                    {r.cells.map(([v, text], i) => (
+                      <td key={i} role="cell" className={i === 2 ? s.us : undefined}>
+                        <span className={s.cell}>
+                          <Mark v={v} />
+                          <span>
+                            <span className={s.sr}>{VERDICT[v]}: </span>
+                            {text}
+                          </span>
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className={s.takeaway}>
+              <Mark v="good" />
+              Only the Wallet card gets a check in every row.
+            </p>
+          </div>
+          {/* The paper card the Wallet card replaces. On desktop the
+              travelling phone carries its own copy and drops it during Why. */}
+          <div className={`${s.lane} ${s.whyLane}`} data-lane aria-hidden="true">
+            <Paper name={cafe.name} className={s.leftBehind} />
+            <StoryPhone slot="pin">
+              <WhyScreen story={story} />
+            </StoryPhone>
+          </div>
         </section>
 
-        <section id="faq" className={s.section}>
-          <h2 data-reveal>Questions owners ask</h2>
+        <section id="faq" className={`${s.section} ${s.faqSection}`}>
+          <h2>Questions owners ask</h2>
           <div className={s.faq}>
             {FAQ.map((f) => (
-              <details key={f.q} data-reveal>
+              <details key={f.q}>
                 <summary>{f.q}</summary>
                 <p>{f.a}</p>
               </details>
             ))}
           </div>
+          {/* Where the travelling phone parks, small, beside the questions. */}
+          <div className={s.park} data-slot="pin" aria-hidden="true" />
         </section>
 
-        <section className={`${s.section} ${s.closing}`}>
-          <h2 data-reveal>Try it before you decide.</h2>
-          <p className={s.sectionLede} data-reveal>
+        <section className={`${s.section} ${s.closing}`} data-beats="ready">
+          <div className={s.lane} data-lane aria-hidden="true">
+            <StoryPhone slot="static">
+              <ReadyScreen story={story} />
+            </StoryPhone>
+          </div>
+          <h2>Try it before you decide.</h2>
+          <p className={s.sectionLede}>
             The demo runs in your browser with sample data. Ring up a bill, redeem a reward and watch the card change.
           </p>
-          <div data-reveal>{ctas}</div>
+          {ctas}
         </section>
       </main>
 
@@ -411,7 +447,7 @@ export default async function Landing() {
         <Link href="/demo">Demo</Link>
         <p>Apple, Apple Wallet and iPhone are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
       </footer>
-      <Reveal />
+      <Story />
     </div>
   );
 }

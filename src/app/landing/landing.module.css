@@ -1,0 +1,410 @@
+/* The landing page's phone screens (landing/screens.tsx) and the travelling
+   phone (landing/Story.tsx).
+
+   Every rule outside a `.stack[data-live]` selector is a screen's LAST frame,
+   which is what no-JS and reduced-motion visitors see. Screens and beats only
+   move inside a live stack, and only on transform/opacity (typing uses
+   clip-path). Curves are the page's tokens (page.module.css .page):
+   --ease-out for arrivals, --ease-in-out for movement on screen, --ease-drawer
+   for the iOS sheet, --spring (bounce 0.2) where something physical lands. */
+
+.slot { flex: none; }
+
+/* Below the phone's status bar. Screens are stacked; one shows at a time. */
+.stack { position: absolute; inset: 44px 0 0; text-align: start; }
+.scr { position: absolute; inset: 0; opacity: 0; visibility: hidden; }
+.stack:not([data-live]) > [data-rest],
+.stack[data-live] > [data-on] { opacity: 1; visibility: inherit; }
+/* Leaving: fade only. Arriving: fade up from 0.97, so a new screen reads as
+   the next thing rather than a cut. */
+.stack[data-live] > .scr {
+  transform: scale(.97);
+  transition: opacity 120ms var(--ease-out), visibility 0s 120ms, transform 0s 120ms;
+}
+.stack[data-live] > [data-on] {
+  transform: none;
+  transition: opacity 240ms var(--ease-out) 90ms, visibility 0s, transform 400ms var(--ease-out);
+}
+
+/* desktop: the pinned lane phones hand the stage to the travelling one */
+:global(html[data-travel]) .slot[data-slot="pin"] { visibility: hidden; }
+.rig {
+  position: fixed; top: 0; left: 0; z-index: 1;
+  width: 300px; height: 620px;
+  pointer-events: none; visibility: hidden;
+  will-change: transform;
+}
+/* the phone, with the Why paper card behind it. When the phone lands beside
+   the comparison (Story.tsx sets data-go) the paper slides out from under it,
+   is left lying there a moment, then drops out of the bottom of the screen
+   (--floor) on a gravity curve: it is a falling object, not UI. */
+.rig > :first-child { position: relative; z-index: 1; }
+.rigPaper { position: absolute; left: 0; top: 0; transform: translate(52px, 410px); opacity: 0; }
+.rigPaper[data-go] {
+  opacity: 1;
+  animation: paperOut 700ms var(--ease-out) 250ms both, paperFall 900ms cubic-bezier(.11, 0, .5, 0) 1800ms forwards;
+}
+@keyframes paperOut { to { transform: translate(40px, 570px) rotate(-7deg); } }
+@keyframes paperFall {
+  from { transform: translate(40px, 570px) rotate(-7deg); }
+  to { transform: translate(32px, var(--floor)) rotate(-23deg); }
+}
+
+.was { opacity: 0; }
+
+@keyframes fade { from { opacity: 0; } }
+@keyframes gone { from { opacity: 1; } to { opacity: 0; } }
+@keyframes drop { from { transform: translateY(-130px); } }
+@keyframes press { 50% { transform: scale(.96); } }
+@keyframes type { from { clip-path: inset(0 100% 0 0); } }
+@keyframes snap { from { opacity: 0; transform: scale(1.22); } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---- lock screens (hero, notify, why, ready) ---- */
+.lockPad { padding-top: 70px; } /* keeps the card clear of the banner */
+/* The screen's own box, so a banner inside keeps the position Phone gives it. */
+.drop { position: absolute; inset: -44px 0 0; z-index: 2; pointer-events: none; }
+/* LockBanner sets visibility: visible; let it hide with its phone instead. */
+.scr .drop > * { visibility: inherit; }
+
+/* The hero, once on load: the card rises into Wallet on the spring, then the
+   notification drops in. Below 861px the phone sits under the copy, so the
+   CSS waits 1.44s longer as the no-JS fallback; Story.tsx pauses it instead
+   and starts it once the phone is on screen. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-intro] .lockPad { animation: cardIn 680ms var(--spring) 100ms both; }
+  [data-intro] .drop { animation: drop 680ms var(--spring) 760ms both; }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 860px) {
+  [data-intro] .lockPad { animation-delay: 1540ms; }
+  [data-intro] .drop { animation-delay: 2200ms; }
+}
+@keyframes cardIn { from { transform: translateY(480px) scale(.96); } }
+
+/* notify: the pass refreshes (the number changes under an identical card),
+   then Wallet's notification lands */
+.cards { position: relative; }
+.newer { position: absolute; inset: 70px 0 auto; }
+.stack[data-live] > [data-on] .newer { animation: fade 260ms var(--ease-out) 420ms both; }
+.stack[data-live] > [data-on][data-scr="notify"] .drop { animation: drop 680ms var(--spring) 560ms both; }
+
+/* ---- 1. camera on the counter poster ---- */
+.cam { display: flex; flex-direction: column; background: #000; color: #fff; }
+.feed {
+  position: relative; flex: 1; overflow: hidden;
+  display: grid; place-items: center;
+  background: radial-gradient(120% 75% at 50% 30%, #57432f 0%, #2d231a 50%, #110e0b 100%);
+}
+.feed::before { /* the counter top the poster stands on */
+  content: ""; position: absolute; inset: auto 0 0; height: 30%;
+  background: linear-gradient(#6b4d33, #3a2a1c);
+}
+.poster {
+  position: relative; z-index: 1; width: 172px; margin-top: -26px;
+  padding: 11px 12px 13px; border-radius: 8px;
+  background: var(--pb); color: var(--pf);
+  transform: perspective(700px) rotateX(9deg) rotate(-2deg);
+  box-shadow: 0 22px 30px -14px rgba(0, 0, 0, .75);
+}
+.posterBand { display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 600; }
+.posterLogo {
+  width: 16px; height: 16px; border-radius: 4px; flex: none;
+  display: grid; place-items: center; font-size: 7px; font-weight: 700;
+  background: color-mix(in srgb, var(--pf) 16%, transparent);
+}
+.posterHead { display: block; font-size: 13px; line-height: 1.12; letter-spacing: -.01em; margin: 8px 0 10px; text-wrap: balance; }
+.posterQr { position: relative; width: 96px; margin: 0 auto; padding: 6px; border-radius: 6px; background: #fff; }
+.posterQr svg { display: block; width: 100%; height: auto; }
+.posterLead { display: block; width: 84%; height: 4px; margin: 9px auto 0; border-radius: 2px; background: color-mix(in srgb, var(--pf) 32%, transparent); }
+.posterLead + .posterLead { width: 56%; margin-top: 5px; }
+.scanLine {
+  position: absolute; left: 3px; right: 3px; top: 3px; height: 2px; border-radius: 1px;
+  background: #ffd60a; box-shadow: 0 0 10px 2px rgba(255, 214, 10, .55);
+  opacity: 0;
+}
+/* the yellow corners iOS draws round a code it has read */
+.brackets {
+  position: absolute; inset: -9px;
+  --c: #ffd60a;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 18px 3px,
+    linear-gradient(var(--c), var(--c)) top left / 3px 18px,
+    linear-gradient(var(--c), var(--c)) top right / 18px 3px,
+    linear-gradient(var(--c), var(--c)) top right / 3px 18px,
+    linear-gradient(var(--c), var(--c)) bottom left / 18px 3px,
+    linear-gradient(var(--c), var(--c)) bottom left / 3px 18px,
+    linear-gradient(var(--c), var(--c)) bottom right / 18px 3px,
+    linear-gradient(var(--c), var(--c)) bottom right / 3px 18px;
+  background-repeat: no-repeat;
+}
+.pill {
+  position: absolute; z-index: 1; left: 0; right: 0; bottom: 18px;
+  width: max-content; margin: 0 auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  background: #ffd60a; color: #1a1400; font-size: 11px; font-weight: 600;
+}
+.compass { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid currentColor; }
+.camBar {
+  position: relative; height: 112px; flex: none;
+  display: flex; justify-content: center; gap: 14px; padding-top: 12px;
+  font-size: 9px; font-weight: 600; letter-spacing: .08em; color: rgba(255, 255, 255, .7);
+}
+.mode { color: #ffd60a; }
+.shutter {
+  position: absolute; left: 50%; bottom: 20px; width: 52px; height: 52px; margin-left: -26px;
+  border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px #000, 0 0 0 6px #fff;
+}
+/* autofocus pull, one pass of the scan line, the corners snap on, the link pill */
+.stack[data-live] > [data-on] .poster { animation: focusPull 480ms var(--ease-out) both; }
+.stack[data-live] > [data-on] .scanLine { animation: sweep 760ms var(--ease-in-out) 180ms both; }
+.stack[data-live] > [data-on] .brackets { animation: snap 220ms var(--ease-out) 860ms both; }
+.stack[data-live] > [data-on] .pill { animation: rise 280ms var(--ease-out) 1000ms both; }
+@keyframes focusPull {
+  from { transform: perspective(700px) rotateX(9deg) rotate(-2deg) scale(1.06); filter: blur(3px); }
+}
+@keyframes sweep {
+  0% { opacity: 1; transform: translateY(0); }
+  88% { opacity: 1; transform: translateY(100px); }
+  100% { opacity: 0; transform: translateY(100px); }
+}
+
+/* ---- 2. the enroll page, in Safari ---- */
+.web { display: flex; flex-direction: column; padding: 8px 14px 0; background: var(--bg); color: var(--ink); }
+.webBrand, .termBrand {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--display); font-weight: 800; font-size: 16px; letter-spacing: -.03em;
+  margin: 6px 0 16px;
+}
+.webBrand small, .termBrand small {
+  margin-left: auto; color: var(--muted);
+  font-family: system-ui, sans-serif; font-weight: 400; font-size: 8px; letter-spacing: .18em;
+}
+.dot { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--accent); }
+.form { display: flex; flex-direction: column; padding: 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.formLabel { font-size: 8.5px; text-transform: uppercase; letter-spacing: .18em; color: var(--muted); margin-bottom: 6px; }
+.form > .formLabel:first-child { margin-bottom: 14px; }
+.input, .bill {
+  height: 36px; display: flex; align-items: center; padding: 0 10px; margin-bottom: 12px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line);
+  font-size: 14px; white-space: nowrap;
+}
+.typeName, .typePhone, .typeBill { display: inline-block; }
+.getCard {
+  display: grid; place-items: center; height: 40px; margin-top: 4px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink);
+  font-family: var(--display); font-weight: 700; font-size: 14px;
+}
+.getCard > span { grid-area: 1 / 1; }
+.getIdle { opacity: 0; }
+.safari { display: flex; align-items: center; gap: 10px; height: 54px; margin-top: auto; padding: 0 4px 8px; font-size: 12px; color: var(--muted); }
+.address { flex: 1; height: 34px; display: grid; place-items: center; border-radius: 12px; background: var(--surface-2); color: var(--ink); font-size: 12px; }
+.reload { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; }
+/* name and number typed in, then "Get my card" is tapped */
+.stack[data-live] > [data-on] .typeName { animation: type 480ms steps(10, end) 200ms both; }
+.stack[data-live] > [data-on] .typePhone { animation: type 560ms steps(14, end) 760ms both; }
+.stack[data-live] > [data-on] .getCard { animation: press 160ms var(--ease-out) 1400ms; }
+.stack[data-live] > [data-on] .getIdle { animation: gone 160ms var(--ease-out) 1500ms both; }
+.stack[data-live] > [data-on] .getBusy { animation: fade 200ms var(--ease-out) 1540ms both; }
+
+/* ---- 3. the add-pass sheet ---- */
+.addBg { background: #000; }
+:global(html[data-theme="light"]) .addBg { background: #9a9aa0; }
+.behind { position: absolute; left: 16px; right: 16px; top: 4px; height: 40px; border-radius: 12px 12px 0 0; background: var(--bg); opacity: .45; }
+.sheet { position: absolute; inset: 16px 0 0; border-radius: 14px 14px 0 0; background: #1c1c1e; color: #fff; }
+:global(html[data-theme="light"]) .sheet { background: #f2f2f7; color: #000; }
+.sheetBar { display: flex; justify-content: space-between; padding: 14px 18px 4px; font-size: 14px; color: #0a84ff; }
+:global(html[data-theme="light"]) .sheetBar { color: #007aff; }
+.addTap { position: relative; font-weight: 600; }
+.addTap::before { content: ""; position: absolute; inset: -4px -9px; border-radius: 9px; background: currentColor; opacity: 0; }
+.stack[data-live] > [data-on] .sheet { animation: sheetUp 520ms var(--ease-drawer) 60ms both; }
+.stack[data-live] > [data-on] .behind { animation: fade 300ms var(--ease-out) both; }
+.stack[data-live] > [data-on] .addTap::before { animation: tap 380ms var(--ease-out) 900ms; }
+@keyframes sheetUp { from { transform: translateY(100%); } }
+@keyframes tap { 30% { opacity: .2; } }
+
+/* ---- 4. Wallet: the card drops into the stack ---- */
+/* clipped: the new card drops in from under the status bar */
+.wallet { background: #000; color: #fff; overflow: hidden; }
+:global(html[data-theme="light"]) .wallet,
+:global(html[data-theme="light"]) .rewards { background: #f2f2f7; color: #000; }
+.walletHead { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px 12px; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.plus { position: relative; width: 26px; height: 26px; border-radius: 50%; background: rgba(120, 120, 128, .28); }
+.plus::before, .plus::after { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 2px; margin: -1px 0 0 -5.5px; border-radius: 1px; background: currentColor; }
+.plus::after { transform: rotate(90deg); }
+.peeks { padding: 0 12px; }
+.peek {
+  height: 46px; margin-bottom: -12px; padding: 11px 14px; border-radius: 12px 12px 0 0;
+  color: rgba(255, 255, 255, .88); font-size: 9px; font-weight: 600; letter-spacing: .08em;
+}
+.dropIn { position: relative; }
+.stack[data-live] > [data-on] .dropIn { animation: cardDrop 680ms var(--spring) 220ms both; }
+.stack[data-live] > [data-on] .peeks { animation: settle 360ms var(--ease-out) 560ms; }
+@keyframes cardDrop { from { transform: translateY(-340px); } }
+@keyframes settle { 40% { transform: translateY(5px); } }
+
+/* ---- 5. the staff terminal ---- */
+.term { display: flex; flex-direction: column; padding: 4px 14px 0; background: var(--bg); color: var(--ink); }
+.termBrand { margin-bottom: 12px; }
+.finder {
+  position: relative; height: 164px; margin-bottom: 14px; overflow: hidden;
+  display: grid; place-items: center;
+  border-radius: 14px; border: 1px solid var(--line);
+  background: radial-gradient(90% 80% at 50% 40%, #3b332b, #121010);
+}
+/* the customer's iPhone held up to the camera, card QR on screen */
+.held { width: 88px; padding: 7px; border-radius: 8px; background: #fff; transform: rotate(-7deg); box-shadow: 0 0 0 9px #17150f, 0 16px 26px -10px rgba(0, 0, 0, .8); }
+.held svg { display: block; width: 100%; height: auto; }
+.sweep { position: absolute; inset: 0 0 auto; height: 40%; border-bottom: 2px solid var(--ok); background: linear-gradient(transparent, color-mix(in srgb, var(--ok) 22%, transparent)); opacity: 0; }
+.locked {
+  position: absolute; left: 50%; top: 50%; width: 124px; height: 124px; margin: -62px 0 0 -62px;
+  --c: var(--ok);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 20px 3px,
+    linear-gradient(var(--c), var(--c)) top left / 3px 20px,
+    linear-gradient(var(--c), var(--c)) top right / 20px 3px,
+    linear-gradient(var(--c), var(--c)) top right / 3px 20px,
+    linear-gradient(var(--c), var(--c)) bottom left / 20px 3px,
+    linear-gradient(var(--c), var(--c)) bottom left / 3px 20px,
+    linear-gradient(var(--c), var(--c)) bottom right / 20px 3px,
+    linear-gradient(var(--c), var(--c)) bottom right / 3px 20px;
+  background-repeat: no-repeat;
+}
+.bal {
+  display: grid; margin-bottom: 4px;
+  font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -.04em;
+}
+.bal > span { grid-area: 1 / 1; transform-origin: left center; }
+.billRow { display: flex; gap: 8px; margin-top: 10px; }
+.bill { flex: 1; margin: 0; }
+.addKey {
+  display: grid; place-items: center; width: 64px; height: 38px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-family: var(--display); font-weight: 700; font-size: 14px;
+}
+.toast {
+  margin-top: 10px; padding: 9px 12px; border-radius: 10px; font-size: 13px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.stack[data-live] > [data-on] .sweep { animation: scanPass 760ms var(--ease-in-out) 120ms both; }
+.stack[data-live] > [data-on] .locked { animation: snap 220ms var(--ease-out) 760ms both; }
+.stack[data-live] > [data-on] .typeBill { animation: type 400ms steps(5, end) 960ms both; }
+.stack[data-live] > [data-on] .addKey { animation: press 160ms var(--ease-out) 1420ms; }
+.stack[data-live] > [data-on] .toast { animation: rise 280ms var(--ease-out) 1560ms both; }
+.stack[data-live] > [data-on] .bal .was { animation: gone 120ms var(--ease-out) 1580ms both; }
+.stack[data-live] > [data-on] .bal .now { animation: balPop 360ms var(--ease-out) 1580ms both; }
+@keyframes scanPass {
+  0% { opacity: 1; transform: translateY(-100%); }
+  85% { opacity: 1; transform: translateY(150%); }
+  100% { opacity: 0; transform: translateY(150%); }
+}
+@keyframes balPop { from { opacity: 0; transform: scale(1.14); } }
+
+/* ---- rewards: Wallet pages from a points card to a stamp card ---- */
+.rewards { background: #000; color: #fff; }
+.track { display: flex; width: 200%; padding-top: 40px; transform: translateX(-50%); }
+.page { width: 50%; flex: none; }
+.dots { display: flex; justify-content: center; gap: 7px; margin-top: 20px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .28; }
+.dots i:last-child { opacity: .9; }
+.rewards[data-step="0"] .track { transform: none; }
+.rewards[data-step="0"] .dots i:first-child { opacity: .9; }
+.rewards[data-step="0"] .dots i:last-child { opacity: .28; }
+.stack[data-live] .track { transition: transform 640ms var(--ease-in-out); }
+.stack[data-live] .dots i { transition: opacity 300ms var(--ease-out); }
+
+/* a stamp press (screens.tsx Press): the card after, the card before over it */
+.press {
+  /* flow-root: both cards keep their 14px top margin inside, so they line up */
+  position: relative; display: flow-root;
+  /* the slot of the new stamp, in the 256px card's px (12px margins, 50px
+     logo row above the 375pt-wide strip); the hole fits the stamp at the
+     1.7x it lands from */
+  --u: calc(256px / 375);
+  --cx: calc(12px + var(--x) * var(--u));
+  --cy: calc(64px + var(--y) * var(--u));
+  --r: calc(var(--d) * var(--u) * .9 + 2px);
+}
+.before { position: absolute; inset: 0; opacity: 0; }
+.ink {
+  position: absolute; left: var(--cx); top: var(--cy);
+  width: calc(var(--d) * var(--u)); aspect-ratio: 1; translate: -50% -50%;
+  border-radius: 50%; border: 2px solid var(--pl); opacity: 0; pointer-events: none;
+}
+.shine { position: absolute; inset: 14px 12px 0; border-radius: 14px; overflow: hidden; pointer-events: none; }
+.shine::after { content: ""; position: absolute; inset: 0; opacity: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .24) 50%, transparent 65%); }
+.stack[data-live] .press > :first-child svg > g:last-of-type { animation: none; }
+/* the hole the new stamp lands through */
+.stack[data-live] > .rewards[data-step="2"] .before,
+.stack[data-live] > [data-on][data-scr="ready"] .before {
+  opacity: 1;
+  mask-image: radial-gradient(circle var(--r) at var(--cx) var(--cy), transparent calc(var(--r) - 1px), #000 var(--r));
+}
+
+/* rewards: 8 of 10 until the press, which lands the 9th */
+.rewards:is([data-step="0"], [data-step="1"]) .before { opacity: 1; }
+/* the press: lands big, squashes past, settles; the ink spreads */
+.stack[data-live] > .rewards[data-step="2"] .press > :first-child svg > g:last-of-type { animation: stampIn 460ms var(--ease-out) 120ms both; }
+.stack[data-live] > .rewards[data-step="2"] .ink { animation: ink 620ms var(--ease-out) 300ms; }
+/* closing: the 10th lands, REWARD turns to Ready, a sheen crosses the card,
+   then Wallet's notification for the change drops in */
+.stack[data-live] > [data-on][data-scr="ready"] .press > :first-child svg > g:last-of-type { animation: stampIn 460ms var(--ease-out) 300ms both; }
+.stack[data-live] > [data-on][data-scr="ready"] .ink { animation: ink 620ms var(--ease-out) 480ms; }
+.stack[data-live] > [data-on][data-scr="ready"] .before { animation: gone 220ms var(--ease-out) 860ms both; }
+.stack[data-live] > [data-on][data-scr="ready"] .shine::after { animation: sheen 900ms var(--ease-in-out) 960ms; }
+.stack[data-live] > [data-on][data-scr="ready"] .drop { animation: drop 680ms var(--spring) 1500ms both; }
+@keyframes stampIn {
+  0% { opacity: 0; transform: scale(1.7); }
+  55% { opacity: 1; transform: scale(.9); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ink { from { opacity: .8; transform: scale(1); } to { opacity: 0; transform: scale(1.9); } }
+@keyframes sheen { from { opacity: 1; transform: translateX(-100%); } to { opacity: 1; transform: translateX(100%); } }
+
+/* ---- owners: the dashboard on a phone ---- */
+.owner { padding: 4px 12px 0; background: var(--bg); color: var(--ink); }
+.ownerHead small { display: block; font-size: 10px; color: var(--muted); }
+.ownerHead b { display: block; margin: 2px 0 12px; font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -.03em; }
+.scroller { display: grid; gap: 8px; }
+.owner :global(.panel) { padding: 10px 12px; gap: 6px; border-radius: 12px; animation: none; }
+.owner :global(.panel-t) { font-size: 8px; letter-spacing: .14em; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.kpis b { font-family: var(--display); font-weight: 800; font-size: 22px; line-height: 1; letter-spacing: -.03em; }
+.flow { display: block; width: 100%; height: 58px; }
+.flow polyline { fill: none; stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.row small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.give {
+  display: grid; place-items: center; height: 34px; margin-top: 4px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink);
+  font-family: var(--display); font-weight: 700; font-size: 13px;
+}
+.sent {
+  padding: 8px 10px; border-radius: 10px; font-size: 12px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.owner[data-step="0"] .sent { opacity: 0; }
+/* the at-risk list takes focus, the owner sends the campaign */
+.stack[data-live] .owner .scroller > * { transition: opacity 400ms var(--ease-out); }
+.stack[data-live] > .owner[data-step="1"] .scroller > :not(.risk) { opacity: .4; }
+.stack[data-live] > .owner[data-step="1"] .give { animation: press 200ms var(--ease-out) 900ms; }
+.stack[data-live] > .owner[data-step="1"] .sent { animation: rise 280ms var(--ease-out) 1080ms both; }
+
+/* ---- the paper punch card (hero, why; the rig's copy in Story.tsx) ---- */
+.paper {
+  width: 196px; padding: 14px 16px 16px; border-radius: 10px;
+  background: #efe4cc; color: #3a2a18;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 18px 40px -22px rgba(0, 0, 0, .55);
+}
+.paper b { display: block; font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+.paper span { display: block; margin-top: 3px; font-size: 11px; opacity: .75; text-wrap: balance; }
+.paper div { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin-top: 16px; }
+.paper i { aspect-ratio: 1; border-radius: 50%; border: 1.5px dashed rgba(58, 42, 24, .4); }
+.paper .inked { border: 2px solid #c4521c; background: radial-gradient(circle, #c4521c 0 38%, transparent 40%); }
+.paper .inked:nth-child(2n) { transform: rotate(14deg) scale(.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  .stack *, .stack *::before, .stack *::after { animation: none !important; transition: none !important; }
+}
