@@ -752,3 +752,143 @@ alter table merchants add column if not exists latitude numeric
   check (latitude between -90 and 90);
 alter table merchants add column if not exists longitude numeric
   check (longitude between -180 and 180);
+
+-- --- Sales CRM for the creator admin (2026-10-14) -------------------------
+-- Additive only. Admin-only (service role behind isAdmin()); no merchant or
+-- staff route reads these tables. RLS is on with no policies, so the anon and
+-- authenticated keys see nothing even on a project whose default privileges
+-- grant them table access; service_role bypasses RLS.
+
+create table if not exists sales_people (
+  id           uuid primary key default gen_random_uuid(),
+  name         text not null check (char_length(name) between 1 and 80),
+  kind         text not null check (kind in ('rep','partner')),
+  partner_type text check (partner_type in ('bookkeeper','printer','agency','iso','chamber','merchant','other')),
+  phone        text,
+  email        text,
+  payout_terms text,                 -- e.g. 'hourly+$50/shop', '20%/24mo', '30%/24mo'
+  active       boolean not null default true,
+  started_on   date,
+  notes        text,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists sales_leads (
+  id                 uuid primary key default gen_random_uuid(),
+  business_name      text not null check (char_length(business_name) between 1 and 200),
+  name_key           text not null,  -- normalized name for dedupe (app-computed)
+  segment            text not null default 'cafe' check (segment in ('cafe','restaurant','retail','other')),
+  address            text,
+  city               text,
+  state              char(2),
+  zip                text,
+  cluster            text,           -- street / ZIP block worked in one afternoon
+  phone              text,           -- E.164 via normalizePhone()
+  phone_type         text not null default 'unknown' check (phone_type in ('business_listed','mobile','unknown')),
+  phone_source       text check (phone_source in ('open_data','shop_listing','owner_gave_it','card_at_visit','inbound','referral','purchased_list','people_search')),
+  email              text,
+  email_source       text check (email_source in ('public_on_site','owner_gave_it','verified_vendor','guessed')),
+  website            text,
+  instagram          text,
+  facebook           text,
+  social_active      boolean,
+  owner_name         text,
+  owner_entity       text,           -- LLC / taxpayer name from open data
+  owner_present      text not null default 'unknown' check (owner_present in ('yes','no','unknown')),
+  owner_hours        text,
+  owner_contact_route text check (owner_contact_route in ('counter','manager','email','linkedin','whatsapp','phone')),
+  persona            text check (persona in ('P1','P2','P3','P4','P5','P6','P7')),
+  language           text,
+  pos_seen           text check (pos_seen in ('square','toast','clover','other','none','unknown')),
+  loyalty_now        text check (loyalty_now in ('paper','square','toast','clover','other','none','unknown')),
+  franchise_brand    text,
+  fdd_loyalty_vendor text not null default 'unknown' check (fdd_loyalty_vendor in ('yes','no','unknown')),
+  chain_size         int check (chain_size >= 1),
+  opened_on          date,
+  stage              text not null default 'new' check (stage in
+                       ('new','researched','contacted','conversation','demo','pilot','paid','nurture','lost','closed_business','franchisor_only','waiting_l6')),
+  lost_reason        text,
+  assignee_id        uuid references sales_people(id) on delete set null,
+  sourced_by_id      uuid references sales_people(id) on delete set null,
+  referred_by_merchant_id uuid references merchants(id) on delete set null,
+  merchant_id        uuid references merchants(id) on delete set null,  -- set when won
+  pilot_started_at   timestamptz,
+  first_paid_at      timestamptz,    -- rep bounty #1 / partner share starts
+  month4_paid_at     timestamptz,    -- rep bounty #2
+  source             text not null,  -- 'nyc_dohmh_43nn-pn8j', 'sf_g8m3-pdis', 'tx_jrea-zgmq', 'la_6rrh-rzua', 'chi_r5kz-chrr', 'ca_abc_new_apps', 'fdd_item20', 'walk_in', 'referral', 'partner', 'inbound', 'apollo', 'manual'
+  source_id          text,           -- CAMIS, taxpayer+outlet, ABC licence no., FDD brand+year
+  source_pulled_at   date,
+  import_batch       uuid,
+  place_id           text,           -- the ONLY Google field we may keep
+  recipient_tz       text,           -- IANA zone; defaults from state, editable
+  next_action        text,
+  next_action_at     timestamptz,
+  last_contacted_at  timestamptz,
+  -- compliance (strategy §6; outreach-compliance §10.1)
+  do_not_contact     boolean not null default false,
+  dnc_at             timestamptz,
+  dnc_channel        text check (dnc_channel in ('call','text','email','visit','dm','other')),
+  dnc_note           text,
+  email_unsubscribed boolean not null default false,
+  national_dnc_status text not null default 'not_checked' check (national_dnc_status in ('registered','clear','not_checked')),
+  national_dnc_checked_at date,
+  sms_consent        text not null default 'none' check (sms_consent in ('none','informational','marketing')),
+  consent_text       text,
+  consent_at         timestamptz,
+  consent_method     text check (consent_method in ('written_form','signed_pilot','verbal_logged','inbound_text')),
+  consent_phone      text,
+  recording_consent  text check (recording_consent in ('accepted','declined')),
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create unique index if not exists sales_leads_phone_key on sales_leads (phone) where phone is not null;
+create unique index if not exists sales_leads_name_zip_key on sales_leads (name_key, zip) where phone is null;
+create index if not exists sales_leads_followup_idx on sales_leads (next_action_at) where do_not_contact = false;
+create index if not exists sales_leads_stage_idx on sales_leads (stage, assignee_id);
+create index if not exists sales_leads_batch_idx on sales_leads (import_batch) where import_batch is not null;
+
+create table if not exists sales_activities (
+  id           bigint generated always as identity primary key,
+  lead_id      uuid not null references sales_leads(id) on delete cascade,
+  person_id    uuid references sales_people(id) on delete set null,  -- null = Ayaan
+  kind         text not null check (kind in ('walk_in','call','voicemail','email','text','dm','postcard','partner_intro','note','stage_change')),
+  outcome      text check (outcome in ('no_answer','gatekeeper','owner_spoke','left_material','booked','demo','pilot','paid','replied','bounced','no','opt_out')),
+  notes        text check (char_length(notes) <= 2000),
+  occurred_at  timestamptz not null default now(),
+  created_at   timestamptz not null default now()
+);
+create index if not exists sales_activities_lead_idx on sales_activities (lead_id, occurred_at desc);
+create index if not exists sales_activities_week_idx on sales_activities (occurred_at, person_id, kind);
+
+-- Global suppression: survives lead deletion and blocks re-import of anyone
+-- who opted out (strategy §6: opt-outs are global and permanent).
+create table if not exists sales_suppressions (
+  value       text primary key,     -- E.164 phone or lower-cased email
+  kind        text not null check (kind in ('phone','email')),
+  reason      text not null default 'opt_out',
+  lead_id     uuid references sales_leads(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists sales_ai_drafts (
+  id            bigint generated always as identity primary key,
+  lead_id       uuid not null references sales_leads(id) on delete cascade,
+  role          text not null check (role in ('brief','opener','followup','owner_email')),
+  model         text not null,
+  body          text not null,
+  flags         text[] not null default '{}',   -- post-check hits, e.g. '{price}'
+  input_tokens  int not null default 0,
+  output_tokens int not null default 0,
+  created_at    timestamptz not null default now()
+);
+create index if not exists sales_ai_drafts_day_idx on sales_ai_drafts (created_at);
+create index if not exists sales_ai_drafts_lead_idx on sales_ai_drafts (lead_id, created_at desc);
+
+alter table sales_people       enable row level security;
+alter table sales_leads        enable row level security;
+alter table sales_activities   enable row level security;
+alter table sales_suppressions enable row level security;
+alter table sales_ai_drafts    enable row level security;
+
+grant all on sales_people, sales_leads, sales_activities, sales_suppressions, sales_ai_drafts to service_role;
+grant all on all sequences in schema public to service_role;
