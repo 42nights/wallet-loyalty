@@ -4,7 +4,7 @@ import type { Action } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
 import { TrendChart } from "@/app/(merchant)/dashboard/charts";
 import { parseBill } from "@/app/(merchant)/scan/bill";
-import { LockBanner, Phone, WalletCard } from "./WalletCard";
+import { LockBanner, Phone, WalletCard, type Logo } from "./WalletCard";
 import type { QR, Sample } from "./samples";
 import s from "./demo.module.css";
 
@@ -15,7 +15,7 @@ import s from "./demo.module.css";
 // route's math and limit: earn = round(earn_rate × bill), a bill over the
 // shop's limit is refused, a reward deducts its template cost.
 
-export type DemoMerchant = Sample & { actions: Action[] };
+export type DemoMerchant = Sample & { actions: Action[]; logo?: Logo; icon?: string };
 
 const nf = (n: number) => n.toLocaleString("en-US");
 const CARD_DELAY_MS = 600; // the terminal answers first, then Wallet refreshes the card
@@ -53,44 +53,17 @@ function useCountUp(target: number) {
   return shown;
 }
 
-export default function DemoClient({ merchants, qr, updated }: { merchants: DemoMerchant[]; qr: QR; updated: string }) {
-  const [idx, setIdx] = useState(0);
-  const [run, setRun] = useState(0); // bump to reset the board
-  const m = merchants[idx];
-  return (
-    <>
-      <div className={s.switcher} role="group" aria-label="Sample business">
-        {merchants.map((x, i) => (
-          <button key={x.key} type="button" aria-pressed={i === idx} className={s.switch} onClick={() => setIdx(i)}>
-            <span className={s.swatch} style={{ background: x.colors.bg }} aria-hidden="true" />
-            <span>
-              <b>{x.kind}</b>
-              <small>{x.name}</small>
-            </span>
-          </button>
-        ))}
-      </div>
-      {/* keyed: switching business or pressing Reset remounts the board with fresh state */}
-      <Board key={`${m.key}-${run}`} m={m} qr={qr} updated={updated} onReset={() => setRun((r) => r + 1)} />
-    </>
-  );
-}
-
-function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: string; onReset: () => void }) {
-  const [points, setPoints] = useState(m.startPoints); // what the terminal shows
-  const [cardPoints, setCardPoints] = useState(m.startPoints); // what the Wallet card shows
-  const [issued, setIssued] = useState(0); // this session, feeds the dashboard
-  const [redeemed, setRedeemed] = useState(0);
-  const [bill, setBill] = useState(m.suggestedBill);
-  const [toast, setToast] = useState<{ kind: "ok" | "bad"; msg: string } | null>(null);
-  const [termFlash, setTermFlash] = useState(false);
+// The phone's half of a tap: the terminal answers first, then after
+// CARD_DELAY_MS the Wallet card catches up and the lock-screen banner shows.
+// Shared with the stamp card board on /try.
+export function usePhone(start: number) {
+  const [card, setCard] = useState(start);
   const [cardFlash, setCardFlash] = useState(false);
   const [banner, setBanner] = useState(false);
   const [dock, setDock] = useState(false);
-  const phoneRef = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLElement>(null);
   const timers = useRef<number[]>([]);
   const hideBanner = useRef(0);
-  const shown = useCountUp(cardPoints);
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const later = (fn: () => void, ms: number) => {
@@ -99,21 +72,14 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
     return id;
   };
 
-  function apply(delta: number, okMsg: string) {
-    const next = points + delta;
-    setPoints(next);
-    if (delta > 0) setIssued((n) => n + delta);
-    else setRedeemed((n) => n - delta);
-    setToast({ kind: "ok", msg: okMsg });
-    setTermFlash(true);
-    later(() => setTermFlash(false), 400);
+  function update(next: number) {
     later(() => {
-      setCardPoints(next);
+      setCard(next);
       setCardFlash(true);
       // Show the banner on the phone when its top is on screen; otherwise dock
       // it to the top of the viewport so the visitor still sees it while using
       // the counter (on phones the counter sits below the phone).
-      const r = phoneRef.current?.getBoundingClientRect();
+      const r = ref.current?.getBoundingClientRect();
       setDock(!r || r.top + 40 < 0 || r.top + 110 > window.innerHeight);
       setBanner(true);
       // one hide timer: a quick second tap keeps the banner up for its full time
@@ -121,6 +87,55 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
       hideBanner.current = later(() => setBanner(false), BANNER_MS);
     }, CARD_DELAY_MS);
     later(() => setCardFlash(false), CARD_DELAY_MS + 450);
+  }
+
+  return { card, cardFlash, banner, dock, ref, later, update };
+}
+
+export default function DemoClient({ merchants, qr, updated }: { merchants: DemoMerchant[]; qr: QR; updated: string }) {
+  const [idx, setIdx] = useState(0);
+  const [run, setRun] = useState(0); // bump to reset the board
+  const m = merchants[idx];
+  return (
+    <>
+      {merchants.length > 1 && (
+        <div className={s.switcher} role="group" aria-label="Sample business">
+          {merchants.map((x, i) => (
+            <button key={x.key} type="button" aria-pressed={i === idx} className={s.switch} onClick={() => setIdx(i)}>
+              <span className={s.swatch} style={{ background: x.colors.bg }} aria-hidden="true" />
+              <span>
+                <b>{x.kind}</b>
+                <small>{x.name}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {/* keyed: switching business or pressing Reset remounts the board with fresh state */}
+      <Board key={`${m.key}-${run}`} m={m} qr={qr} updated={updated} onReset={() => setRun((r) => r + 1)} />
+    </>
+  );
+}
+
+function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: string; onReset: () => void }) {
+  const [points, setPoints] = useState(m.startPoints); // what the terminal shows
+  const [issued, setIssued] = useState(0); // this session, feeds the dashboard
+  const [redeemed, setRedeemed] = useState(0);
+  const [bill, setBill] = useState(m.suggestedBill);
+  const [toast, setToast] = useState<{ kind: "ok" | "bad"; msg: string } | null>(null);
+  const [termFlash, setTermFlash] = useState(false);
+  const phone = usePhone(m.startPoints); // phone.card: what the Wallet card shows
+  const shown = useCountUp(phone.card);
+
+  function apply(delta: number, okMsg: string) {
+    const next = points + delta;
+    setPoints(next);
+    if (delta > 0) setIssued((n) => n + delta);
+    else setRedeemed((n) => n - delta);
+    setToast({ kind: "ok", msg: okMsg });
+    setTermFlash(true);
+    phone.later(() => setTermFlash(false), 400);
+    phone.update(next);
   }
 
   const amount = parseBill(bill);
@@ -157,9 +172,11 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
         {target && <li>Tap <b>{target.label}</b> to spend {-target.points} points.</li>}
       </ol>
 
-      <section className={s.phoneCol} aria-label="Customer's iPhone" ref={phoneRef}>
-        <Phone banner={<LockBanner name={m.name} colors={m.colors} points={cardPoints} shown={banner} dock={dock} />}>
-          <WalletCard name={m.name} colors={m.colors} points={shown} updated={updated} qr={qr} flash={cardFlash} />
+      <section className={s.phoneCol} aria-label="Customer's iPhone" ref={phone.ref}>
+        <Phone
+          banner={<LockBanner name={m.name} colors={m.colors} icon={m.icon} points={phone.card} shown={phone.banner} dock={phone.dock} />}
+        >
+          <WalletCard name={m.name} colors={m.colors} logo={m.logo} points={shown} updated={updated} qr={qr} flash={phone.cardFlash} />
         </Phone>
         <p className={s.caption}>
           The customer&apos;s iPhone. In the real product the card refreshes in Apple Wallet after each visit.

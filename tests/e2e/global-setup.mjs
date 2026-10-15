@@ -42,10 +42,13 @@ export default async function globalSetup(config) {
     const stampCards = {};
     for (const p of config.projects)
       stampCards[p.name] = await createCard(db, st.id, { name: `Stamps ${p.name}` });
+    // A stamp card demo shop (goal 5) for try.spec: /try serves only slugs ending in "-demo".
+    const tryDemo = await createMerchant(db, run, { key: "try-demo", template: "cafe", earnRate: 10, stamps: { goal: 5, reward: "Free latte" } });
     // Workers are started after global setup and inherit process.env.
     process.env.E2E_FIXTURE = JSON.stringify({
       run, merchantId: m.id, slug: m.slug, owner: m.owner, cashier: m.cashier, scanCards, voidCards, searchCard, happy,
       stamps: { cashier: st.cashier, cards: stampCards },
+      tryDemo: { slug: tryDemo.slug, name: tryDemo.name },
     });
 
     // Compile every route the specs touch, one at a time, before the parallel
@@ -60,6 +63,7 @@ export default async function globalSetup(config) {
       "/staff", "/api/merchant/staff", "/api/merchant/staff/warm-up", "/api/merchant/crm",
       "/settings", "/api/merchant/settings", "/settings/poster",
       "/admin/login", "/api/admin/login", `/admin/merchants/${m.id}`, `/api/admin/merchants/${m.id}/manage`,
+      `/try/${tryDemo.slug}`,
     ])
       await fetch(base + p, { redirect: "manual" });
   } catch (e) {
