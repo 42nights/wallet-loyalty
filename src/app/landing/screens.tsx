@@ -163,7 +163,7 @@ export function HowScreens({ story }: { story: Story }) {
             <span className={s.typePhone}>(555) 010-4477</span>
           </div>
           <div className={s.getCard}>
-            <span className={s.getIdle}>Get my card</span>
+            <img className={s.getIdle} src="/add-to-apple-wallet.svg" width={127} height={40} alt="" />
             <span className={s.getBusy}>Creating your card…</span>
           </div>
         </div>
