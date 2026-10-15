@@ -1,0 +1,16 @@
+/* /try — only what /demo's demo.module.css doesn't already have. */
+
+.affil { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+/* /demo's switcher spaces the board from the intro; /try has none */
+.stage { margin-top: 32px; }
+
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast > span { flex: 1; min-width: 0; }
+.undo {
+  flex: none; margin: -6px -4px; padding: 6px 4px; border: none; background: none; cursor: pointer;
+  color: inherit; font: inherit; font-weight: 500; text-decoration: underline; text-underline-offset: 3px;
+}
+.undo:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
+
+.stampBtns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.reward { display: block; width: 100%; }

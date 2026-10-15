@@ -14,6 +14,7 @@ export const fx: {
   voidCards: Record<string, { owner: Login; card: Card }>; // per project, its own shop
   searchCard: Card;
   stamps: { cashier: Login; cards: Record<string, Card> }; // a 5-stamp "Free latte" shop
+  tryDemo: { slug: string; name: string }; // a 5-stamp "Free latte" shop whose slug ends in -demo
   // per project: a merchant of its own for the happy-hour journey
   happy: Record<string, { owner: Login; cashier: Login; card: Card }>;
 } = JSON.parse(process.env.E2E_FIXTURE ?? "null");

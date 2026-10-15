@@ -73,11 +73,12 @@ function must({ data, error }, what) {
 // `stamps: { goal, reward }` makes it a stamp card (loyalty_mode = 'stamps').
 export async function createMerchant(db, run, { key, template, earnRate, stamps }) {
   const slug = `t-${run}-${key}`;
+  const name = `Test ${key} ${run}`;
   const stampCols = stamps ? { loyalty_mode: "stamps", stamp_goal: stamps.goal, stamp_reward: stamps.reward } : {};
   const m = must(
     await db
       .from("merchants")
-      .insert({ name: `Test ${key} ${run}`, slug, earn_rate: earnRate, redeem_template: template, ...stampCols })
+      .insert({ name, slug, earn_rate: earnRate, redeem_template: template, ...stampCols })
       .select("id")
       .single(),
     `merchant ${slug}`
@@ -96,7 +97,7 @@ export async function createMerchant(db, run, { key, template, earnRate, stamps 
     );
     staff[role] = { id: row.id, username, password };
   }
-  return { id: m.id, slug, template, earnRate, stamps, ...staff };
+  return { id: m.id, slug, name, template, earnRate, stamps, ...staff };
 }
 
 // A card with a zero balance. Points only ever arrive through the app
