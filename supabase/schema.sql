@@ -846,6 +846,31 @@ create unique index if not exists sales_leads_name_zip_key on sales_leads (name_
 create index if not exists sales_leads_followup_idx on sales_leads (next_action_at) where do_not_contact = false;
 create index if not exists sales_leads_stage_idx on sales_leads (stage, assignee_id);
 create index if not exists sales_leads_batch_idx on sales_leads (import_batch) where import_batch is not null;
+-- Rough odds (0-100) that the lead's phone / email reaches the owner rather
+-- than staff or a shared inbox; the lead list's "Owner reach" sort. Generated
+-- from the lead's own fields, so they rise as a rep fills the lead in (owner's
+-- name, owner on site, a number the owner gave). A shop's listed line scores
+-- low; one store, a named owner and a permit or personal number score high.
+alter table sales_leads add column if not exists owner_phone_odds smallint generated always as (
+  case
+    when phone is null then 0
+    when phone_source in ('owner_gave_it', 'card_at_visit') or owner_contact_route = 'phone' then 95
+    when phone_type = 'mobile' or phone_source = 'people_search' then 75
+    else greatest(5, least(90,
+      case phone_source when 'open_data' then 45 when 'inbound' then 50 when 'referral' then 50 else 30 end
+      + case when owner_name is not null then 15 else 0 end
+      + case owner_present when 'yes' then 20 when 'no' then -15 else 0 end
+      - case when chain_size >= 3 then 15 else 0 end))
+  end) stored;
+alter table sales_leads add column if not exists owner_email_odds smallint generated always as (
+  case
+    when email is null or email_unsubscribed or email_source = 'guessed' then 0
+    when email_source = 'owner_gave_it' or owner_contact_route = 'email' then 95
+    when email_source = 'verified_vendor' then 70
+    else greatest(5, 35
+      + case when owner_name is not null then 15 else 0 end
+      - case when chain_size >= 3 then 15 else 0 end)
+  end) stored;
 
 create table if not exists sales_activities (
   id           bigint generated always as identity primary key,

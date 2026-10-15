@@ -156,6 +156,9 @@ export type Lead = {
   consent_method: (typeof CONSENT_METHODS)[number] | null;
   consent_phone: string | null;
   recording_consent: (typeof RECORDING_CONSENT)[number] | null;
+  // generated: rough % that the phone / email reaches the owner (schema.sql)
+  owner_phone_odds: number;
+  owner_email_odds: number;
   created_at: string;
   updated_at: string;
 };

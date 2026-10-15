@@ -21,6 +21,7 @@ const STEP = 50;
 const MAX = 1000; // PostgREST max_rows: past this, filter instead of scrolling
 const SORTS = {
   new: { label: "Newest", col: "created_at", asc: false },
+  owner: { label: "Owner reach", col: "owner_phone_odds", asc: false, then: "owner_email_odds" },
   next: { label: "Next action due", col: "next_action_at", asc: true },
   contacted: { label: "Last contacted", col: "last_contacted_at", asc: false },
   name: { label: "Name A-Z", col: "business_name", asc: true },
@@ -43,11 +44,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const show = Math.min(Math.max(parseInt(one("show"), 10) || STEP, STEP), MAX);
   const o = SORTS[sort];
 
+  let list = leadsQuery(filters, LEAD_LIST_SELECT, true).order(o.col, { ascending: o.asc, nullsFirst: false });
+  if ("then" in o) list = list.order(o.then, { ascending: false });
   const [{ data, count, error }, { data: peopleData }] = await Promise.all([
-    leadsQuery(filters, LEAD_LIST_SELECT, true)
-      .order(o.col, { ascending: o.asc, nullsFirst: false })
-      .order("id")
-      .range(0, show - 1),
+    list.order("id").range(0, show - 1),
     db.from("sales_people").select("*").order("active", { ascending: false }).order("name"),
   ]);
   if (error) throw new Error(`sales leads list failed: ${error.message}`);

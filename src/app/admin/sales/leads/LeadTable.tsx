@@ -128,7 +128,7 @@ export default function LeadTable({
             <th>Assigned</th>
             <th>Cluster</th>
             <th>Last contact</th>
-            <th>Phone</th>
+            <th>Contact</th>
           </tr>
         </thead>
         <tbody>
@@ -164,7 +164,11 @@ export default function LeadTable({
                 <td data-label="Assigned">{l.assignee?.name ?? "Ayaan"}</td>
                 <td data-label="Cluster">{l.cluster ?? <span className={s.meta}>—</span>}</td>
                 <td data-label="Last contact" className={s.nowrap}>{l.last_contacted_at ? when(l.last_contacted_at) : <span className={s.meta}>never</span>}</td>
-                <td data-label="Phone" className={s.nowrap}>{l.phone ? formatPhone(l.phone) : <span className={s.meta}>—</span>}</td>
+                <td data-label="Contact" className={s.nowrap}>
+                  {!l.phone && !l.email && <span className={s.meta}>—</span>}
+                  {l.phone && <div>{formatPhone(l.phone)} <span className={s.meta}>owner ~{l.owner_phone_odds}%</span></div>}
+                  {l.email && <div className={s.meta}>{l.email} · owner ~{l.owner_email_odds}%</div>}
+                </td>
               </tr>
             );
           })}
