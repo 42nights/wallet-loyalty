@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import Icon from "@/components/Icon";
+import s from "./dashboard.module.css";
 
 type Digest = { body: string; model: string | null; created_at: string | null };
 
-export default function DigestCard() {
+export default function DigestCard({ className }: { className: string }) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -25,36 +27,31 @@ export default function DigestCard() {
     setBusy(false);
     if (!r) return setErr("Couldn't reach the server — check the connection and try again.");
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) return setErr(d.error || "Something went wrong — please try again.");
+    if (!r.ok) return setErr(d.error || "Couldn't write the digest — try again.");
     setDigest(d.digest);
   }
 
   return (
-    <div className="panel" style={{ height: "100%" }}>
+    <section className={`panel ${className}`}>
       <div className="panel-h">
-        <span className="panel-t">Weekly digest ✨</span>
-        <button
-          className="btn btn-ghost"
-          style={{ width: "auto", padding: "0 14px" }}
-          disabled={busy}
-          onClick={generate}
-        >
-          {busy ? "Generating…" : digest ? "Regenerate" : "Generate"}
+        <h2 className="panel-t">Weekly digest</h2>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={generate}>
+          {busy ? "Writing…" : digest ? "Write a new one" : "Generate"}
         </button>
       </div>
       {digest ? (
         <>
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{digest.body}</div>
+          <div className={s.digest}>{digest.body}</div>
           {digest.created_at && (
-            <div className="label" style={{ fontSize: 11 }}>
-              {new Date(digest.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+            <div className={s.rowMeta}>
+              {new Date(digest.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
             </div>
           )}
         </>
       ) : (
-        <div className="label">{loaded ? "No digest yet — generate one." : "Loading…"}</div>
+        <p className={s.rowMeta}>{loaded ? "No digest yet. Generate one for a short write-up of your week." : "Loading…"}</p>
       )}
-      {err && <div className="toast bad">{err}</div>}
-    </div>
+      {err && <div className="toast bad" role="alert"><Icon name="alert" />{err}</div>}
+    </section>
   );
 }

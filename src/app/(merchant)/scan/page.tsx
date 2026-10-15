@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import type { Html5Qrcode as Scanner } from "html5-qrcode";
 import { STAMP_EARN_MAX, unitLabel, type Action, type LoyaltyMode } from "@/lib/config";
 import SendCardPanel from "@/components/SendCardPanel";
+import Icon from "@/components/Icon";
 import { formatMoney } from "@/lib/format";
 import { parseBill } from "./bill";
 import styles from "./scan.module.css";
@@ -17,12 +19,19 @@ type Today = { customers: number; points: number; rewards: number; undos: number
 
 const UNDO_MS = 10_000; // how long a success toast offers Undo
 const nf = (n?: number) => (n === undefined ? "–" : n.toLocaleString("en-US")); // "–" until loaded
+const LOOKUP_DOWN = "Couldn't look that up — check the connection and try again";
+// No answer at all: the tap may or may not have landed, so don't claim either.
+const NO_ANSWER = "Couldn't reach the server — look the card up again to check its balance";
+// A 4xx carries a message written for the cashier ("Not enough points"); a 5xx doesn't.
+const errorOf = (res: Response, data: { error?: unknown }, fallback: string) =>
+  res.status < 500 && typeof data.error === "string" ? data.error : fallback;
 
 export default function ScanPage() {
   const router = useRouter();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [flash, setFlash] = useState(false);
+  const [tapped, setTapped] = useState(false); // this customer got a tap: "next" becomes the primary
   const [manual, setManual] = useState("");
   const [phone, setPhone] = useState("");
   const [matches, setMatches] = useState<PhoneMatch[] | null>(null);
@@ -45,17 +54,19 @@ export default function ScanPage() {
   const [today, setToday] = useState<Today | null>(null);
   const [todayOpen, setTodayOpen] = useState(false);
   const todaySeq = useRef(0);
-  const scannerRef = useRef<any>(null);
+  const scannerRef = useRef<Scanner | null>(null);
   const scanningRef = useRef(false);
+  const lastScan = useRef(""); // the code the camera just sent (it reads one ~10×/s)
 
   // load this merchant's earn rate (bill → points preview) and redeem buttons.
   // Re-run on "Scan next customer" too: the counter tablet keeps /scan open all
   // day, and an owner changing the template in Settings would otherwise leave
   // it showing buttons the server now rejects.
   async function loadMe() {
-    const res = await fetch("/api/merchant/me");
-    if (res.status === 401) return router.push("/login");
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/merchant/me");
+      if (res.status === 401) return router.push("/login");
+      if (!res.ok) return;
       const me = await res.json();
       if (typeof me.earnRate === "number") setEarnRate(me.earnRate);
       if (typeof me.maxBill === "number") setMaxBill(me.maxBill);
@@ -63,7 +74,7 @@ export default function ScanPage() {
       setMode(me.mode === "stamps" ? "stamps" : "points");
       if (typeof me.stampGoal === "number") setStampGoal(me.stampGoal);
       setHappyHour(typeof me.happyHour === "number" ? me.happyHour : null);
-    }
+    } catch {} // keeps the last settings; the next "Scan next customer" retries
   }
   useEffect(() => {
     loadMe();
@@ -73,7 +84,7 @@ export default function ScanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The "Today" panel's numbers. Merchants have no time zone, so the browser
+  // The "Your taps today" numbers. Merchants have no time zone, so the browser
   // sends its own local midnight (the server clamps it). Refreshed after every
   // earn/redeem/undo; only the latest call may set them, so a slow answer to an
   // earlier refresh can't overwrite a newer one.
@@ -89,7 +100,7 @@ export default function ScanPage() {
     } catch {} // a failed refresh keeps the last numbers
   }
   // Open on wide screens, closed on phones so it never pushes the scanner down.
-  // Re-read when the tablet wakes, so yesterday's numbers don't sit under "Today".
+  // Re-read when the tablet wakes, so yesterday's numbers don't sit under "today".
   useEffect(() => {
     setTodayOpen(window.matchMedia("(min-width: 641px)").matches);
     loadToday();
@@ -107,29 +118,38 @@ export default function ScanPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // A customer loaded, or "Scan next customer": start at the top, not wherever
+  // the last view was scrolled to.
+  useEffect(() => window.scrollTo(0, 0), [customer?.serial]);
+
   // start camera scanner when no customer is loaded
   useEffect(() => {
     if (customer) return;
     let cancelled = false;
     (async () => {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      if (cancelled) return;
-      const el = document.getElementById("reader");
-      if (!el) return;
-      setCameraError(false);
       try {
+        const { Html5Qrcode } = await import("html5-qrcode");
+        if (cancelled || !document.getElementById("reader")) return;
+        setCameraError(false);
         const scanner = new Html5Qrcode("reader");
         scannerRef.current = scanner;
         scanningRef.current = true;
         await scanner.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: 240 },
-          (decoded: string) => lookup(decoded),
+          (decoded: string) => {
+            // the same code again only after a pause, so a card that isn't
+            // found (or a dropped connection) isn't re-sent 10×/s
+            if (decoded === lastScan.current) return;
+            lastScan.current = decoded;
+            setTimeout(() => { if (lastScan.current === decoded) lastScan.current = ""; }, 2500);
+            lookup(decoded);
+          },
           () => {}
         );
       } catch {
-        // no camera, permission denied, or not https: say so, so the cashier
-        // uses the serial / phone lookup below instead of waiting on a blank box
+        // no camera, permission denied, not https, or the scanner code didn't
+        // load: say so, so the cashier uses the card code / phone lookup below
         scanningRef.current = false;
         if (!cancelled) setCameraError(true);
       }
@@ -149,22 +169,26 @@ export default function ScanPage() {
     }
   }
 
+  // The camera keeps running until a card loads (loading one unmounts the
+  // reader), so a code that isn't found leaves it ready for the next one.
   async function lookup(serial: string) {
     setToast(null);
-    await stopScanner();
-    const res = await fetch("/api/merchant/lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serial }),
-    });
-    if (res.status === 401) return router.push("/login");
-    if (!res.ok) {
-      setToast({ kind: "bad", msg: "Card not found" });
-      setCustomer(null);
-      return;
+    try {
+      const res = await fetch("/api/merchant/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serial }),
+      });
+      if (res.status === 401) return router.push("/login");
+      if (res.ok) return setCustomer(await res.json());
+      const data = await res.json().catch(() => ({}));
+      setToast({
+        kind: "bad",
+        msg: res.status === 404 ? "No card found — check the code or search by phone" : errorOf(res, data, LOOKUP_DOWN),
+      });
+    } catch {
+      setToast({ kind: "bad", msg: LOOKUP_DOWN });
     }
-    setCustomer(await res.json());
-    setToast(null);
   }
 
   function findBySerial(e: FormEvent) {
@@ -188,13 +212,14 @@ export default function ScanPage() {
       });
       if (res.status === 401) return router.push("/login");
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return setToast({ kind: "bad", msg: data.error || "Lookup failed" });
+      if (!res.ok) return setToast({ kind: "bad", msg: errorOf(res, data, LOOKUP_DOWN) });
       const found: PhoneMatch[] = data.matches ?? [];
       if (found.length === 0)
-        return setToast({ kind: "bad", msg: "No card with that phone number here" });
-      setToast(null);
+        return setToast({ kind: "bad", msg: "No card with that phone number — check it, or try the card code" });
       if (found.length === 1) return pick(found[0]);
       setMatches(found);
+    } catch {
+      setToast({ kind: "bad", msg: LOOKUP_DOWN });
     } finally {
       setBusy(false);
     }
@@ -206,12 +231,21 @@ export default function ScanPage() {
     setPhone("");
   }
 
+  function flashBalance() {
+    setFlash(true);
+    setTimeout(() => setFlash(false), 400);
+  }
+
   // okMsg is for rewards and stamps; a bill earn's toast shows the points the server credited
   async function apply(body: { actionId: string } | { amount: number; confirm?: true } | { stamps: number }, okMsg = "") {
     if (!customer || busy) return; // busy guard: no double-tap
     setBusy(true);
     setToast(null); // an old toast must never read as this tap's result
     setPending(null);
+    // a 5xx means apply_points wrote nothing
+    const failed = "actionId" in body
+      ? "Couldn't redeem — nothing was changed. Try again"
+      : `Couldn't add ${unitLabel(mode, 2)} — nothing was changed. Try again`;
     // one key per tap → a retry of THIS request can't double-apply, and Undo
     // names the tap by it
     const key = crypto.randomUUID();
@@ -222,7 +256,7 @@ export default function ScanPage() {
         body: JSON.stringify({ serial: customer.serial, ...body }),
       });
       if (res.status === 401) return router.push("/login");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if ("happyHour" in data) setHappyHour(typeof data.happyHour === "number" ? data.happyHour : null);
       // a big bill: the server wrote nothing and wants a confirm first
       if (res.status === 409 && data.confirm && "amount" in body) {
@@ -233,12 +267,12 @@ export default function ScanPage() {
         // "Not enough points/stamps" carries the real balance: show it, so the reward
         // buttons re-dim if another terminal spent points in the meantime
         if (typeof data.balance === "number") setCustomer({ ...customer, points: data.balance });
-        setToast({ kind: "bad", msg: data.error || "Failed" });
+        setToast({ kind: "bad", msg: errorOf(res, data, failed) });
         return;
       }
       setCustomer({ ...customer, points: data.newBalance });
-      setFlash(true);
-      setTimeout(() => setFlash(false), 400);
+      flashBalance();
+      setTapped(true);
       setToast({ kind: "ok", msg: "amount" in body ? `+${data.points} pts` : okMsg, undoKey: key });
       loadToday();
       if ("amount" in body) {
@@ -247,6 +281,8 @@ export default function ScanPage() {
         setAddLocked(true);
         setTimeout(() => setAddLocked(false), 1500);
       }
+    } catch {
+      setToast({ kind: "bad", msg: NO_ANSWER });
     } finally {
       setBusy(false);
     }
@@ -268,18 +304,23 @@ export default function ScanPage() {
       if (!res.ok) {
         // "already used" carries the real balance, like "Not enough points"
         if (typeof data.balance === "number") setCustomer({ ...customer, points: data.balance });
-        setToast({ kind: "bad", msg: data.error || "Could not undo" });
+        setToast({ kind: "bad", msg: errorOf(res, data, "Couldn't undo — the tap stands. Ask the owner to adjust it") });
         return;
       }
       setCustomer({ ...customer, points: data.newBalance });
+      flashBalance();
       setToast({ kind: "ok", msg: `Undone: ${t.msg}` });
       loadToday();
+    } catch {
+      setToast({ kind: "bad", msg: NO_ANSWER });
     } finally {
       setBusy(false);
     }
   }
 
-  function earn() {
+  function earn(e: FormEvent) {
+    e.preventDefault();
+    if (busy || addLocked) return;
     setToast(null);
     const amt = parseBill(bill);
     if (amt === null) return setBillErr(true);
@@ -290,6 +331,7 @@ export default function ScanPage() {
     loadMe();
     setCustomer(null);
     setToast(null);
+    setTapped(false);
     setBill("");
     setBillErr(false);
     setPending(null);
@@ -298,195 +340,248 @@ export default function ScanPage() {
     setManual("");
   }
 
+  const stamps = mode === "stamps";
   const banner = happyHour ? (
-    <div className={styles.happy} role="status">Happy hour {happyHour}× points</div>
+    <div className={styles.happy} role="status">
+      <Icon name="clock" size={20} />
+      Happy hour {happyHour}× points
+    </div>
   ) : null;
+  // Always mounted: a live region has to exist before it can announce anything.
+  const slot = (
+    <div className={styles.slot} role="status" aria-live="polite">
+      {toast && (
+        <div className={`toast ${toast.kind}`}>
+          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
+          <span className={styles.toastMsg}>{toast.msg}</span>
+          {toast.undoKey && (
+            <button type="button" className={`btn btn-ghost btn-sm ${styles.undo}`} onClick={() => undo(toast)}>
+              Undo
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
-  // ---- scan view ----
+  // ---- find view: camera, then card code / phone ----
   if (!customer) {
+    const served = today?.customers;
     return (
-      <div className="wrap">
-        {/* Scan view only: above a customer it would push "Scan next customer"
-            off a laptop screen. Its numbers still refresh after every tap. */}
-        <details className={styles.today} open={todayOpen} onToggle={(e) => setTodayOpen(e.currentTarget.open)}>
-          <summary>
-            <span className={styles.todayTitle}>Today</span>
-            {/* closed, the headline numbers still show */}
-            <span className={styles.todayPeek}>
-              {todayOpen
-                ? "your taps since midnight"
-                : `${nf(today?.customers)} served · ${nf(today?.points)} ${unitLabel(mode, today?.points ?? 0, true)}`}
-            </span>
-          </summary>
-          <dl className={styles.todayGrid}>
-            <div><dt>Customers</dt><dd>{nf(today?.customers)}</dd></div>
-            {/* the route sums every earn: delta, so on a stamp card these are stamps */}
-            <div><dt>{mode === "stamps" ? "Stamps given" : "Points given"}</dt><dd>{nf(today?.points)}</dd></div>
-            <div><dt>Rewards</dt><dd>{nf(today?.rewards)}</dd></div>
-            <div><dt>Undos</dt><dd>{nf(today?.undos)}</dd></div>
-          </dl>
-          <div className={styles.todayNote}>An undone tap counts only under Undos.</div>
-        </details>
-        <div className="card stack">
+      <div className="page page--narrow">
+        <h1 className="sr-only">Scan</h1>
+        <div className={styles.view}>
           {banner}
-          <div className="label">Scan the customer's Wallet QR</div>
-          <div id="reader" />
-          {cameraError && (
-            <div className={styles.camera} role="status">
-              Camera unavailable — allow camera access, or find the customer below
-            </div>
-          )}
-          {toast && <div className={`toast ${toast.kind}`}>{toast.msg}</div>}
-          <div className="label" style={{ marginTop: 8 }}>or enter serial manually</div>
-          <form className="row" onSubmit={findBySerial}>
-            <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="serial…" enterKeyHint="go" />
-            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }} type="submit">Go</button>
-          </form>
-          <div className="label" style={{ marginTop: 8 }}>or find by phone</div>
-          <form className="row" onSubmit={findByPhone}>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)}
-              type="tel" inputMode="tel" autoComplete="off" placeholder="customer's phone number" />
-            <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
-              type="submit" disabled={busy}>Find</button>
-          </form>
-          {matches && (
-            <div className={styles.picks}>
-              <div className="label">{matches.length} cards match — pick one</div>
-              {matches.map((m) => (
-                <button key={m.serial} className={styles.pick} onClick={() => pick(m)}>
-                  <span className={styles.pickName}>{m.name || "Customer"}</span>
-                  <span className={styles.pickMeta}>{m.phone} · {m.voided ? "deactivated" : `${m.points} ${unitLabel(mode, m.points, true)}`}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <section className={`card ${styles.camera}`} data-error={cameraError || undefined} aria-labelledby="scan-cam">
+            <h2 id="scan-cam" className="sr-only">Scan the customer&apos;s Wallet QR</h2>
+            <div id="reader" />
+            {cameraError && (
+              <div className={styles.camError} role="status">
+                <Icon name="scan" size={24} />
+                <p>Camera unavailable — allow camera access, or find the customer below</p>
+              </div>
+            )}
+          </section>
+          {slot}
+          <section className="panel" aria-labelledby="scan-find">
+            <h2 id="scan-find" className="panel-t">Find a customer</h2>
+            <form className="field" onSubmit={findBySerial}>
+              <label className="field-label" htmlFor="scan-serial">Card code (under the QR)</label>
+              <div className={styles.inline}>
+                <input id="scan-serial" className={styles.serial} value={manual} onChange={(e) => setManual(e.target.value)}
+                  placeholder="serial…" enterKeyHint="go" autoCapitalize="none" autoComplete="off" spellCheck={false} />
+                <button className="btn btn-ghost btn-lg" type="submit">Go</button>
+              </div>
+            </form>
+            <form className="field" onSubmit={findByPhone}>
+              <label className="field-label" htmlFor="scan-phone">Phone number</label>
+              <div className={styles.inline}>
+                <input id="scan-phone" value={phone} onChange={(e) => setPhone(e.target.value)}
+                  type="tel" inputMode="tel" autoComplete="off" enterKeyHint="search" placeholder="(415) 555-0168" />
+                <button className="btn btn-ghost btn-lg" type="submit" disabled={busy}>{busy ? "Finding…" : "Find"}</button>
+              </div>
+            </form>
+            {matches && (
+              <div className={styles.picks}>
+                <p className={styles.picksNote}>{matches.length} cards match — pick one</p>
+                {matches.map((m) => (
+                  <button key={m.serial} type="button" className={styles.pick} onClick={() => pick(m)}>
+                    <span className={styles.pickText}>
+                      <span className={styles.pickName}>{m.name || "Customer"}</span>
+                      <span className={styles.pickMeta}>
+                        {m.phone} · {m.voided ? "deactivated" : `${m.points} ${unitLabel(mode, m.points, true)}`}
+                      </span>
+                    </span>
+                    <Icon name="chevron-right" size={20} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+          {/* Find view only: above a customer it would push "Scan next customer"
+              down. Its numbers still refresh after every tap. */}
+          <details className={styles.today} open={todayOpen} onToggle={(e) => setTodayOpen(e.currentTarget.open)}>
+            <summary>
+              <span className={`panel-t ${styles.todayTitle}`}>Your taps today</span>
+              <span className={styles.todayPeek}>
+                {nf(served)} {served === 1 ? "customer" : "customers"} · {nf(today?.points)} {unitLabel(mode, today?.points ?? 0, true)}
+              </span>
+              <Icon name="chevron-down" size={20} className={styles.chev} />
+            </summary>
+            <dl className={styles.todayGrid}>
+              <div className="kpi"><dt className="k">Customers</dt><dd className="v">{nf(served)}</dd></div>
+              {/* the route sums every earn: delta, so on a stamp card these are stamps */}
+              <div className="kpi"><dt className="k">{stamps ? "Stamps given" : "Points given"}</dt><dd className="v">{nf(today?.points)}</dd></div>
+              <div className="kpi"><dt className="k">Rewards</dt><dd className="v">{nf(today?.rewards)}</dd></div>
+              <div className="kpi"><dt className="k">Undone</dt><dd className="v">{nf(today?.undos)}</dd></div>
+            </dl>
+            <p className={styles.todayNote}>Undone taps aren&apos;t counted in the other totals.</p>
+          </details>
         </div>
       </div>
     );
   }
+
+  // secondary until a tap has happened; on a deactivated card it's the only action
+  const next = (
+    <div className={styles.next}>
+      <button className={`btn btn-lg btn-block ${tapped || customer.voided ? "btn-primary" : "btn-ghost"} ${styles.main}`} onClick={reset}>
+        Scan next customer
+      </button>
+    </div>
+  );
 
   // ---- deactivated card: nothing to earn, redeem or re-send ----
   if (customer.voided) {
     return (
-      <div className="wrap">
-        <div className="card stack">
-          <div>
-            <div className="label">{customer.name || "Customer"}</div>
+      <div className="page page--narrow">
+        <h1 className="sr-only">Scan</h1>
+        <div className={styles.view}>
+          <section className="card">
+            <h2 className={styles.name}>{customer.name || "Customer"}</h2>
             <div className={styles.voided} role="status">
-              <b>This card is deactivated.</b> No {unitLabel(mode, 2)} can be added or used. The owner can reactivate
-              it on the customer&apos;s page.
+              <Icon name="alert" size={20} />
+              <p>
+                <b>This card is deactivated.</b> No {unitLabel(mode, 2)} can be added or used. The owner can reactivate
+                it on the customer&apos;s page.
+              </p>
             </div>
-          </div>
-          <button className="btn btn-primary" onClick={reset}>Scan next customer</button>
+          </section>
+          {next}
         </div>
       </div>
     );
   }
 
-  // ---- customer / actions view ----
+  // ---- customer view: balance, earn first, then rewards ----
   const billAmt = parseBill(bill);
   // over the shop's cap: the server would refuse it, so say so now instead of
   // previewing points it won't credit
   const overCap = billAmt !== null && maxBill !== null && billAmt > maxBill;
-  const stamps = mode === "stamps";
   return (
-    <div className="wrap">
-      <div className="card stack">
+    <div className="page page--narrow">
+      <h1 className="sr-only">Scan</h1>
+      {/* busy dims the actions only if the answer takes over 150ms (.pending-dim) */}
+      <div className={styles.view} data-pending={busy || undefined} aria-busy={busy}>
         {banner}
-        <div>
-          <div className="label">{customer.name || "Customer"}</div>
+        <section className="card" aria-labelledby="scan-name">
+          <h2 id="scan-name" className={styles.name}>{customer.name || "Customer"}</h2>
           <div className={`balance ${flash ? "flash" : ""}`}>{customer.points}</div>
-          <div className="label" style={{ marginTop: 4 }}>{stamps ? `of ${stampGoal} stamps` : "points"}</div>
-        </div>
+          <p className={styles.unit}>{stamps ? `of ${stampGoal} stamps` : "points"}</p>
+          {slot}
+        </section>
 
-        {toast && (
-          <div className={`toast ${toast.kind} ${styles.toast}`}>
-            <span>{toast.msg}</span>
-            {toast.undoKey && (
-              <button className={styles.undo} disabled={busy} onClick={() => undo(toast)}>Undo</button>
-            )}
-          </div>
-        )}
-
-        {stamps && (
-          <>
-            {/* 16px: the stamp sections read as separate blocks, not one run of labels */}
-            <div className="label" style={{ marginTop: 16 }}>Add stamps — 1 per item</div>
+        {stamps ? (
+          <section className="panel pending-dim" aria-labelledby="scan-stamps">
+            <div className="panel-h">
+              <h3 id="scan-stamps" className="panel-t">Add stamps</h3>
+              <span className="panel-meta">One per item</span>
+            </div>
             <div className={styles.stampBtns}>
               {Array.from({ length: STAMP_EARN_MAX }, (_, i) => i + 1).map((n) => {
                 const what = `+${n} ${unitLabel(mode, n)}`;
                 return (
-                  <button key={n} className={`btn ${n === 1 ? "btn-primary" : "btn-ghost"}`} disabled={busy}
-                    aria-label={what} onClick={() => apply({ stamps: n }, what)}>
+                  <button key={n} type="button" aria-label={what} onClick={() => apply({ stamps: n }, what)}
+                    className={`btn btn-lg ${n === 1 ? "btn-primary" : "btn-ghost"} ${styles.main}`}>
                     {n === 1 ? what : `+${n}`}
                   </button>
                 );
               })}
             </div>
-          </>
-        )}
-
-        <div className="label" style={{ marginTop: stamps ? 16 : 6 }}>{stamps ? "Reward" : "Redeem"}</div>
-        <div className={stamps ? styles.one : "grid2"}>
-          {redemptions.map((a) => {
-            const short = customer.points < -a.points; // a.points is the (negative) delta
-            return (
-              <button key={a.id} className={`redeem-btn ${short ? styles.short : ""}`} disabled={busy || short}
-                onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
-                <div className="rl">{a.label}</div>
-                <div className="rp">{a.points} {unitLabel(mode, -a.points, true)}</div>
-                {short && <div className={styles.need}>needs {-a.points} · has {customer.points}</div>}
-              </button>
-            );
-          })}
-        </div>
-
-        {!stamps && (
-          <>
-            <div className="label" style={{ marginTop: 6 }}>Earn — enter the bill amount</div>
-            <div className="row">
-              <input value={bill} onChange={(e) => { setBill(e.target.value); setBillErr(false); setPending(null); }}
-                inputMode="decimal" placeholder="bill amount" aria-invalid={billErr} />
-              <button className="btn btn-ghost" style={{ width: "auto", padding: "0 16px" }} disabled={busy || addLocked}
-                onClick={earn}>
-                Add
-              </button>
+          </section>
+        ) : (
+          <form className="panel pending-dim" onSubmit={earn}>
+            <label className="panel-t" htmlFor="scan-bill">Add points for a bill</label>
+            <div className={styles.billRow}>
+              <div className="affix">
+                <span className={styles.cur} aria-hidden="true">$</span>
+                <input id="scan-bill" value={bill} placeholder="bill amount" inputMode="decimal" enterKeyHint="go"
+                  autoComplete="off" aria-invalid={billErr} aria-describedby="scan-bill-msg"
+                  onChange={(e) => { setBill(e.target.value); setBillErr(false); setPending(null); }} />
+              </div>
+              <button className={`btn btn-primary btn-lg ${styles.main}`} type="submit" disabled={addLocked}>Add</button>
             </div>
-            {billErr && <div className={styles.billErr} role="alert">Enter an amount like 12.50</div>}
-            {overCap && (
-              <div className={styles.billErr} role="alert">
-                Over this shop&apos;s limit of {formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings
-              </div>
-            )}
-            {billAmt !== null && !overCap && (
-              <div className="label">
-                = {Math.round(earnRate * billAmt * (happyHour ?? 1))} pts ({earnRate}× rate{happyHour ? ` × ${happyHour}` : ""})
-              </div>
-            )}
+            <div id="scan-bill-msg" className={styles.billMsg}>
+              {billErr ? (
+                <div className="field-error" role="alert"><Icon name="alert" />Enter an amount like 12.50</div>
+              ) : overCap ? (
+                <div className="field-error" role="alert">
+                  <Icon name="alert" />
+                  Over this shop&apos;s limit of {formatMoney(maxBill)} — check the amount, or ask the owner to raise the limit in Settings
+                </div>
+              ) : billAmt !== null ? (
+                <div className={styles.preview}>
+                  = {Math.round(earnRate * billAmt * (happyHour ?? 1))} pts ({earnRate}× rate{happyHour ? ` × ${happyHour}` : ""})
+                </div>
+              ) : (
+                <div className={styles.hint}>
+                  {earnRate * (happyHour ?? 1)} {earnRate * (happyHour ?? 1) === 1 ? "point" : "points"} per $1
+                  {happyHour ? " during happy hour" : ""}
+                </div>
+              )}
+            </div>
             {pending && (
-              <div className={styles.confirm} role="alert">
+              <div className="confirm" role="alert">
                 <div>
                   Big bill: <b>{formatMoney(pending.amount)}</b> will credit <b>+{pending.points} pts</b>
                   {happyHour ? ` (happy hour ${happyHour}×)` : ""}. Is that right?
                 </div>
                 <div className="row">
-                  <button className="btn btn-primary" disabled={busy}
+                  <button type="button" className="btn btn-primary btn-lg"
                     onClick={() => apply({ amount: pending.amount, confirm: true })}>
                     Add +{pending.points} pts
                   </button>
-                  <button className="btn btn-ghost" style={{ width: "auto", padding: "0 18px" }}
-                    onClick={() => setPending(null)}>
+                  <button type="button" className="btn btn-ghost btn-lg" onClick={() => setPending(null)}>
                     Cancel
                   </button>
                 </div>
               </div>
             )}
-          </>
+          </form>
+        )}
+
+        {redemptions.length > 0 && (
+          <section className="panel pending-dim" aria-labelledby="scan-redeem">
+            <h3 id="scan-redeem" className="panel-t">{stamps ? "Reward" : "Redeem a reward"}</h3>
+            <div className={stamps ? styles.one : styles.grid}>
+              {redemptions.map((a) => {
+                const cost = -a.points; // a.points is the (negative) delta
+                const short = customer.points < cost;
+                return (
+                  <button key={a.id} type="button" className={`redeem-btn ${styles.reward}`}
+                    disabled={short} onClick={() => apply({ actionId: a.id }, `${a.label} redeemed`)}>
+                    <span className={styles.rl}>{a.label}</span>
+                    <span className={styles.rp}>−{cost} {unitLabel(mode, cost, true)}</span>
+                    {short && <span className={styles.need}>needs {cost} · has {customer.points}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         <SendCardPanel key={customer.serial} serial={customer.serial} />
-
-        <button className="btn btn-primary" onClick={reset}>Scan next customer</button>
+        {next}
       </div>
     </div>
   );

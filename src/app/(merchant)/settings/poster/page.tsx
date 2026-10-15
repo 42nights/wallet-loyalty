@@ -1,4 +1,4 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import QRCode from "qrcode";
 import { getStaff, isAdmin } from "@/lib/auth";
@@ -8,10 +8,13 @@ import {
 } from "@/lib/config";
 import { UUID_RE, rgbToHex, themeHex } from "@/lib/admin/merchant";
 import { defaultAssetBuffer } from "@/lib/passDefaults";
+import Icon from "@/components/Icon";
+import PageHead from "@/components/PageHead";
 import PrintButton from "./PrintButton";
 import s from "./poster.module.css";
 
 export const runtime = "nodejs";
+export const metadata: Metadata = { title: "Sign-up poster" };
 
 type MerchantRow = {
   id: string;
@@ -75,24 +78,28 @@ export default async function PosterPage({
     .maybeSingle<MerchantRow>();
   if (!m) notFound();
 
+  // titleAs="div": the poster's own headline is the page's only h1
   const bar = (
-    <div className={s.bar}>
-      <div>
-        <Link href={back} className={s.back}>← Back</Link>
-        <div className={s.title}>Sign-up poster</div>
-        <div className={s.help}>
-          US Letter, portrait — fits an 8.5 × 11 in sign holder. Reads just as well printed in black and white.
-        </div>
-      </div>
-      {m.slug && <PrintButton />}
-    </div>
+    <PageHead
+      titleAs="div"
+      title="Sign-up poster"
+      sub="US Letter, portrait. Prints fine in black and white."
+      back={{ href: back, label: asked !== undefined ? "Merchant" : "Settings" }}
+      actions={m.slug && <PrintButton />}
+    />
   );
 
   if (!m.slug)
     return (
       <div className={s.page}>
         {bar}
-        <div className="card label">No public sign-up link yet — ask 42nights to set your sign-up slug.</div>
+        <div className="panel">
+          <div className="empty">
+            <Icon name="info" />
+            <p className="empty-t">No sign-up link yet</p>
+            <p className="empty-p">Ask 42nights to set up your sign-up link, then print the poster here.</p>
+          </div>
+        </div>
       </div>
     );
 

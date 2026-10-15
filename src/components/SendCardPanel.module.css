@@ -1,25 +1,28 @@
+.closed { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* the panel inset (20px, 16px on phones), so on /scan its title lines up with
+   the panels around it */
 .panel {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 18px;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-5); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--r-md);
 }
+@media (max-width: 640px) { .panel { padding: var(--sp-4); } }
+.title { margin: 0; font: var(--text-md); color: var(--ink); }
 
 /* QR codes need dark-on-light to scan reliably, so the tile stays white in
    both themes. */
 .qr {
-  background: #fff;
-  border-radius: 14px;
-  padding: 12px;
-  width: min(240px, 100%);
-  margin-left: auto;
-  margin-right: auto;
+  align-self: center; width: min(220px, 100%); padding: 12px;
+  background: #fff; border-radius: var(--r-md); box-shadow: 0 0 0 1px var(--line);
 }
 .qr svg { display: block; width: 100%; height: auto; }
 
-.hint {
-  text-align: center;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 17px;
+.hint { margin: 0; text-align: center; font: 600 15px/22px var(--font-ui); color: var(--ink); }
+.help { margin: 0; font: var(--text-sm); color: var(--muted); }
+.actions { display: flex; justify-content: flex-end; gap: var(--sp-1); margin-top: calc(var(--sp-1) * -1); }
+
+/* the panel is already --surface-2, the quiet buttons' own hover fill */
+@media (hover: hover) and (pointer: fine) {
+  :global(.app) .panel :global(.btn-quiet):not(:disabled, [aria-disabled="true"]):hover { background: var(--surface-3); }
 }

@@ -5,13 +5,10 @@
 
 @page { size: letter; margin: 0; }
 
-.page { max-width: 760px; margin: 0 auto; padding: 22px 16px 64px; }
-
-.bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
-.back { display: inline-block; font-size: 12px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); text-decoration: none; margin-bottom: 8px; }
-.back:hover { color: var(--accent); }
-.title { font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: -.03em; line-height: 1.1; }
-.help { font-size: 13px; color: var(--muted); line-height: 1.5; margin-top: 4px; max-width: 46ch; }
+/* the shell's 1200 container, so the page head sits where every other page's
+   does; only the sheet is centred */
+.page { max-width: 1200px; margin: 0 auto; padding: var(--sp-8) var(--gutter) var(--sp-12); }
+@media (max-width: 640px) { .page { padding-top: var(--sp-5); } }
 
 /* Paper is always white with near-black ink, whatever the app theme. */
 .sheet {
@@ -25,6 +22,10 @@
   box-shadow: var(--shadow);
   overflow: hidden;
 }
+/* The owner app sets a UI font and tabular figures on .app; the paper keeps
+   the type it had before (DM Mono body, as on the enroll page). */
+:global(.app) .sheet { --mono: "DM Mono", ui-monospace, monospace; font: 400 16px/normal var(--mono); }
+:global(.app) .sheet, :global(.app) .sheet * { font-variant-numeric: normal !important; }
 /* A container's own padding cannot use its cqw, hence this inner box. */
 .inner { height: 100%; padding: 6.5cqw 6.5cqw 5cqw; display: flex; flex-direction: column; }
 
@@ -91,6 +92,6 @@
 
 @media print {
   .page { max-width: none; padding: 0; margin: 0; }
-  .bar { display: none; }
+  :global(.app) .page :global(.page-head) { display: none; }
   .sheet { width: 8.5in; height: 11in; aspect-ratio: auto; border-radius: 0; box-shadow: none; break-inside: avoid; }
 }

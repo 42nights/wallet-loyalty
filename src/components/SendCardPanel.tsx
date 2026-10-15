@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Icon from "@/components/Icon";
 import styles from "./SendCardPanel.module.css";
 
 type CardLink = { url: string; qrSvg: string; expiresAt: number };
@@ -14,6 +15,16 @@ export default function SendCardPanel({ serial }: { serial: string }) {
   const [link, setLink] = useState<CardLink | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+  // Opening swaps the button for the panel and Close swaps it back, so focus
+  // follows: to the panel's heading, then back to the button.
+  const focusTo = useRef<"head" | "button" | null>(null);
+  const head = useRef<HTMLHeadingElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (focusTo.current) (focusTo.current === "head" ? head : button).current?.focus();
+    focusTo.current = null;
+  }, [link]);
 
   async function makeLink() {
     if (busy) return;
@@ -27,8 +38,11 @@ export default function SendCardPanel({ serial }: { serial: string }) {
       });
       if (res.status === 401) return router.push("/login");
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) return setMsg({ kind: "bad", text: d.error || "Could not make a card link" });
+      if (!res.ok) return setMsg({ kind: "bad", text: d.error || "Couldn't make a card link — try again." });
+      if (!link) focusTo.current = "head";
       setLink({ url: d.url, qrSvg: d.qrSvg, expiresAt: Date.now() + d.expiresInMinutes * 60_000 });
+    } catch {
+      setMsg({ kind: "bad", text: "Couldn't reach the server — try again." });
     } finally {
       setBusy(false);
     }
@@ -42,31 +56,43 @@ export default function SendCardPanel({ serial }: { serial: string }) {
       return;
     }
     await navigator.clipboard.writeText(link.url).then(
-      () => setMsg({ kind: "ok", text: "Link copied — text or AirDrop it to the customer" }),
-      () => setMsg({ kind: "bad", text: "Could not copy the link" })
+      () => setMsg({ kind: "ok", text: "Link copied — text or AirDrop it to the customer." }),
+      () => setMsg({ kind: "bad", text: "Couldn't copy the link — let the customer scan the code instead." })
     );
   }
 
+  function close() {
+    focusTo.current = "button";
+    setLink(null);
+    setMsg(null);
+  }
+
   const toast = msg && (
-    <div className={`toast ${msg.kind}`} role="status">
+    <div className={`toast ${msg.kind}`} role={msg.kind === "ok" ? "status" : "alert"}>
+      <Icon name={msg.kind === "ok" ? "check" : "alert"} />
       {msg.text}
     </div>
   );
 
   if (!link)
     return (
-      <div>
-        <button className="btn btn-ghost" onClick={makeLink} disabled={busy}>
+      <div className={styles.closed}>
+        <button ref={button} type="button" className="btn btn-ghost btn-block" onClick={makeLink} disabled={busy}>
+          <Icon name="phone" />
           {busy ? "Making link…" : "Send card to phone"}
         </button>
         {toast}
       </div>
     );
 
-  const until = new Date(link.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const until = new Date(link.expiresAt)
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    .toLowerCase();
   return (
-    <div className={`stack ${styles.panel}`}>
-      <div className="label">Send card to phone</div>
+    <div className={styles.panel}>
+      <h3 ref={head} tabIndex={-1} className={styles.title}>
+        Send card to phone
+      </h3>
       <div
         className={styles.qr}
         role="img"
@@ -74,19 +100,17 @@ export default function SendCardPanel({ serial }: { serial: string }) {
         // SVG markup generated server-side by the qrcode package from our own URL
         dangerouslySetInnerHTML={{ __html: link.qrSvg }}
       />
-      <div className={styles.hint}>Scan with the iPhone camera</div>
-      <button className="btn btn-primary" onClick={share}>
+      <p className={styles.hint}>Scan with the iPhone camera</p>
+      <button type="button" className="btn btn-primary btn-block" onClick={share}>
         Share link
       </button>
       {toast}
-      <div className="label" style={{ fontSize: 11, marginBottom: 0 }}>
-        Opens in Safari and adds the card to Wallet. Expires at {until}.
-      </div>
-      <div className="row">
-        <button className="btn btn-ghost" onClick={makeLink} disabled={busy}>
-          New link
+      <p className={styles.help}>Opens in Safari and adds the card to Wallet. Link expires at {until}.</p>
+      <div className={styles.actions}>
+        <button type="button" className="btn btn-quiet btn-sm" onClick={makeLink} disabled={busy}>
+          {busy ? "Making link…" : "New link"}
         </button>
-        <button className="btn btn-ghost" onClick={() => { setLink(null); setMsg(null); }}>
+        <button type="button" className="btn btn-quiet btn-sm" onClick={close}>
           Close
         </button>
       </div>

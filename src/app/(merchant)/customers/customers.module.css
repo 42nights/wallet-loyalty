@@ -1,0 +1,123 @@
+/* /customers. Primitives are `.app .x` in globals.css, so a rule that changes
+   one is written `:global(.app) …` to win on specificity. */
+
+/* --- Export menu (page header) */
+.export { position: relative; }
+.export > summary { list-style: none; }
+.export > summary::-webkit-details-marker { display: none; }
+.export[open] > summary { border-color: var(--line-strong); }
+.chev { color: var(--muted); transition: transform var(--dur-fast) var(--ease-out); }
+.export[open] .chev { transform: rotate(180deg); }
+.menu {
+  position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 300px; padding: 6px;
+  background: var(--surface); border-radius: var(--r-md); box-shadow: var(--shadow-pop);
+  transform-origin: top right;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+@starting-style { .export[open] .menu { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.menu a {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 6px;
+  color: var(--ink); text-decoration: none;
+}
+.menu a:focus-visible { outline-offset: -2px; }
+.menuT { font: 500 14px/20px var(--font-ui); }
+.menuP { font: var(--text-sm); color: var(--muted); }
+.menuFoot {
+  margin: 4px 0 0; padding: 10px 10px 4px; border-top: 1px solid var(--line);
+  font: var(--text-sm); color: var(--muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .menu a:hover { background: var(--surface-2); }
+}
+@media (max-width: 640px) {
+  .menu { right: auto; left: 0; width: min(300px, calc(100vw - 2 * var(--gutter))); transform-origin: top left; }
+}
+
+/* --- toolbar: search, (phone) sort, count */
+.panel { gap: var(--sp-4); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-4); }
+.search { position: relative; flex: 0 1 360px; min-width: 0; }
+.search > svg {
+  position: absolute; top: 50%; left: 12px; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+.search > input { padding: 0 44px 0 38px; }
+.search > input::-webkit-search-cancel-button { display: none; appearance: none; }
+.clear {
+  position: absolute; top: 2px; right: 2px; display: grid; place-items: center;
+  width: 40px; height: 40px; border: 0; border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer;
+}
+.clear:focus-visible { outline-offset: -2px; }
+.sortBy { display: none; }
+.count { margin: 0 0 0 auto; font: var(--text-sm); white-space: nowrap; color: var(--ink-2); }
+.countSkel { width: 180px; }
+@media (hover: hover) and (pointer: fine) {
+  .clear { transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease; }
+  .clear:hover { color: var(--ink); background: var(--surface-3); }
+}
+
+/* --- table: seven columns, then fewer as the page narrows; ≤720 the global
+       .tbl turns each row into a two-line list item */
+:global(.app) .tbl {
+  --cols: minmax(200px, 2fr) 150px 130px 110px 120px 80px 130px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 1119px) {
+  :global(.app) .tbl { --cols: minmax(180px, 2fr) 140px 130px 100px 72px 120px; }
+  :global(.app) .tbl .colLifetime { display: none; }
+}
+@media (max-width: 959px) {
+  :global(.app) .tbl { --cols: minmax(160px, 1fr) 132px 100px 60px 112px; }
+  :global(.app) .tbl .colGroup { display: none; }
+}
+
+.sortBtn > svg { opacity: 0; transition: opacity var(--dur-fast) ease; }
+[aria-sort] > .sortBtn > svg { opacity: 1; }
+:global(.th.num) > .sortBtn { flex-direction: row-reverse; }
+.up { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) {
+  .sortBtn:hover > svg { opacity: .55; }
+  [aria-sort] > .sortBtn:hover > svg { opacity: 1; }
+}
+
+.name { display: flex; align-items: center; gap: var(--sp-3); }
+.nameText { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+:global(.app) .name .phoneChip { display: none; flex: none; }
+.dim { color: var(--ink-2); }
+.never { color: var(--muted); }
+.balance { font-weight: 500; }
+
+@media (max-width: 720px) {
+  .toolbar { gap: var(--sp-3); }
+  .search { flex-basis: 100%; }
+  .sortBy { display: flex; align-items: center; gap: var(--sp-2); font: 500 13px/1 var(--font-ui); color: var(--ink-2); }
+  .sortBy > select { width: auto; }
+  .count { flex-basis: 100%; margin: 0; }
+  :global(.app) .tbl { border-top: 0; }
+  :global(.app) .name .avatar { display: none; }
+  :global(.app) .name .phoneChip { display: inline-flex; }
+  .name { gap: var(--sp-2); }
+}
+
+/* --- skeleton rows (first load) */
+.skelRow { pointer-events: none; }
+:global(.app) .skelAvatar { width: 32px; height: 32px; flex: none; border-radius: 50%; }
+.skelRow > :global(.td.num) > :global(.skel-line) { margin-left: auto; }
+.skName { width: 140px; }
+.skelRow:nth-child(3n + 2) .skName { width: 110px; }
+.skelRow:nth-child(3n) .skName { width: 168px; }
+.skPhone { width: 108px; }
+:global(.app) .skChip { width: 64px; height: 18px; border-radius: var(--r-pill); }
+.skNum { width: 52px; }
+.skTiny { width: 20px; }
+.skDate { width: 72px; }
+@media (max-width: 720px) {
+  :global(.app) .name .skelAvatar { display: none; }
+  :global(.app) .skName { height: 14px; }
+}
+
+/* --- below the table */
+.error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.error > :global(.toast) { flex: 1 1 280px; }
+.foot { display: flex; justify-content: center; }
