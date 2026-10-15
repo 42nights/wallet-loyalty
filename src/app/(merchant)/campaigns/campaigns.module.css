@@ -1,0 +1,73 @@
+/* Campaigns (design spec §6.4): New campaign beside Sent campaigns (5/7) from
+   960px, stacked below that. */
+.cols { display: grid; gap: var(--sp-4); align-items: start; }
+@media (min-width: 960px) { .cols { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }
+
+.head { margin-bottom: var(--sp-1); }
+.form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.foot { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-1); }
+
+/* --- Sent campaigns: a table while the panel is wide enough */
+.history { container-type: inline-size; }
+:global(.app) .history :global(.tbl) {
+  --cols: minmax(0, 1.55fr) minmax(0, 1.1fr) minmax(0, .8fr) minmax(0, .7fr) minmax(0, 1.25fr);
+}
+:global(.app) .history :global(.tbl-row) { padding-block: 10px; }
+.name, .sub, .note { overflow: hidden; text-overflow: ellipsis; }
+.name { font-weight: 500; }
+.sub, .note { font: var(--text-sm); color: var(--muted); }
+.note { color: var(--warn); }
+:global(.app) .history .wrap { overflow: visible; white-space: normal; }
+.quiet { color: var(--muted); }
+/* the phone row's status, only when it isn't plain Sent */
+.metaChip { margin-right: var(--sp-1); }
+/* the Finish sending focus ring must not be clipped; a long "came back" wraps */
+:global(.app) .history .result { overflow: visible; white-space: normal; }
+.extra { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-2); padding-block: var(--sp-1) var(--sp-2); }
+
+/* The foundation turns tables into 2-line rows at a 720px viewport. From 960
+   to about 1130px this column is narrower than the table needs (the Result
+   and Audience columns need a ~580px content box), so it also switches on its
+   own width. Same rows as globals.css's ≤720 block. */
+@container (max-width: 579px) {
+  :global(.app) .history :global(.tbl-head) { display: none; }
+  :global(.app) .history :global(.tbl-row) {
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name value" "meta date";
+    row-gap: 2px; min-height: 64px;
+  }
+  :global(.app) .history :global(.tbl-row) > :global(.td:not(.phone-only)) { display: none; }
+  :global(.app) .history :global(.tbl) :global(.phone-only) { display: block; }
+  :global(.app) .history :global(.td-name) { grid-area: name; font-weight: 500; }
+  :global(.app) .history :global(.td-value) { grid-area: value; font-weight: 600; text-align: right; }
+  :global(.app) .history :global(.td-meta) { grid-area: meta; font: var(--text-sm); color: var(--muted); }
+  :global(.app) .history :global(.td-date) { grid-area: date; font: var(--text-sm); color: var(--muted); text-align: right; }
+}
+
+/* "Came back" definition on the Result header: shows on hover or keyboard
+   focus, stays while the pointer is over it, Escape hides it. */
+.tip { position: relative; display: inline-flex; margin-left: 6px; }
+.tipButton {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; margin: -6px 0;
+  padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: help;
+}
+.tipBody {
+  position: absolute; top: calc(100% + 6px); right: -6px; z-index: 5; width: 232px;
+  padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow-pop);
+  font: var(--text-sm); letter-spacing: 0; text-transform: none; white-space: normal; color: var(--ink);
+  opacity: 0; visibility: hidden; transform: translateY(-2px) scale(.97); transform-origin: top right;
+  transition: opacity 125ms var(--ease-out), transform 125ms var(--ease-out), visibility 0s linear 125ms;
+}
+.tipBody::before { content: ""; position: absolute; inset: -8px 0 100%; }
+.tip:hover .tipBody, .tipButton:focus-visible + .tipBody {
+  opacity: 1; visibility: visible; transform: none; transition-delay: 0s;
+}
+/* the round button already has air around its icon; the ring hugs its edge so
+   it clears the header text */
+.tipButton:focus-visible { outline-offset: 0; }
+@media (hover: hover) and (pointer: fine) { .tipButton:hover { color: var(--ink); } }
+
+.skel { display: flex; flex-direction: column; gap: var(--sp-2); }
+:global(.app) .skel :global(.skel-block) { height: 52px; }
+
+:global(.app) .history .loadError { align-items: center; flex-wrap: wrap; }
+.loadError > span { flex: 1; min-width: 12em; }

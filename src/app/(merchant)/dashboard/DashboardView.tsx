@@ -1,248 +1,282 @@
 import Link from "next/link";
-import { STAMP_REWARD_ID, findAction, unitLabel, type LoyaltyMode } from "@/lib/config";
-import { TrendChart, BarChart, Sparkline, Donut, Funnel, Heatmap, SEGMENT_COLORS } from "./charts";
-import Controls from "./Controls";
-import ThemeToggle from "./ThemeToggle";
+import type { ReactNode } from "react";
+import PageHead from "@/components/PageHead";
+import Icon from "@/components/Icon";
+import { SEGMENTS } from "@/lib/segments";
+import { isSupportUsername } from "@/lib/admin/merchant";
+import { unitLabel } from "@/lib/config";
+import {
+  RANGES, INS_ICON, COMPACT_FROM, nf, kpiNum, sum, pct, utc, plural, Unit, lastText,
+  toShopClock, alertLines, computeInsights, type DashboardData,
+} from "./insights";
+import { FlowChart, BarChart, Sparkline, GroupsDonut, Funnel, Heatmap, Empty } from "./charts";
+import Controls, { TrendHover } from "./Controls";
+import WinBack from "./WinBack";
 import CommandBar from "./CommandBar";
 import DigestCard from "./DigestCard";
+import s from "./dashboard.module.css";
 
-// ---- shared data shapes (also imported by page.tsx) ------------------------
-export type TopRedemption = { reason: string; count: number; points: number };
-export type Stats = {
-  members: number; active_members: number; points_issued: number;
-  points_redeemed: number; top_redemptions: TopRedemption[]; repeat_rate: number;
-};
-export type SegCustomer = { serial: string; customer_name: string | null; segment: string };
-export type Segments = { counts: Record<string, number>; customers: SegCustomer[] };
-export type StaffRow = { username: string; role: string; txns: number; points_issued: number; points_redeemed: number };
-export type Anomaly = { kind: string; severity: string; detail: { date?: string; points?: number; avg?: number; staff?: string; issued?: number } };
-export type FunnelT = { enrolled: number; earned_once: number; earned_3plus: number; redeemed: number };
-export type TimePoint = { t: string; issued: number; redeemed: number };
-export type MemberPoint = { t: string; n: number };
-export type TimeSeries = { bucket: string; members: MemberPoint[]; points: TimePoint[] };
-export type HeatCell = { dow: number; hour: number; n: number };
-
-export type DashboardData = {
-  stats: Stats; seg: Segments; staffRows: StaffRow[]; anomalies: Anomaly[];
-  funnel: FunnelT; ts: TimeSeries; heat: HeatCell[];
-  days: string; bucket: string; theme: "light" | "dark";
-  aiEnabled: boolean;
-  // a stamp card counts stamps; absent = points
-  mode?: LoyaltyMode; stampReward?: string;
-};
-
-const SEGMENT_ORDER = ["vip", "regular", "new", "active", "at_risk", "lapsed", "dormant"];
-const SEGMENT_LABEL: Record<string, string> = {
-  vip: "VIP", regular: "Regular", new: "New", active: "Active", at_risk: "At-risk", lapsed: "Lapsed", dormant: "Dormant",
-};
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-// Server component, so these run once on the server: no hydration mismatch.
-const nf = new Intl.NumberFormat().format;
-// KPI tiles: 1,070,775 → "1.1M" so a 7-digit value can't overflow a phone tile
-// (the full number is in the tile's title). Below 100,000 the exact number fits.
-const COMPACT_FROM = 100_000;
-const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format;
-const kpiNum = (n: number) => (n >= COMPACT_FROM ? compact(n) : nf(n));
-const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
-
-function anomalyText(a: Anomaly, mode?: LoyaltyMode): string {
-  const d = a.detail;
-  const u = unitLabel(mode, 2, true);
-  if (a.kind === "redemption_spike") return `Redemption spike ${d.date}: ${nf(d.points ?? 0)} ${u} (avg ${nf(d.avg ?? 0)}).`;
-  if (a.kind === "staff_over_issue") return `${d.staff} issued ${nf(d.issued ?? 0)} ${u} — an outlier worth a look.`;
-  return a.kind;
-}
-function actionLabel(reason: string, stampReward?: string): string {
-  const id = reason.split(":")[1] ?? reason;
-  if (id === STAMP_REWARD_ID && stampReward) return stampReward;
-  return findAction(id)?.label ?? id;
-}
-// "Points" or "Stamps", for tile and chart titles
-const Unit = (mode?: LoyaltyMode) => (mode === "stamps" ? "Stamps" : "Points");
-
-type Insight = { dir: "up" | "down" | "warn" | "info"; text: string };
-const INS_ICON: Record<Insight["dir"], string> = { up: "↑", down: "↓", warn: "⚠", info: "→" };
-
-// Rule-based insights computed straight from the aggregates — no LLM needed for
-// the headline trends (the AI digest panel does the deeper write-up).
-export function computeInsights(d: DashboardData): Insight[] {
-  const out: Insight[] = [];
-
-  const issued = d.ts.points.map((p) => p.issued);
-  if (issued.length >= 4) {
-    const half = Math.floor(issued.length / 2);
-    const recent = sum(issued.slice(half));
-    const prior = sum(issued.slice(0, half));
-    if (recent > 0 || prior > 0) {
-      const p = prior <= 0 ? 100 : Math.round(((recent - prior) / prior) * 100);
-      // detect_anomalies covers the same window: a rise next to a staff
-      // over-issue flag is no growth to celebrate, so it reads neutral.
-      if (p >= 0 && d.anomalies.some((a) => a.kind === "staff_over_issue"))
-        out.push({ dir: "info", text: `${Unit(d.mode)} issued up ${p}% vs the previous period — check the staff outlier below before reading it as growth.` });
-      else
-        out.push({ dir: p >= 0 ? "up" : "down", text: `${Unit(d.mode)} issued ${p >= 0 ? "up" : "down"} ${Math.abs(p)}% vs the previous period.` });
-    }
-  }
-
-  if (d.heat.length) {
-    const top = d.heat.reduce((a, b) => (b.n > a.n ? b : a));
-    out.push({ dir: "info", text: `Busiest around ${DOW[top.dow]} ${top.hour}:00 (${top.n} scans).` });
-  }
-
-  const active = Object.entries(d.seg.counts).filter(([k]) => k !== "dormant");
-  if (active.length) {
-    const [k, v] = active.reduce((a, b) => (b[1] > a[1] ? b : a));
-    out.push({ dir: "info", text: `Largest active group: ${v} ${(SEGMENT_LABEL[k] ?? k).toLowerCase()}.` });
-  }
-
-  const f = d.funnel;
-  const steps: Array<[string, number, number]> = [
-    ["enrolled → earned", f.enrolled, f.earned_once],
-    ["earned → 3+ visits", f.earned_once, f.earned_3plus],
-    ["3+ → redeemed", f.earned_3plus, f.redeemed],
-  ];
-  let worst: string | null = null;
-  let worstPct = 0;
-  for (const [name, a, b] of steps) {
-    if (a > 0) {
-      const drop = Math.round((1 - b / a) * 100);
-      if (drop > worstPct) { worstPct = drop; worst = name; }
-    }
-  }
-  if (worst) out.push({ dir: worstPct >= 60 ? "down" : "info", text: `Biggest funnel drop-off: ${worst} (−${worstPct}%).` });
-
-  if (d.stats.members > 0) {
-    const r = Math.round((100 * d.stats.active_members) / d.stats.members);
-    out.push({ dir: r >= 40 ? "up" : "down", text: `${r}% of members were active in the last 30 days.` });
-  }
-
-  for (const a of d.anomalies) out.push({ dir: "warn", text: anomalyText(a, d.mode) });
-  if (!out.length) out.push({ dir: "info", text: "Not enough data yet — check back after a few more scans." });
-  return out;
-}
-
-// `sub` says what period the number covers, so no tile reads as something it isn't.
-function Kpi({ k, n, v, sub, spark }: { k: string; n?: number; v?: string; sub?: string; spark?: React.ReactNode }) {
+// ---- small pieces ------------------------------------------------------------
+type Dir = "up" | "down" | null;
+// A change chip plus its context. `neutral`: the arrow shows the direction,
+// the colour stays muted (more rewards claimed is neither good nor bad).
+function Delta({ dir, neutral, chip, text }: { dir: Dir; neutral?: boolean; chip: string; text: string }) {
   return (
-    <div className="panel kpi">
+    <div className={s.deltaRow}>
+      <span className={`delta ${dir && !neutral ? dir : "flat"}`}>
+        {dir && <Icon name={dir === "up" ? "arrow-up" : "arrow-down"} />}
+        {dir && <span className="sr-only">{dir === "up" ? "up" : "down"}</span>}
+        {chip}
+      </span>
+      <span>{text}</span>
+    </div>
+  );
+}
+const dirOf = (diff: number): Dir => (diff > 0 ? "up" : diff < 0 ? "down" : null);
+
+function change(cur: number, prev: number, days: string, neutral = false) {
+  const vs = `prior ${RANGES[days].label}`;
+  if (prev === 0) return <Delta dir={null} chip={cur ? "New" : "Same"} text={cur ? `none in the ${vs}` : `vs ${vs}`} />;
+  const p = Math.round(((cur - prev) / prev) * 100);
+  return <Delta dir={dirOf(p)} neutral={neutral} chip={`${nf(Math.abs(p))}%`} text={`vs ${vs}`} />;
+}
+
+function Tile({ k, n, v, children, spark }: { k: string; n?: number; v?: string; children?: ReactNode; spark?: ReactNode }) {
+  return (
+    <div className="kpi">
       <div className="k">{k}</div>
-      <div className="v" title={n !== undefined && n >= COMPACT_FROM ? nf(n) : undefined}>
-        {v ?? kpiNum(n ?? 0)}
-      </div>
-      {sub && <div className="sub">{sub}</div>}
-      {spark && <div className="spark">{spark}</div>}
+      <div className="v" title={n !== undefined && n >= COMPACT_FROM ? nf(n) : undefined}>{v ?? kpiNum(n ?? 0)}</div>
+      {children}
+      {spark !== undefined && <div className="spark">{spark}</div>}
+    </div>
+  );
+}
+
+function Head({ as: H = "h3", title, meta, id }: { as?: "h2" | "h3"; title: string; meta?: string; id?: string }) {
+  return (
+    <div className="panel-h">
+      <H className="panel-t" id={id}>{title}</H>
+      {meta && <span className="panel-meta">{meta}</span>}
     </div>
   );
 }
 
 export default function DashboardView({ data }: { data: DashboardData }) {
-  const { stats: s, seg, staffRows, funnel, ts, heat, days, bucket, theme, aiEnabled, mode, stampReward } = data;
-  const range = days === "365" ? "last 12 months" : `last ${days} days`;
+  const { stats: st, seg, staffRows, funnel, ts, prev, today, days, bucket, mode, aiEnabled, topRewards } = data;
+  const U = Unit(mode);
+  const last = lastText(days);
+  const per = `Per ${bucket}`;
 
-  // The time series is already windowed to the selected range, so its sums are
-  // the range totals — the tiles follow the Range picker like the charts do.
   const issued = ts.points.map((p) => p.issued);
   const redeemed = ts.points.map((p) => p.redeemed);
-  const memberSeries = ts.members.map((p) => p.n);
-  const memberLabels = ts.members.map((p) => new Date(p.t).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+  const joined = ts.members.map((p) => p.n);
+  const ticks = ts.points.map((p) => utc(p.t, bucket === "month" ? { month: "short" } : { month: "short", day: "numeric" }));
+  const tips = ts.points.map((p) =>
+    bucket === "month" ? utc(p.t, { month: "long", year: "numeric" })
+      : bucket === "week" ? `Week of ${utc(p.t, { month: "short", day: "numeric" })}`
+      : utc(p.t, { weekday: "short", month: "short", day: "numeric" }));
+  const peak = issued.indexOf(Math.max(...issued));
+  const busiestJoin = joined.indexOf(Math.max(...joined));
 
-  const segSegments = SEGMENT_ORDER.map((k) => ({ label: SEGMENT_LABEL[k], color: SEGMENT_COLORS[k], value: seg.counts[k] ?? 0 }));
-  const atRisk = seg.customers.filter((c) => c.segment === "at_risk").slice(0, 8);
-  const lapsed = seg.customers.filter((c) => c.segment === "lapsed").slice(0, 8);
+  const alerts = alertLines(data);
   const insights = computeInsights(data);
+  const total = sum(SEGMENTS.map((g) => seg.counts[g.key] ?? 0));
+  const winBack = (key: string) =>
+    seg.customers
+      .filter((c) => c.segment === key)
+      .sort((a, b) => b.visits - a.visits || (a.recency_days ?? 0) - (b.recency_days ?? 0))
+      .map(({ serial, customer_name, visits, recency_days }) => ({ serial, customer_name, visits, recency_days }));
 
   return (
-    <div className="dash">
-      <div className="dash-top">
-        <Controls days={days} bucket={bucket} />
-        <ThemeToggle initial={theme} />
-      </div>
+    <div className={`page ${s.dash}${aiEnabled ? ` ${s.withCmd}` : ""}`}>
+      <PageHead
+        title="Dashboard"
+        sub={`${data.shop} · ${data.date}`}
+        actions={
+          <>
+            <Link className="btn btn-ghost" href="/campaigns">Send a campaign</Link>
+            <Link className="btn btn-ghost" href="/settings/poster">Print sign-up poster</Link>
+          </>
+        }
+      />
 
-      <div className="kpi-row">
-        <Kpi k="Members" n={s.members} sub={`+${nf(sum(memberSeries))} new · ${range}`} spark={memberSeries.length > 1 ? <Sparkline data={memberSeries} color="var(--c-members)" /> : undefined} />
-        <Kpi k="Active · 30d" n={s.active_members} sub="always last 30 days" />
-        <Kpi k={`${Unit(mode)} issued`} n={sum(issued)} sub={range} spark={issued.length > 1 ? <Sparkline data={issued} color="var(--c-issued)" /> : undefined} />
-        <Kpi k={`${Unit(mode)} redeemed`} n={sum(redeemed)} sub={range} spark={redeemed.length > 1 ? <Sparkline data={redeemed} color="var(--c-redeemed)" /> : undefined} />
-        <Kpi k="Repeat rate" v={`${Math.round((s.repeat_rate ?? 0) * 100)}%`} sub="all time" />
-      </div>
-
-      <div className="dash-grid">
-        <div className="panel col-8">
-          <div className="panel-h"><span className="panel-t">{Unit(mode)} flow</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
-          <TrendChart caption={`per ${bucket}`} series={[{ label: "Issued", color: "var(--c-issued)", data: issued }, { label: "Redeemed", color: "var(--c-redeemed)", data: redeemed }]} />
+      {alerts.length > 0 && (
+        <div className={`panel ${s.alert}`}>
+          <Icon name="alert" size={20} />
+          <ul>{alerts.map((t) => <li key={t}>{t}</li>)}</ul>
         </div>
+      )}
 
-        <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">Segments</span><span className="label" style={{ margin: 0 }}>all time</span></div>
-          <Donut label="members" segments={segSegments} />
-        </div>
-
-        <div className="panel col-8">
-          <div className="panel-h"><span className="panel-t">When you&apos;re busy</span><span className="label" style={{ margin: 0 }}>day × hour</span></div>
-          <Heatmap cells={heat} />
-        </div>
-
-        <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">New members</span><span className="label" style={{ margin: 0 }}>per {bucket}</span></div>
-          <BarChart data={memberSeries} labels={memberLabels} color="var(--accent)" />
-        </div>
-
-        <div className="panel col-6">
-          <div className="panel-h"><span className="panel-t">✦ Insights</span></div>
-          <div className="ins">
-            {insights.map((it, i) => (
-              <div className={`ins-item ${it.dir}`} key={i}>
-                <span className="ins-ico">{INS_ICON[it.dir]}</span>
-                <span>{it.text}</span>
-              </div>
+      <section className="panel" aria-labelledby="today-h"
+        title="Counted on your shop's clock since midnight. A visit that was undone still counts.">
+        <Head as="h2" id="today-h" title="Today" meta={`So far · ${data.time}`} />
+        {today ? (
+          <div className={s.tiles}>
+            {([
+              ["Visits", today.now.visits, today.last.visits, false],
+              [`${U} given`, today.now.given, today.last.given, false],
+              [mode === "stamps" ? "Rewards claimed" : "Rewards redeemed", today.now.rewards, today.last.rewards, true],
+              ["New sign-ups", today.now.signups, today.last.signups, false],
+            ] as const).map(([k, cur, was, neutral]) => (
+              <Tile key={k} k={k} n={cur}>
+                <Delta dir={dirOf(cur - was)} neutral={neutral} chip={cur === was ? "Same" : nf(Math.abs(cur - was))}
+                  text={`vs ${nf(was)} last ${data.weekday} by now`} />
+              </Tile>
             ))}
           </div>
-        </div>
+        ) : (
+          <div className="toast bad" role="alert"><Icon name="alert" />Couldn&apos;t load today&apos;s numbers. Refresh the page to try again.</div>
+        )}
+      </section>
 
-        <div className="panel col-6">
-          <div className="panel-h"><span className="panel-t">Redemption funnel</span><span className="label" style={{ margin: 0 }}>all time</span></div>
-          <Funnel steps={[
-            { label: "Enrolled", value: funnel.enrolled },
-            { label: "Earned once", value: funnel.earned_once },
-            { label: "Earned 3+", value: funnel.earned_3plus },
-            { label: "Redeemed", value: funnel.redeemed },
-          ]} />
-        </div>
-
-        <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">⚠ At-risk ({seg.counts["at_risk"] ?? 0})</span></div>
-          {atRisk.length === 0 && <div className="label">none</div>}
-          {atRisk.map((c) => (<div className="lrow" key={c.serial}><Link href={`/customers/${c.serial}`}>{c.customer_name || "—"}</Link></div>))}
-        </div>
-
-        <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">💤 Lapsed ({seg.counts["lapsed"] ?? 0})</span></div>
-          {lapsed.length === 0 && <div className="label">none</div>}
-          {lapsed.map((c) => (<div className="lrow" key={c.serial}><Link href={`/customers/${c.serial}`}>{c.customer_name || "—"}</Link></div>))}
-        </div>
-
-        <div className="panel col-4">
-          <div className="panel-h"><span className="panel-t">Top redemptions</span><span className="label" style={{ margin: 0 }}>all time</span></div>
-          {s.top_redemptions.length === 0 && <div className="label">none yet</div>}
-          {s.top_redemptions.slice(0, 6).map((t) => (
-            <div className="lrow" key={t.reason}><span>{actionLabel(t.reason, stampReward)}</span><span className="label" style={{ margin: 0 }}>{nf(t.count)}× · {nf(t.points)}</span></div>
-          ))}
-        </div>
-
-        <div className="panel col-6">
-          {/* staff_activity is windowed by the same range as the charts */}
-          <div className="panel-h"><span className="panel-t">Staff</span><span className="label" style={{ margin: 0 }}>{range}</span></div>
-          {staffRows.length === 0 && <div className="label">none</div>}
-          {staffRows.map((r) => (
-            <div className="lrow" key={r.username}>
-              <span>{r.username} <span className="label" style={{ display: "inline", margin: 0 }}>{r.role}</span></span>
-              <span className="label" style={{ margin: 0 }}>{nf(r.txns)} txns · +{nf(r.points_issued)} / −{nf(r.points_redeemed)}</span>
+      <Controls
+        days={days}
+        bucket={bucket}
+        ranges={Object.entries(RANGES).map(([value, r]) => ({ value, ...r }))}
+      >
+        <div className={`${s.kpis} pending-dim`}>
+          <Tile k="Customers" n={st.members} spark={<Sparkline data={joined} color="var(--c-members)" />}>
+            <Delta dir={prev.members ? dirOf(sum(joined) - prev.members) : null} chip={`${nf(sum(joined))} new`}
+              text={prev.members ? `vs ${nf(prev.members)} in the prior ${RANGES[days].label}` : `none in the prior ${RANGES[days].label}`} />
+          </Tile>
+          <Tile k={mode === "stamps" ? "Stamps given" : "Points issued"} n={sum(issued)} spark={<Sparkline data={issued} color="var(--c-issued)" />}>
+            {change(sum(issued), prev.issued, days)}
+          </Tile>
+          <Tile k={`${U} redeemed`} n={sum(redeemed)} spark={<Sparkline data={redeemed} color="var(--c-redeemed)" dashed />}>
+            {change(sum(redeemed), prev.redeemed, days, true)}
+          </Tile>
+          <Tile k="Visited in last 30 days" n={st.active_members} spark={null}>
+            <div className={s.deltaRow}>
+              <span className="chip">Always 30 days</span>
+              <span>{pct(st.active_members, st.members)}% of everyone</span>
             </div>
-          ))}
+          </Tile>
         </div>
 
-        {aiEnabled && <div className="col-6"><DigestCard /></div>}
-      </div>
+        <div className={`${s.band} pending-dim`}>
+          <section className={`panel ${s.c8}`}>
+            <Head title={`${U} given and redeemed`} meta={per} />
+            <FlowChart
+              given={issued}
+              redeemed={redeemed}
+              ticks={ticks}
+              summary={`${U} given ${nf(sum(issued))} and redeemed ${nf(sum(redeemed))} in the ${last}${sum(issued) ? `; most given ${tips[peak]}` : ""}.`}
+            >
+              <TrendHover given={issued} redeemed={redeemed} tips={tips} />
+            </FlowChart>
+          </section>
+          <section className={`panel ${s.c4}`}>
+            <Head title="New customers" meta={per} />
+            <BarChart
+              data={joined}
+              ticks={ticks}
+              tips={tips}
+              summary={`${plural(sum(joined), "new customer", "new customers")} in the ${last}${sum(joined) ? `; most ${tips[busiestJoin]} (${nf(joined[busiestJoin])})` : ""}.`}
+              empty={`No one signed up in the ${last}.`}
+            />
+          </section>
+        </div>
+
+        <div className={`${s.band} pending-dim`}>
+          <section className={`panel ${s.c8}`}>
+            <Head title="Busy times" meta="Your shop's clock" />
+            <Heatmap cells={toShopClock(data.heat, data.utcOffset)} />
+          </section>
+          <section className={`panel ${s.c4}`}>
+            <Head title="Insights" meta={last} />
+            <ul className={s.ins}>
+              {insights.map((it) => (
+                <li key={it.text} className={s[it.dir]}>
+                  <span className={s.insIco}><Icon name={INS_ICON[it.dir]} /></span>
+                  {it.text}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        <div className={s.sectionHead}>
+          <h2>Your customers</h2>
+          <span className="panel-meta">As of today</span>
+        </div>
+        <div className={s.band}>
+          <section className={`panel ${s.c4}`}>
+            <Head title="Customer groups" />
+            <GroupsDonut total={total} segments={SEGMENTS.map((g) => ({ key: g.key, label: g.label, definition: g.definition, value: seg.counts[g.key] ?? 0 }))} />
+          </section>
+          <WinBack className={s.c4} atRisk={winBack("at_risk")} lapsed={winBack("lapsed")} />
+          <section className={`panel ${s.c4}`}>
+            <Head title="From sign-up to reward" meta="All time" />
+            <Tile k="Repeat rate" v={`${Math.round((st.repeat_rate ?? 0) * 100)}%`}>
+              <div className="sub">came back 2+ times, all time</div>
+            </Tile>
+            <Funnel steps={[
+              { label: "Signed up", value: funnel.enrolled },
+              { label: "Visited once", value: funnel.earned_once },
+              { label: "Visited 3+ times", value: funnel.earned_3plus },
+              { label: "Claimed a reward", value: funnel.redeemed },
+            ]} />
+          </section>
+        </div>
+
+        <div className={s.band}>
+          <section className={`panel ${s.c6}`}>
+            <Head as="h2" title={topRewards.length === 1 ? "Your reward" : "Top rewards"} meta="All time" />
+            {topRewards.length === 0 ? (
+              <Empty title="No rewards yet" text="Claimed rewards show up here." />
+            ) : topRewards.length === 1 ? (
+              <div className={s.fillTile}>
+                <Tile k={topRewards[0].label} n={topRewards[0].count}>
+                  <div className="sub">
+                    {topRewards[0].count ? `times claimed · ${nf(topRewards[0].points)} ${unitLabel(mode, topRewards[0].points)}` : "Not claimed yet"}
+                  </div>
+                </Tile>
+              </div>
+            ) : (
+              <ul className={s.rows}>
+                {topRewards.map((r) => (
+                  <li key={r.label}>
+                    <span className={s.rowIco}><Icon name="gift" /></span>
+                    <div>
+                      <div className={s.rowName}>{r.label}</div>
+                      <div className={s.rowMeta}>
+                        {r.count ? `Claimed ${plural(r.count, "time", "times")} · ${nf(r.points)} ${unitLabel(mode, r.points)}` : "Not claimed yet"}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className={`panel ${s.c6} pending-dim`}>
+            <Head as="h2" title="Staff" meta={last} />
+            {staffRows.length === 0 ? (
+              <Empty title="No staff yet" text="Add a cashier on the Staff page." />
+            ) : (
+              <ul className={s.rows}>
+                {staffRows.map((r) => (
+                  <li key={r.username} title="Visits counts every earn, reward and undo they rang up.">
+                    <span className="avatar" aria-hidden="true">{r.username.slice(0, 2)}</span>
+                    <div>
+                      <div className={s.rowName}>
+                        {r.username}{" "}
+                        {isSupportUsername(r.username) ? <span className="chip chip--warn">42nights support</span>
+                          : r.role === "owner" ? <span className="chip chip--accent">Owner</span>
+                          : <span className="chip">Cashier</span>}
+                      </div>
+                      <div className={s.rowMeta}>
+                        {plural(r.txns, "visit", "visits")} · gave {nf(r.points_issued)} {unitLabel(mode, r.points_issued, true)} · redeemed {nf(r.points_redeemed)} {unitLabel(mode, r.points_redeemed, true)}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        {aiEnabled && <div className={s.band}><DigestCard className={s.c12} /></div>}
+      </Controls>
 
       {aiEnabled && <CommandBar />}
     </div>

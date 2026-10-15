@@ -1,0 +1,250 @@
+/* Owner dashboard (design spec 6.1). The primitives (.panel .kpi .delta .chip
+   .segmented .btn .empty) come from the owner section of globals.css; this
+   file lays them out. Bands are 12-column rows of equal-height panels, and
+   every panel's content grows to fill its band. */
+
+.dash { display: flex; flex-direction: column; gap: var(--sp-4); }
+:global(.app) .dash > :global(.page-head) { margin-bottom: var(--sp-2); }
+.withCmd { padding-bottom: calc(var(--sp-12) + 96px); }
+
+/* --- alert bar */
+:global(.app) .dash .alert {
+  flex-direction: row; align-items: flex-start; gap: var(--sp-3); padding-block: var(--sp-4);
+  background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+}
+.alert > svg { flex: none; margin-top: 1px; color: var(--warn); }
+.alert ul { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding: 0; list-style: none; font: var(--text-base); color: var(--ink); }
+
+/* --- tiles: Today and the KPI row */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3); }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-4); }
+.deltaRow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-top: 2px;
+  font: var(--text-sm); color: var(--muted);
+}
+.deltaRow > span:last-child { text-wrap: balance; }
+
+/* --- range bar and everything it filters */
+.ranged { display: flex; flex-direction: column; gap: var(--sp-4); margin-top: var(--sp-4); }
+.rangeBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3) var(--sp-4); }
+.rangeBar h2, .sectionHead h2 { margin: 0; font: var(--text-lg); color: var(--ink); }
+.rangeCtrls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.showBy { display: flex; align-items: center; gap: var(--sp-2); font: 500 13px/1 var(--font-ui); color: var(--ink-2); }
+.showBy select { width: auto; height: 36px; }
+.sectionHead { display: flex; align-items: baseline; gap: var(--sp-3); margin-top: var(--sp-4); }
+
+.band { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--sp-4); align-items: stretch; }
+.c4 { grid-column: span 4; }
+.c6 { grid-column: span 6; }
+.c8 { grid-column: span 8; }
+.c12 { grid-column: span 12; }
+.fill { flex: 1 1 auto; justify-content: center; }
+
+/* --- charts: shared axes */
+.plot { position: relative; min-width: 0; }
+.plot > svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; }
+.xAxis { position: relative; height: 16px; margin-top: var(--sp-2); font: var(--text-xs); color: var(--muted); }
+.xAxis > span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.xAxis > .first { transform: none; }
+.xAxis > .last { transform: translateX(-100%); }
+/* a narrow chart keeps the first, middle and last ticks */
+.trend, .barChart { container-type: inline-size; }
+@container (max-width: 420px) {
+  .xAxis:has(> :nth-child(5)) > :nth-child(even) { display: none; }
+}
+.grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+/* trend */
+.trend {
+  flex: 1 1 auto; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(180px, 1fr) auto auto; column-gap: var(--sp-3); padding-top: var(--sp-2);
+}
+.yAxis {
+  display: flex; flex-direction: column; justify-content: space-between; margin: -8px 0;
+  font: var(--text-xs); color: var(--muted); text-align: right;
+}
+.hover { position: absolute; inset: 0; touch-action: pan-y; cursor: crosshair; }
+.plot:has(> .hover[data-active]) > .dot { opacity: 0; }
+.trend > .xAxis { grid-column: 2; }
+.legend { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-3); font: var(--text-sm); color: var(--ink-2); }
+.legend > span { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.sw, .swDash { flex: none; width: 16px; height: 2px; border-radius: 1px; background: currentColor; }
+.swDash { background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
+.dot {
+  position: absolute; width: 8px; height: 8px; border-radius: 50%;
+  transform: translate(-50%, -50%); box-shadow: 0 0 0 2px var(--surface); pointer-events: none;
+}
+.cross { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--line-strong); pointer-events: none; }
+.tip {
+  position: absolute; z-index: 2; top: 0; min-width: 160px; transform: translateX(12px);
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow-pop);
+  font: var(--text-sm); color: var(--ink-2); pointer-events: none;
+}
+.tipLeft { transform: translateX(calc(-100% - 12px)); }
+.tipT { margin-bottom: 2px; font-weight: 600; color: var(--ink); }
+.tipRow { display: flex; align-items: center; gap: var(--sp-2); }
+.tipRow b { margin-left: auto; padding-left: var(--sp-3); font-weight: 600; color: var(--ink); }
+
+/* sparkline, inside the tile's 28px .spark slot */
+.spark { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* bars */
+.barChart { flex: 1 1 auto; display: grid; grid-template-rows: minmax(160px, 1fr) auto; padding-top: var(--sp-2); }
+.barChart > .plot { border-bottom: 1px solid var(--line); }
+.barChart rect { fill: var(--c-members); }
+.barChart rect.parted { stroke: var(--surface); stroke-width: 1px; }
+
+/* heatmap: rows share whatever height the band gives them */
+.heat { flex: 1 1 auto; display: grid; grid-template-rows: repeat(7, minmax(20px, 1fr)) auto; gap: 3px; }
+.heatDay { align-self: center; padding-right: var(--sp-2); font: var(--text-xs); color: var(--muted); }
+.cell { min-width: 0; border-radius: 4px; background: var(--surface-2); }
+.heatHour { padding-top: var(--sp-1); font: var(--text-xs); color: var(--muted); white-space: nowrap; }
+
+/* donut */
+.donut { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); }
+.ring { position: relative; flex: none; }
+.ring > svg { display: block; }
+.ringLabel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ringLabel b { font: 700 28px/32px var(--font-display); letter-spacing: -.02em; color: var(--ink); }
+.ringLabel span { font: var(--text-xs); color: var(--muted); }
+.leg { align-self: stretch; display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.leg li {
+  display: grid; grid-template-columns: 8px minmax(0, 1fr) auto 36px 24px; align-items: center; gap: var(--sp-2);
+  min-height: 28px; font: var(--text-sm); color: var(--muted);
+}
+.legDot { width: 8px; height: 8px; border-radius: 50%; background: var(--seg); }
+.legName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
+.legN { font-weight: 600; text-align: right; color: var(--ink); }
+.legPct { text-align: right; }
+.q {
+  position: relative; display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: help;
+}
+.q::after {
+  content: attr(data-tip); position: absolute; z-index: 3; right: -4px; bottom: calc(100% + 6px);
+  width: max-content; max-width: 220px; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm);
+  background: var(--surface); box-shadow: var(--shadow-pop); font: var(--text-sm); text-align: left; color: var(--ink);
+  opacity: 0; transform: translateY(2px) scale(.97); transform-origin: bottom right; pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.q:is(:hover, :focus-visible) { color: var(--ink); }
+.q:is(:hover, :focus-visible)::after { opacity: 1; transform: none; }
+
+/* insights */
+.ins { display: flex; flex-direction: column; gap: var(--sp-3); margin: 0; padding: 0; list-style: none; font: var(--text-base); color: var(--ink); }
+.ins > li { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.insIco { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--r-sm); color: var(--muted); background: var(--surface-2); }
+.up .insIco { color: var(--ok); background: var(--ok-soft); }
+.down .insIco { color: var(--bad); background: var(--bad-soft); }
+
+/* win back */
+:global(.app) .dash .wbTabs { display: grid; }
+/* contain: size keeps the list's length out of the band's height: it takes
+   what the taller panels leave and scrolls the rest */
+.wbList {
+  flex: 1 1 0px; min-height: 192px; contain: size; overflow-y: auto; overscroll-behavior: contain;
+  margin: 0 calc(var(--pad) * -1); padding: 0; list-style: none; border-block: 1px solid var(--line);
+}
+.wbList a {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  min-height: 48px; padding: 3px var(--pad); border-bottom: 1px solid var(--line); color: inherit; text-decoration: none;
+}
+.wbList li:last-child a { border-bottom: 0; }
+/* while more rows sit below, the last visible one fades out (the bottom 1px,
+   the list's border, stays). Without scroll timelines the mask stays off. */
+@property --wb-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes wbFade { from, 90% { --wb-fade: 28px; } to { --wb-fade: 0px; } }
+.wbList {
+  scroll-padding-bottom: 28px;
+  mask-image: linear-gradient(#000 calc(100% - 1px - var(--wb-fade)), transparent calc(100% - 1px), #000 calc(100% - 1px));
+  animation: wbFade linear both; animation-timeline: scroll(self);
+}
+.wbList a > svg { flex: none; color: var(--muted); }
+.wbList a:focus-visible { outline-offset: -2px; }
+.wbCta { align-self: flex-start; }
+
+/* funnel */
+.fun { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; gap: var(--sp-3); margin: 0; padding: 0; list-style: none; }
+.fun > li { display: flex; flex-direction: column; gap: 6px; }
+.funMeta { display: flex; justify-content: space-between; gap: var(--sp-2); font: var(--text-sm); color: var(--ink-2); }
+.funMeta b { font-weight: 600; color: var(--ink); }
+.funBar { height: 8px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-2); }
+.funBar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+
+/* row lists: top rewards, staff. Rows keep their own height so both panels
+   in the band share one rhythm; the shorter list ends in empty space. */
+.rows { flex: 1 1 auto; display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.rows > li { display: flex; align-items: center; gap: var(--sp-3); min-height: 56px; padding-block: var(--sp-2); border-bottom: 1px solid var(--line); }
+.rows > li:last-child { border-bottom: 0; }
+/* a stamp card has one reward: one tile that fills the panel */
+.fillTile { flex: 1 1 auto; display: flex; }
+.fillTile > :global(.kpi) { flex: 1; justify-content: center; }
+.rowIco { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); color: var(--ink-2); }
+.rowName { display: block; font: 500 15px/22px var(--font-ui); color: var(--ink); }
+.rowName :global(.chip) { margin-left: var(--sp-1); }
+.rowMeta { display: block; margin: 0; font: var(--text-sm); color: var(--muted); }
+
+.digest { font: 400 15px/1.6 var(--font-ui); white-space: pre-wrap; color: var(--ink); }
+
+/* --- "ask your data" bar */
+.cmdWrap {
+  position: fixed; z-index: 30; right: 0; bottom: var(--tabbar-h); left: 0;
+  display: flex; justify-content: center; padding: var(--sp-4) var(--gutter); pointer-events: none;
+}
+.cmd {
+  display: flex; flex-direction: column; gap: var(--sp-2); width: min(720px, 100%); padding: var(--sp-2);
+  border-radius: var(--r-lg); pointer-events: auto;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--shadow-pop); transition: box-shadow var(--dur-fast) ease;
+}
+.cmd[data-open="true"] { box-shadow: var(--shadow-pop), 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+.cmdBar { display: flex; align-items: center; gap: var(--sp-2); }
+.cmdBar input { flex: 1; min-width: 0; height: 40px; padding: 0 var(--sp-1); border: 0; background: transparent; }
+.cmdBar input:focus-visible { outline: none; }
+.cmdIco { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-text); }
+.cmdAns {
+  position: relative; max-height: 42vh; overflow: auto; padding: var(--sp-3) 44px var(--sp-3) var(--sp-3);
+  border-bottom: 1px solid var(--line); font: var(--text-base); line-height: 1.55; white-space: pre-wrap; color: var(--ink);
+}
+:global(.app) .dash .cmdX { position: absolute; top: 6px; right: 6px; width: 32px; padding: 0; }
+.cmdEx { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: 0 var(--sp-1) var(--sp-1); }
+:global(.app) .dash .cmdEx > button { height: 32px; padding: 0 var(--sp-3); border: 0; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .wbList a { transition: background-color var(--dur-fast) ease; }
+  .wbList a:hover { background: var(--surface-2); }
+  .cmdEx > button:hover { color: var(--ink); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cmd { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* --- loading skeleton (sizes beat the .app .skel-* defaults) */
+:global(.app) .dash .skTitle { width: 200px; height: 28px; }
+:global(.app) .dash .skSub { width: 300px; max-width: 100%; height: 14px; margin-top: var(--sp-2); }
+:global(.app) .dash .skHead { width: 96px; height: 18px; }
+:global(.app) .dash .skTile { height: 104px; }
+:global(.app) .dash .skKpi { height: 150px; }
+:global(.app) .dash .skChart { flex: 1; height: auto; min-height: 260px; }
+.skRange { display: flex; justify-content: space-between; gap: var(--sp-4); }
+.skRange > span { height: 36px; }
+.skRange > span:first-child { width: 160px; }
+.skRange > span:last-child { width: 360px; max-width: 50%; }
+
+/* --- narrower screens */
+@media (max-width: 899px) {
+  .tiles, .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .band { grid-template-columns: minmax(0, 1fr); }
+  .c4, .c6, .c8, .c12 { grid-column: auto; }
+  .wbList { flex: none; min-height: 0; max-height: 320px; contain: none; }
+}
+@media (max-width: 640px) {
+  .kpis { gap: var(--sp-3); }
+  .rangeCtrls { flex-direction: column; align-items: stretch; width: 100%; }
+  .showBy select { flex: 1; height: 44px; }
+  .leg li { min-height: 44px; }
+  .q::before { content: ""; position: absolute; inset: -10px; }
+  .withCmd { padding-bottom: calc(var(--sp-12) + 88px); }
+  .cmdWrap { padding: var(--sp-2) var(--gutter); }
+}

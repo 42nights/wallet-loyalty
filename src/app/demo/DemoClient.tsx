@@ -4,7 +4,6 @@ import type { Action } from "@/lib/config";
 import { formatMoney } from "@/lib/format";
 import { TrendChart } from "@/app/(merchant)/dashboard/charts";
 import { parseBill } from "@/app/(merchant)/scan/bill";
-import scan from "@/app/(merchant)/scan/scan.module.css";
 import { LockBanner, Phone, WalletCard } from "./WalletCard";
 import type { QR, Sample } from "./samples";
 import s from "./demo.module.css";
@@ -12,7 +11,7 @@ import s from "./demo.module.css";
 // The interactive /demo: a sample card in a phone, a counter that works like
 // /scan, and the owner's dashboard. All client-side, nothing is saved. It
 // behaves like the shipped terminal (F17): the same bill parser and dimmed
-// "needs N · has M" rewards as /scan (shared code and classes), and the redeem
+// "needs N · has M" rewards as /scan (shared parser, its own styles), and the redeem
 // route's math and limit: earn = round(earn_rate × bill), a bill over the
 // shop's limit is refused, a reward deducts its template cost.
 
@@ -184,11 +183,11 @@ function Board({ m, qr, updated, onReset }: { m: DemoMerchant; qr: QR; updated: 
           {m.actions.map((a) => {
             const short = points < -a.points; // the /scan rule; a.points is the (negative) delta
             return (
-              <button key={a.id} type="button" className={`redeem-btn ${short ? scan.short : ""}`} disabled={short}
+              <button key={a.id} type="button" className={`redeem-btn ${short ? s.short : ""}`} disabled={short}
                 onClick={() => apply(a.points, `${a.label} redeemed`)}>
                 <div className="rl">{a.label}</div>
                 <div className="rp">{a.points} pts</div>
-                {short && <div className={scan.need}>needs {-a.points} · has {points}</div>}
+                {short && <div className={s.need}>needs {-a.points} · has {points}</div>}
               </button>
             );
           })}

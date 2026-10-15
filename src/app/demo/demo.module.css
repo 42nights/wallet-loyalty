@@ -69,6 +69,11 @@
 
 .counter { grid-area: counter; align-self: start; }
 .toastSlot { min-height: 62px; }
+/* a reward the balance can't cover: dimmed, not tappable, shortfall spelled out */
+.short { cursor: not-allowed; border-style: dashed; }
+.short:disabled:hover { border-color: var(--line); }
+.short > :not(.need) { opacity: .45; }
+.need { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .after { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; min-height: 28px; }
 .reset {
   margin-left: auto; padding: 6px 2px; border: none; background: none; cursor: pointer;

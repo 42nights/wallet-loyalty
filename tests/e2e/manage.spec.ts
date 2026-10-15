@@ -12,7 +12,7 @@ test("admin: Manage as owner opens the shop's dashboard under a 42nights support
 
   const banner = page.getByRole("note");
   await expect(banner).toContainText(`42nights support — managing Test e2e ${fx.run}`);
-  await expect(page.locator(".kpi", { hasText: "Members" })).toBeVisible(); // the owner's dashboard
+  await expect(page.locator(".kpi").filter({ has: page.locator(".k", { hasText: /^Customers$/ }) })).toBeVisible(); // the owner's dashboard
   await expect(page.locator(".staff-user")).toHaveText(`42nights-${fx.slug}`);
 
   // the admin cookie survived the switch

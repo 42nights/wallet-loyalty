@@ -1,12 +1,39 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { unitLabel, type LoyaltyMode } from "@/lib/config";
+import { SEGMENTS, segmentDefinition, segmentLabel } from "@/lib/segments";
+import Icon from "@/components/Icon";
+import s from "./campaigns.module.css";
 
 const MAX_BONUS = 100_000; // the campaigns route's own cap (a stamp card: its goal)
 const MAX_TARGETS = 2000; // the route sends to at most this many cards per campaign
+const RESULT_DAYS = 14; // campaign_lift counts purchases this long after the send
+const NEW = "new"; // the form's confirm/message slot; a draft row uses its campaign id
 const nf = (n: number) => n.toLocaleString();
+const customers = (n: number) => `${nf(n)} customer${n === 1 ? "" : "s"}`;
+const day = (d: Date) =>
+  d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
 
-type Segment = { key: string; label: string; count: number };
+// The table only knows draft and sent; "sending" is a draft whose Finish
+// sending is in flight.
+const STATUS: Record<string, [label: string, chip: string]> = {
+  draft: ["Draft", "chip--warn"],
+  sending: ["Sending", ""],
+  sent: ["Sent", "chip--ok"],
+};
+
+// The route's copy says "segment" and "History"; this page says "group" and
+// "Sent campaigns".
+const SERVER_ERROR: Record<number, string> = {
+  403: "You've been signed out. Sign in again, then check Sent campaigns.",
+  409: "A campaign to this group hasn't finished sending. Use Finish sending under Sent campaigns.",
+  422: "No customers in this group right now.",
+};
+
 type Lift = { targeted: number; earned_after: number; lift_pct: number };
 type Campaign = {
   id: string;
@@ -20,58 +47,98 @@ type Campaign = {
   sent_at: string | null;
   lift: Lift | null;
 };
+type Msg = { at: string; kind: "ok" | "bad"; text: string };
 
 // `mode`: a stamp card gives bonus stamps, at most one full card (`stampGoal`),
-// and has no lift (campaign_lift counts bills, earn:purchase, which a stamp card
-// never records), so lift is not shown.
+// and has no result (campaign_lift counts bills, earn:purchase, which a stamp
+// card never records), so the Result column shows a dash.
 export default function CampaignsClient({
-  segments,
+  counts,
+  initialSegment,
   mode,
   stampGoal,
 }: {
-  segments: Segment[];
+  counts: Record<string, number>;
+  initialSegment: string;
   mode: LoyaltyMode;
   stampGoal: number;
 }) {
   const stamps = mode === "stamps";
   const maxBonus = stamps ? stampGoal : MAX_BONUS;
+  const units = unitLabel(mode, 2);
   const u = (n: number) => unitLabel(mode, n, true);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const count = (k: string) => counts[k] ?? 0;
+  const who = (k: string) => `${nf(count(k))} ${segmentLabel(k)} customer${count(k) === 1 ? "" : "s"}`;
+
+  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState("");
-  const [segment, setSegment] = useState(segments.find((s) => s.count > 0)?.key ?? segments[0]?.key ?? "");
+  const [segment, setSegment] = useState(initialSegment);
   const [bonus, setBonus] = useState(stamps ? "1" : "100");
   const [offer, setOffer] = useState("");
+  const [errors, setErrors] = useState<{ name?: string; bonus?: string }>({});
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [msg, setMsg] = useState<Msg | null>(null);
   const sendId = useMemo(() => crypto.randomUUID(), [name, segment, bonus, offer]);
+  const confirmBox = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
-  const segLabel = (k: string) => segments.find((s) => s.key === k)?.label ?? k;
-  const targetCount = segments.find((s) => s.key === segment)?.count ?? 0;
-  // What the confirm promises must match what the route can send: it caps a
-  // campaign at MAX_TARGETS cards and re-reads the segment at send time.
-  const sendCount = Math.min(targetCount, MAX_TARGETS);
+  const targetCount = count(segment);
   // Whole points only; "abc", "-5" or "1.5" must not quietly become a number.
   const bonusPts = /^\d+$/.test(bonus.trim()) ? Number(bonus.trim()) : NaN;
-  const who = `${nf(targetCount)} ${segLabel(segment)} customer${targetCount === 1 ? "" : "s"}`;
-  // Any edit invalidates what the confirm box said.
-  const change = (set: (v: string) => void) => (e: { target: { value: string } }) => {
-    set(e.target.value);
-    setConfirming(false);
-  };
 
   const load = useCallback(async () => {
-    const r = await fetch("/api/merchant/campaigns");
-    if (!r.ok) return;
-    const d = await r.json();
-    setCampaigns(d.campaigns || []);
+    try {
+      const r = await fetch("/api/merchant/campaigns");
+      if (!r.ok) throw new Error(String(r.status));
+      const d: { campaigns?: Campaign[] } = await r.json();
+      setCampaigns(d.campaigns ?? []);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function post(body: object): Promise<boolean> {
+  // An opened confirm scrolls into view and takes focus (spec §4); closing it
+  // hands focus back to whatever opened it.
+  useEffect(() => {
+    const box = confirmBox.current;
+    if (!confirm || !box) {
+      opener.current?.focus();
+      opener.current = null;
+      return;
+    }
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    box.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+    box.querySelector("button")?.focus({ preventScroll: true });
+  }, [confirm]);
+
+  // A success note fades at 2.5s (.save-status), then leaves.
+  useEffect(() => {
+    if (msg?.kind !== "ok") return;
+    const t = setTimeout(() => setMsg(null), 2800);
+    return () => clearTimeout(t);
+  }, [msg]);
+
+  function open(slot: string) {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirm(slot);
+  }
+
+  // Any edit invalidates what the confirm box said.
+  const edit = (set: (v: string) => void) => (e: { target: { value: string } }) => {
+    set(e.target.value);
+    setErrors({});
+    opener.current = null;
+    setConfirm(null);
+  };
+
+  async function post(at: string, body: object): Promise<boolean> {
     setBusy(true);
     setMsg(null);
     try {
@@ -80,145 +147,345 @@ export default function CampaignsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const d = await r.json().catch(() => ({}));
+      const d: { error?: string; targeted?: number } = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setMsg({ kind: "bad", text: d.error || "Couldn't send the campaign. Check History before trying again." });
+        const text =
+          SERVER_ERROR[r.status] ??
+          d.error?.replace(" in History", " under Sent campaigns") ??
+          "Couldn't send the campaign. Check Sent campaigns before trying again.";
+        setMsg({ at, kind: "bad", text });
         return false;
       }
-      setMsg({ kind: "ok", text: `Sent to ${nf(d.targeted)} customer${d.targeted === 1 ? "" : "s"}.` });
+      setMsg({ at, kind: "ok", text: `Sent to ${customers(d.targeted ?? 0)}.` });
       return true;
     } catch {
-      setMsg({ kind: "bad", text: "Network error. Check History before sending again." });
+      setMsg({ at, kind: "bad", text: "Couldn't reach the server. Check Sent campaigns before sending again." });
       return false;
     } finally {
       setBusy(false);
-      await load().catch(() => {});
+      setConfirm(null);
+      await load();
     }
   }
 
   // Step 1: check the form and show what will happen. Nothing is sent yet.
   function review() {
     setMsg(null);
-    if (!name.trim()) return setMsg({ kind: "bad", text: "Give the campaign a name first." });
-    if (!(bonusPts >= 0) || bonusPts > maxBonus)
-      return setMsg({ kind: "bad", text: `Bonus must be a whole number of ${unitLabel(mode, 2)} from 0 to ${nf(maxBonus)}.` });
-    if (bonusPts === 0 && !offer.trim())
-      return setMsg({ kind: "bad", text: `Add bonus ${unitLabel(mode, 2)}, an offer, or both.` });
-    setConfirming(true);
+    const e: typeof errors = {};
+    if (!name.trim()) e.name = "Give the campaign a name.";
+    if (!(bonusPts >= 0) || bonusPts > maxBonus) e.bonus = `Enter a whole number from 0 to ${nf(maxBonus)}.`;
+    else if (bonusPts === 0 && !offer.trim()) e.bonus = `Add bonus ${units}, a message on the card, or both.`;
+    setErrors(e);
+    const bad = e.name ? "c-name" : e.bonus ? "c-bonus" : null;
+    if (bad) document.getElementById(bad)?.focus();
+    else open(NEW);
   }
 
   // Step 2: the owner saw the total and said yes.
   async function send() {
     if (busy) return;
-    const sent = await post({
+    const sent = await post(NEW, {
       id: sendId,
       name: name.trim(),
       segment,
       bonusPoints: bonusPts,
       offerText: offer.trim() || undefined,
     });
-    setConfirming(false);
     if (sent) {
       setName("");
       setOffer("");
     }
   }
 
-  return (
-    <>
-      <div className="card stack">
-        <div className="label">New campaign</div>
-        <input value={name} onChange={change(setName)} placeholder="Campaign name (e.g. Win back lapsed)" />
-        <div className="row" style={{ gap: 10 }}>
-          <select
-            value={segment}
-            onChange={change(setSegment)}
-            className="btn btn-ghost"
-            style={{ flex: 1, minWidth: 0, width: "auto", padding: "0 12px" }}
-          >
-            {segments.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label} ({nf(s.count)})
-              </option>
-            ))}
-          </select>
-          <input
-            value={bonus}
-            onChange={change(setBonus)}
-            inputMode="numeric"
-            placeholder={`bonus ${u(2)}`}
-            aria-label={`Bonus ${unitLabel(mode, 2)} per customer`}
-            style={{ width: 110 }}
-          />
+  // What a send will do, in numbers. It must match what the route can send: it
+  // caps a campaign at MAX_TARGETS cards and re-reads the group at send time.
+  function consequence(k: string, pts: number, offerText: string): ReactNode {
+    const n = Math.min(count(k), MAX_TARGETS);
+    if (pts === 0) return <>Show “{offerText}” on the Wallet cards of {who(k)}. No {units} are given.</>;
+    return (
+      <>
+        Give <b>{nf(pts)} {u(pts)}</b> to {who(k)} — about <b>{nf(pts * n)} {u(pts * n)} total</b>
+        {count(k) > MAX_TARGETS && <> (sent to the first {nf(MAX_TARGETS)})</>}. The group is re-checked when
+        you send, so the final count can differ slightly.
+        {offerText && <> Their Wallet card also shows “{offerText}”.</>} This can&apos;t be undone.
+      </>
+    );
+  }
+
+  const confirmFor = (slot: string, body: ReactNode, yes: string, onYes: () => void) =>
+    confirm === slot && (
+      <div ref={confirmBox} className="confirm">
+        {body}
+        <div className="row">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={onYes}>
+            {busy ? "Sending…" : yes}
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirm(null)}>
+            Cancel
+          </button>
         </div>
-        <input
-          value={offer}
-          onChange={change(setOffer)}
-          placeholder="Optional Wallet offer text (shown on card back)"
-          maxLength={120}
-        />
-        <button className="btn btn-primary" disabled={busy || confirming || targetCount === 0} onClick={review}>
-          {`Reward ${who}`}
-        </button>
-        {targetCount === 0 && <div className="label">No customers in that segment yet.</div>}
-        {confirming && (
-          <div className="confirm">
-            {bonusPts > 0 ? (
-              <>
-                Give <b>{nf(bonusPts)} {u(bonusPts)}</b> to {who} — about <b>{nf(bonusPts * sendCount)} {u(bonusPts * sendCount)} total</b>
-                {targetCount > MAX_TARGETS && <> (sent to the first {nf(MAX_TARGETS)})</>}. The segment is
-                re-checked when you send, so the final count can differ slightly.
-                {offer.trim() && <> Their Wallet card also shows “{offer.trim()}”.</>} This can&apos;t be undone.
-              </>
-            ) : (
-              <>
-                Show “{offer.trim()}” on the Wallet cards of {who}. No {unitLabel(mode, 2)} are given.
-              </>
+      </div>
+    );
+
+  const toastAt = (at: string) =>
+    msg?.at === at &&
+    (msg.kind === "ok" ? (
+      <div className="save-status" role="status">
+        <div className="toast ok">
+          <Icon name="check" />
+          {msg.text}
+        </div>
+      </div>
+    ) : (
+      <div className="toast bad" role="alert">
+        <Icon name="alert" />
+        {msg.text}
+      </div>
+    ));
+
+  return (
+    <div className={s.cols}>
+      <section className="panel" aria-labelledby="new-campaign">
+        <div className={s.head}>
+          <h2 className="panel-t" id="new-campaign">New campaign</h2>
+          <p className="help">Their Wallet cards update the moment you send.</p>
+        </div>
+        <form
+          className={s.form}
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            review();
+          }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor="c-name">Campaign name</label>
+            <input
+              id="c-name"
+              value={name}
+              onChange={edit(setName)}
+              placeholder="Win back lapsed"
+              maxLength={80}
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={errors.name ? "c-name-error" : undefined}
+            />
+            {errors.name && (
+              <div className="field-error" id="c-name-error">
+                <Icon name="alert" />
+                {errors.name}
+              </div>
             )}
-            <div className="row">
-              <button className="btn btn-primary" disabled={busy} onClick={send}>
-                {busy ? "Sending…" : "Yes, send it"}
-              </button>
-              <button className="btn btn-ghost" disabled={busy} onClick={() => setConfirming(false)}>
-                Cancel
-              </button>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="c-who">Who gets it</label>
+            <select id="c-who" value={segment} onChange={edit(setSegment)} aria-describedby="c-who-help">
+              {SEGMENTS.map((g) => (
+                <option key={g.key} value={g.key}>
+                  {g.label} · {customers(count(g.key))}
+                </option>
+              ))}
+            </select>
+            <div className="field-help" id="c-who-help">{segmentDefinition(segment)}.</div>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="c-bonus">Bonus {units} each</label>
+            <label className="affix">
+              <input
+                id="c-bonus"
+                value={bonus}
+                onChange={edit(setBonus)}
+                inputMode="numeric"
+                aria-label={`Bonus ${units} per customer`}
+                aria-invalid={errors.bonus ? true : undefined}
+                aria-describedby={[stamps && "c-bonus-help", errors.bonus && "c-bonus-error"].filter(Boolean).join(" ") || undefined}
+              />
+              <span aria-hidden="true">{u(bonusPts)}</span>
+            </label>
+            {stamps && (
+              <div className="field-help" id="c-bonus-help">
+                0 to {nf(stampGoal)}: at most one full card.
+              </div>
+            )}
+            {errors.bonus && (
+              <div className="field-error" id="c-bonus-error">
+                <Icon name="alert" />
+                {errors.bonus}
+              </div>
+            )}
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="c-offer">Message on the card (optional)</label>
+            <input
+              id="c-offer"
+              value={offer}
+              onChange={edit(setOffer)}
+              placeholder="Free pastry with any coffee this week"
+              maxLength={120}
+              aria-describedby="c-offer-help"
+            />
+            <div className="field-help" id="c-offer-help">
+              Shown on the back of their Wallet card. Up to 120 characters.
             </div>
+          </div>
+
+          <div className={s.foot}>
+            <button
+              type="submit"
+              className="btn btn-primary btn-block"
+              disabled={busy || confirm === NEW || targetCount === 0}
+              aria-describedby={targetCount === 0 ? "c-empty" : undefined}
+            >
+              {`Reward ${who(segment)}`}
+            </button>
+            {targetCount === 0 && (
+              <p className="field-help" id="c-empty">No customers in this group yet.</p>
+            )}
+            {confirmFor(NEW, consequence(segment, bonusPts, offer.trim()), "Yes, send it", send)}
+            {toastAt(NEW)}
+          </div>
+        </form>
+      </section>
+
+      <section className={`panel ${s.history}`} aria-labelledby="sent-campaigns" aria-busy={campaigns === null && !loadFailed}>
+        <h2 className="panel-t" id="sent-campaigns">Sent campaigns</h2>
+        {loadFailed && (
+          <div className={`toast bad ${s.loadError}`} role="alert">
+            <Icon name="alert" />
+            <span>Couldn&apos;t load your campaigns. Check the connection and try again.</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={load}>
+              Try again
+            </button>
           </div>
         )}
-        {msg && <div className={`toast ${msg.kind}`}>{msg.text}</div>}
-        <div className="label" style={{ fontSize: 11 }}>
-          Credits each targeted card and updates it live in Wallet.{!stamps && " Lift = % who made a real purchase within 14 days."}
-        </div>
-      </div>
-
-      <div className="card stack" style={{ marginTop: 12 }}>
-        <div className="label">History</div>
-        {campaigns.length === 0 && <div className="label">No campaigns yet.</div>}
-        {campaigns.map((c) => (
-          <div key={c.id} className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-            <div>
-              <div style={{ fontWeight: 700 }}>{c.name}</div>
-              <div className="label">
-                {segLabel(c.segment)} · +{nf(c.bonus_points)} {u(c.bonus_points)} · {nf(c.targeted)} targeted
-                {c.offer_text ? " · offer" : ""}
+        {campaigns === null ? (
+          !loadFailed && (
+            <div className={s.skel} aria-hidden="true">
+              <span className="skel-block" />
+              <span className="skel-block" />
+              <span className="skel-block" />
+            </div>
+          )
+        ) : campaigns.length === 0 ? (
+          <div className="empty">
+            <Icon name="megaphone" size={20} />
+            <p className="empty-t">No campaigns yet</p>
+            <p className="empty-p">
+              Your first campaign shows up here{stamps ? "." : ", with how many customers came back."}
+            </p>
+          </div>
+        ) : (
+          <div className="tbl" role="table" aria-labelledby="sent-campaigns">
+            <div className="tbl-head" role="row">
+              <div className="th" role="columnheader">Campaign</div>
+              <div className="th" role="columnheader">Audience</div>
+              <div className="th num" role="columnheader">Bonus</div>
+              <div className="th" role="columnheader">Status</div>
+              <div className="th" role="columnheader">
+                Result
+                {!stamps && (
+                  <span className={s.tip}>
+                    <button
+                      type="button"
+                      className={s.tipButton}
+                      aria-describedby="came-back"
+                      onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+                    >
+                      <Icon name="info" size={14} />
+                      <span className="sr-only">What counts as coming back</span>
+                    </button>
+                    <span className={s.tipBody} role="tooltip" id="came-back">
+                      Came back = made a purchase within {RESULT_DAYS} days of the campaign.
+                    </span>
+                  </span>
+                )}
               </div>
             </div>
-            <div className="label" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-              {c.lift && !stamps ? (
-                `${c.lift.lift_pct}% came back (${c.lift.earned_after}/${c.lift.targeted})`
-              ) : c.status === "draft" ? (
-                <button className="btn btn-ghost" disabled={busy} onClick={() => post({ id: c.id })}>
+            {campaigns.map((c) => {
+              // One count everywhere: the cards the send reached, else the planned count.
+              const n = c.lift?.targeted || c.targeted;
+              const draft = c.status === "draft";
+              const [statusLabel, statusChip] = STATUS[busy && confirm === c.id ? "sending" : c.status] ?? ["Unknown", ""];
+              const sent = c.sent_at ? new Date(c.sent_at) : null;
+              const resultsOn = sent && new Date(sent.getTime() + RESULT_DAYS * 86_400_000);
+              const bonusText = c.bonus_points > 0 ? `+${nf(c.bonus_points)} ${u(c.bonus_points)}` : "Offer only";
+              const withOffer = Boolean(c.offer_text) && c.bonus_points > 0;
+              // the phone line wraps only after a " · ", never inside "31 customers" or a date
+              const meta = [segmentLabel(c.segment), customers(n), sent && day(sent), withOffer && "with offer"]
+                .filter((x): x is string => Boolean(x))
+                .map((x) => x.replaceAll(" ", "\u00a0"))
+                .join("\u00a0· ");
+              const note = "Not sent yet — it was interrupted.";
+              const result = draft ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy || confirm === c.id}
+                  onClick={() => open(c.id)}
+                >
                   Finish sending
                 </button>
+              ) : stamps || !resultsOn ? (
+                <span className={s.quiet}>—</span>
+              ) : resultsOn.getTime() > Date.now() ? (
+                <span className={s.quiet}>Results on {day(resultsOn)}</span>
+              ) : c.lift?.targeted ? (
+                `${nf(c.lift.earned_after)} of ${nf(c.lift.targeted)} came back`
               ) : (
-                c.status
-              )}
-              <br />
-              {c.sent_at ? new Date(c.sent_at).toLocaleDateString(undefined, { dateStyle: "medium" }) : ""}
-            </div>
+                <span className={s.quiet}>No result recorded</span>
+              );
+              return (
+                <div key={c.id} className="tbl-row" role="row">
+                  <div className="td" role="cell">
+                    <div className={s.name} title={c.name}>{c.name}</div>
+                    {draft ? <div className={`${s.note} ${s.wrap}`}>{note}</div> : <div className={s.sub}>{sent && day(sent)}</div>}
+                  </div>
+                  <div className="td" role="cell">
+                    <span className="chip" data-seg={c.segment}>{segmentLabel(c.segment)}</span>
+                    <div className={s.sub}>{customers(n)}</div>
+                  </div>
+                  <div className="td num" role="cell">
+                    {bonusText}
+                    {withOffer && (
+                      <div className={s.sub} title={c.offer_text ?? undefined}>with offer</div>
+                    )}
+                  </div>
+                  <div className="td" role="cell">
+                    <span className={`chip ${statusChip}`}>{statusLabel}</span>
+                  </div>
+                  <div className={`td ${s.result}`} role="cell">{result}</div>
+                  <div className="td td-name phone-only" role="cell">{c.name}</div>
+                  <div className="td td-value phone-only" role="cell">{bonusText}</div>
+                  <div className={`td td-meta phone-only ${s.wrap}`} role="cell">
+                    {draft ? (
+                      note
+                    ) : (
+                      <>
+                        {c.status !== "sent" && <><span className={`chip ${statusChip} ${s.metaChip}`}>{statusLabel}</span>{" "}</>}
+                        {meta}
+                      </>
+                    )}
+                  </div>
+                  <div className={`td td-date phone-only ${s.result}`} role="cell">{result}</div>
+                  {(confirm === c.id || msg?.at === c.id) && (
+                    <div className={s.extra} role="cell">
+                      {confirmFor(
+                        c.id,
+                        consequence(c.segment, c.bonus_points, c.offer_text ?? ""),
+                        "Yes, finish sending",
+                        () => post(c.id, { id: c.id })
+                      )}
+                      {toastAt(c.id)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
-    </>
+        )}
+      </section>
+    </div>
   );
 }

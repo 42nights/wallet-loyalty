@@ -1,0 +1,8 @@
+/* a centred 400px column (spec §6.8) */
+:global(.app) :global(.page).login { display: grid; place-items: center; max-width: 400px; min-height: 80dvh; }
+.loginBox { width: 100%; }
+.wordmark { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-6); font: 700 15px/1 var(--font-display); color: var(--ink); }
+.wordmark::before { content: ""; width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+:global(.app) .loginForm { gap: var(--sp-4); margin-top: var(--sp-6); }
+.loginForm input { height: 48px; }
+.loginBox :global(.page-sub) { text-wrap: balance; }

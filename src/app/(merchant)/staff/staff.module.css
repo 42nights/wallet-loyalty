@@ -1,0 +1,43 @@
+/* Staff: the team list beside the add form, 7/5 from 960px (spec §6.5). The
+   list keeps div.card.stack > div rows (owner.spec.ts finds members by them). */
+
+.cols { display: grid; gap: var(--sp-4); align-items: start; }
+@media (min-width: 960px) { .cols { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); } }
+.col { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+
+/* rows run edge to edge, split by hairlines, instead of the card's padding;
+   like every other panel, no rule under the heading */
+:global(.app) .team { padding: var(--sp-1) 0; }
+:global(.app) .team > * + * { margin-top: 0; }
+.head { padding: var(--sp-4) var(--pad) var(--sp-1); }
+.member { padding: var(--sp-3) var(--pad); }
+.member + .member { border-top: 1px solid var(--line); }
+
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); min-height: 48px; }
+.who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nameLine { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 15px/22px var(--font-ui); color: var(--ink); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); font: var(--text-sm); color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2); }
+
+/* the open panel sits under the name, past the avatar */
+.panel { margin: var(--sp-3) 0 var(--sp-1) 44px; }
+.panel :global(.field) { margin: 0; }
+.confirmText { margin: 0; }
+.retry { margin-top: var(--sp-3); }
+
+/* empty, the live region stays in the a11y tree but out of the layout */
+.status:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+/* a row's own result, under the name like its open panel */
+.member > .status { margin: var(--sp-2) 0 var(--sp-1) 44px; }
+
+.form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.form > :global(.btn) { margin-top: var(--sp-1); }
+
+.skelName { width: 40%; }
+
+@media (max-width: 640px) {
+  .row { grid-template-columns: auto minmax(0, 1fr); }
+  .actions { grid-column: 2; justify-content: flex-start; }
+  .panel, .member > .status { margin-left: 0; }
+}

@@ -120,6 +120,7 @@ export function merchantRedemptions(m: MerchantRules): Action[] {
 // What a balance is counted in, for copy: "pts"/"points", or "stamp"/"stamps".
 export function unitLabel(mode: unknown, n: number, short = false): string {
   if (loyaltyMode(mode) === "stamps") return n === 1 ? "stamp" : "stamps";
+  if (n === 1) return short ? "pt" : "point";
   return short ? "pts" : "points";
 }
 

@@ -1,21 +1,26 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Icon from "@/components/Icon";
 import { VOID_REASONS, type VoidReason } from "@/lib/config";
+import d from "./detail.module.css";
 
 const REASONS = Object.entries(VOID_REASONS) as [VoidReason, string][];
+// The refresh after a change mounts a new panel in another spot (the old one,
+// and the focused button, are gone); the card it names takes focus on mount.
+let refocus: string | null = null;
 
 // Deactivate / reactivate this card (POST / DELETE /api/merchant/void).
 // Deactivating takes a second step that names a reason, like removing points.
-// `voided` comes from the server page, which refreshes after each change.
-// `unit`: what the card counts, "points" or "stamps".
+// `voided` comes from the server page (its date already on the shop's clock),
+// which refreshes after each change. `unit`: "points" or "stamps".
 export default function CardStatus({
   serial,
   voided,
   unit,
 }: {
   serial: string;
-  voided: { at: string; reason: string | null } | null;
+  voided: { since: string; reason: string | null } | null;
   unit: string;
 }) {
   const router = useRouter();
@@ -23,6 +28,25 @@ export default function CardStatus({
   const [reason, setReason] = useState<VoidReason | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (refocus !== serial) return;
+    refocus = null;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    panel.current?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    trigger.current?.focus({ preventScroll: true });
+  }, [serial]);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!confirming || !el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    el.querySelector("button")?.focus({ preventScroll: true });
+  }, [confirming]);
 
   async function send(method: "POST" | "DELETE") {
     if (busy) return;
@@ -36,89 +60,92 @@ export default function CardStatus({
     setBusy(false);
     if (!res) return setError("Couldn't reach the server — nothing was changed. Try again.");
     if (res.status === 401) return router.push("/login");
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(d.error || "Couldn't change the card. Try again.");
-    // the refreshed page swaps this panel for the other state
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data.error || "Couldn't change the card. Try again.");
+    refocus = serial;
     router.refresh();
   }
 
+  function cancel() {
+    setConfirming(false);
+    setReason(null);
+    requestAnimationFrame(() => trigger.current?.focus());
+  }
+
+  const toast = error && (
+    <div className="toast bad" role="alert">
+      <Icon name="alert" />
+      {error}
+    </div>
+  );
+
   if (voided) {
-    const when = new Date(voided.at).toLocaleDateString(undefined, { dateStyle: "medium" });
     const why = VOID_REASONS[voided.reason as VoidReason] ?? "no reason given";
     return (
-      <div className="card stack" style={{ borderColor: "var(--bad)" }}>
-        <div>
-          <div className="label" style={{ color: "var(--bad)" }}>Card deactivated</div>
-          <div style={{ lineHeight: 1.5 }}>
-            Since {when} · {why}. No {unit} can be added or used and the card can&apos;t be re-sent. Its {unit} and
-            history are kept.
-          </div>
-        </div>
-        <button className="btn btn-ghost" disabled={busy} onClick={() => send("DELETE")}>
-          {busy ? "…" : "Reactivate card"}
+      <section ref={panel} className={`panel ${d.danger}`}>
+        <h2 className="panel-t">Card deactivated</h2>
+        <p className={d.body}>
+          Since {voided.since} · {why}. No {unit} can be added or used and the card can&apos;t be re-sent. Its {unit} and
+          history are kept.
+        </p>
+        <button ref={trigger} className={`btn btn-ghost ${d.start}`} disabled={busy} onClick={() => send("DELETE")}>
+          {busy ? "Reactivating…" : "Reactivate card"}
         </button>
-        {error && <div className="toast bad" role="alert">{error}</div>}
-      </div>
+        {toast}
+      </section>
     );
   }
 
   return (
-    <div className="card stack">
-      <div>
-        <div className="label">Deactivate card</div>
-        <div style={{ lineHeight: 1.5 }}>
-          Stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet.
-          Its {unit} and history are kept, and you can reactivate it.
-        </div>
-        <div style={{ marginTop: 8, lineHeight: 1.5 }}>
-          <b>Lost phone?</b> Use Send card to phone instead — it is the same card.
-        </div>
-      </div>
+    <section ref={panel} className={`panel ${d.danger}`}>
+      <h2 className="panel-t">Danger zone</h2>
+      <p className={d.body}>
+        Deactivating stops earning and rewards on this card and shows it as deactivated in the customer&apos;s Wallet.
+        Its {unit} and history are kept, and you can reactivate it.
+      </p>
+      <p className="help">
+        <b>Lost phone?</b> Use Send card to phone instead — it is the same card.
+      </p>
       {!confirming ? (
-        <button className="btn btn-ghost" disabled={busy} onClick={() => { setConfirming(true); setError(null); }}>
+        <button
+          ref={trigger}
+          className={`btn btn-danger ${d.start}`}
+          disabled={busy}
+          onClick={() => {
+            setConfirming(true);
+            setError(null);
+          }}
+        >
           Deactivate card
         </button>
       ) : (
-        <div className="confirm">
+        <div ref={box} className="confirm confirm--danger">
           Why are you deactivating this card?
-          <div className="grid2" role="group" aria-label="Reason" style={{ marginTop: 10 }}>
+          <div className={d.reasons} role="group" aria-label="Reason">
             {REASONS.map(([key, text]) => (
               <button
                 key={key}
                 type="button"
                 aria-pressed={reason === key}
-                className="btn btn-ghost"
-                style={{
-                  padding: 12,
-                  fontSize: 15,
-                  ...(reason === key && {
-                    borderColor: "var(--accent)",
-                    background: "color-mix(in srgb, var(--accent) 14%, var(--surface-2))",
-                  }),
-                }}
+                className={`btn btn-ghost ${d.reason}`}
                 onClick={() => setReason(key)}
               >
                 {text}
+                {reason === key && <Icon name="check" />}
               </button>
             ))}
           </div>
           <div className="row">
-            {/* destructive: the --bad colour, not the orange of positive actions */}
-            <button
-              className="btn"
-              style={{ background: "var(--bad)", color: "var(--accent-ink)" }}
-              disabled={busy || !reason}
-              onClick={() => send("POST")}
-            >
-              {busy ? "…" : "Yes, deactivate"}
+            <button className="btn btn-danger-solid" disabled={busy || !reason} onClick={() => send("POST")}>
+              {busy ? "Deactivating…" : "Yes, deactivate"}
             </button>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => { setConfirming(false); setReason(null); }}>
+            <button className="btn btn-ghost" disabled={busy} onClick={cancel}>
               Cancel
             </button>
           </div>
         </div>
       )}
-      {error && <div className="toast bad" role="alert">{error}</div>}
-    </div>
+      {toast}
+    </section>
   );
 }

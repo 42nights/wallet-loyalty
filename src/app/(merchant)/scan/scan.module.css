@@ -1,166 +1,156 @@
-/* find-by-phone pick list (several cards share the typed digits) */
-.picks { display: flex; flex-direction: column; gap: 8px; }
+/* /scan, the counter (design spec §6.7): one 480px column, every target at
+   least 48px, the main actions 56px. Primitives (.card .panel .btn .toast
+   .balance .affix .confirm) come from the owner section of globals.css. */
+
+.view > * + * { margin-top: var(--sp-4); }
+/* the status slot stays mounted (a live region must exist before it speaks),
+   but takes no room while it's empty */
+.view > .slot:empty { margin-top: 0; }
+
+/* happy hour is on: bill earns are multiplied (the redeem route decides) */
+.happy {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: 48px; padding: var(--sp-3) var(--sp-4);
+  background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+  border-radius: var(--r-md); font: 600 15px/1.3 var(--font-ui); color: var(--ink);
+}
+.happy > svg { flex: none; color: var(--warn); }
+
+/* camera. html5-qrcode sizes its video from #reader's width, so the reader is
+   never display:none; empty, it just has no height. */
+.camera :global(#reader) { border-color: var(--line); border-radius: var(--r-md); }
+.camera :global(#reader video) { display: block; border-radius: var(--r-md); }
+.camera :global(#reader:empty) { border-width: 0; }
+.camera:not([data-error]) :global(#reader:empty) {
+  display: grid; place-items: center; min-height: 200px;
+  border-width: 1px; background: var(--surface-2);
+}
+.camera:not([data-error]) :global(#reader:empty)::before { content: "Starting camera…"; font: var(--text-sm); color: var(--muted); }
+.camError {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-2); text-align: center;
+}
+.camError > svg { color: var(--muted); }
+.camError > p { margin: 0; max-width: 34ch; font: var(--text-base); color: var(--ink-2); text-wrap: pretty; }
+
+/* find a customer */
+:global(.app) .view :global(.panel) { gap: var(--sp-4); }
+.inline { display: flex; gap: var(--sp-2); }
+.inline > input { flex: 1; min-width: 0; height: 48px; }
+/* Go and Find share one width, wide enough for "Finding…", so both inputs end
+   on the same line and the busy label doesn't shove the input */
+:global(.app) .inline > :global(.btn) { flex: none; min-width: 112px; }
+.serial { font-family: var(--font-code); }
+
+.picks { display: flex; flex-direction: column; gap: var(--sp-2); }
+.picksNote { margin: 0; font: var(--text-sm); color: var(--muted); }
 .pick {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  color: var(--ink);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  font-family: var(--mono);
-  transition: border-color .15s ease;
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 56px;
+  padding: var(--sp-2) var(--sp-3); text-align: left; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  transition: transform var(--dur-press) var(--ease-out), border-color var(--dur-fast) ease;
 }
-.pick:hover, .pick:focus-visible { border-color: var(--accent); }
-.pickName { font-family: var(--display); font-weight: 700; font-size: 16px; }
-.pickMeta { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.pick:active { transform: scale(.98); }
+.pick > svg { flex: none; color: var(--muted); }
+.pickText { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.pickName { font: 600 16px/22px var(--font-ui); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pickMeta { font: var(--text-sm); color: var(--muted); }
 
-/* scanner could not start (no camera / permission / not https) */
-.camera {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  padding: 12px 14px;
+/* "Your taps today": the signed-in staff member's own taps since local
+   midnight. Closed it is one row, with the headline numbers in it. Same inset
+   as the panels above (--pad: 20px, 16px on phones). */
+.today { --pad: var(--sp-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+@media (max-width: 640px) { .today { --pad: var(--sp-4); } }
+.today > summary {
+  display: flex; align-items: center; gap: var(--sp-3); min-height: 52px; padding: 0 var(--pad);
+  border-radius: var(--r-lg); list-style: none; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
 }
+.today > summary::-webkit-details-marker { display: none; }
+.todayTitle { flex: none; }
+.todayPeek { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-sm); color: var(--muted); }
+.today[open] .todayPeek { display: none; }
+.chev { flex: none; margin-left: auto; color: var(--muted); transition: transform var(--dur-fast) var(--ease-out); }
+.today[open] .chev { transform: rotate(180deg); }
+/* .kpi tiles (label, then number), tinted like a .kpi inside a .panel and
+   sized like the customer page's stat tiles */
+.todayGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); margin: 0; padding: 0 var(--pad); }
+:global(.app) .todayGrid > :global(.kpi) { background: var(--surface-2); border-color: transparent; box-shadow: none; }
+:global(.app) .todayGrid :global(.kpi .v) { margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 24px; line-height: 28px; }
+@media (max-width: 640px) { :global(.app) .todayGrid :global(.kpi .v) { font-size: 20px; line-height: 24px; } }
+.todayNote { margin: 0; padding: var(--sp-3) var(--pad) var(--pad); font: var(--text-sm); color: var(--muted); }
 
-/* a reward the balance can't cover: dimmed, not tappable, shortfall spelled out */
-.short { cursor: not-allowed; border-style: dashed; }
-.short:disabled:hover { border-color: var(--line); }
-.short > :not(.need) { opacity: .45; }
-.need { margin-top: 6px; font-size: 12px; color: var(--muted); }
+/* the customer */
+.name { margin: 0; font: var(--text-lg); color: var(--ink); overflow-wrap: anywhere; }
+/* the flash scales the number from its left edge, so it pops in place
+   instead of swinging about the middle of the full-width block */
+.name + :global(.balance) { margin-top: var(--sp-2); transform-origin: left center; }
+.unit { margin: var(--sp-1) 0 0; font: var(--text-base); color: var(--ink-2); }
+.unit + .slot:not(:empty) { margin-top: var(--sp-4); }
 
-.billErr { font-size: 13px; color: var(--bad); margin-top: 6px; }
+/* the tap's result, right under the balance; Undo stays a 44px target */
+:global(.app) .slot > :global(.toast) { align-items: center; min-height: 48px; padding-block: 6px; font-size: 15px; }
+.toastMsg { flex: 1; min-width: 0; }
+:global(.app) .slot :global(.btn).undo { flex: none; min-height: 44px; margin-right: -6px; padding-inline: 16px; }
 
-/* inline confirm for a big bill (half the merchant's limit or more) */
-.confirm {
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
-  font-size: 15px;
-  line-height: 1.45;
-}
-.confirm > * + * { margin-top: 12px; }
-.confirm b { font-family: var(--display); }
+/* every target on the counter is at least 48px (Undo keeps 44, above); 56px
+   for the actions a cashier taps all day: Add, +1 stamp, next customer */
+:global(.app) .view :global(.btn) { min-height: 48px; }
+:global(.app) :global(.btn).main { min-height: 56px; font-size: 17px; }
 
-/* success toast with its Undo button (offered for 10 s after an earn/redeem).
-   The button keeps a 44px tap target; negative margins stop it from making
-   the toast taller than a plain one. */
-.toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.undo {
-  flex: none;
-  min-height: 44px;
-  margin: -10px -8px -10px 0;
-  padding: 0 16px;
-  border: 1px solid currentColor;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 15px;
-  cursor: pointer;
-}
-.undo:disabled { opacity: .5; cursor: default; }
+/* earn: the bill box and Add on one row */
+.billRow { display: flex; gap: var(--sp-2); }
+:global(.app) .billRow > :global(.affix) { flex: 1; min-width: 0; height: 56px; }
+:global(.app) .billRow .cur { font: 500 18px/1 var(--font-ui); color: var(--muted); }
+:global(.app) .billRow input { font-size: 18px; }
+.billRow > :global(.btn) { flex: none; min-width: 96px; }
+/* one line is always there (hint, preview or error), so typing never shifts the rewards */
+.billMsg { min-height: 22px; }
+.preview { font: var(--text-base); color: var(--ink-2); }
+.hint { font: var(--text-sm); line-height: 22px; color: var(--muted); }
 
-/* "Today": the signed-in staff member's taps since local midnight, above the
-   scan card. Closed it is one 44px row (phones start closed, so the scanner
-   stays near the top); the +/− marker follows the landing page FAQ. */
-.today {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  margin-bottom: 12px;
+/* rewards */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.one { display: grid; }
+:global(.app) .reward {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
+  min-width: 0; min-height: 72px; padding: var(--sp-3);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--ink); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-press) var(--ease-out), border-color var(--dur-fast) ease;
 }
-.today summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 16px;
-  cursor: pointer;
-  list-style: none;
-}
-.today summary::-webkit-details-marker { display: none; }
-.today summary::after { content: "+"; color: var(--accent); font-size: 18px; }
-.today[open] summary::after { content: "−"; }
-.todayTitle { font-family: var(--display); font-weight: 700; font-size: 15px; }
-.todayPeek {
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.todayGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 2px 0 0;
-  padding: 0 16px;
-}
-/* number above its label, so a label that wraps ("Points given" in a narrow
-   column) can't push one number below the others */
-.todayGrid > div {
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-  gap: 4px;
-  background: var(--surface-2);
-  border-radius: 10px;
-  padding: 10px 12px;
-  min-width: 0;
-}
-.todayGrid dt { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
-.todayGrid dd {
-  margin: 0;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 22px;
-  letter-spacing: -.02em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.todayNote { padding: 10px 16px 14px; font-size: 12px; color: var(--muted); }
-@media (max-width: 480px) { .todayGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* globals.css still has the old accent hover for .redeem-btn; touch screens keep it after a tap */
+:global(.app) .reward:hover { border-color: var(--line); }
+:global(.app) .reward:active { transform: scale(.97); }
+/* not enough points: dimmed, not tappable, the shortfall spelled out */
+:global(.app) .reward:disabled { cursor: not-allowed; transform: none; background: transparent; border-style: dashed; border-color: var(--line-strong); }
+.reward:disabled > :not(.need) { opacity: .45; }
+.rl { max-width: 100%; font: 600 16px/22px var(--font-ui); overflow-wrap: anywhere; }
+.rp { font: var(--text-sm); color: var(--ink-2); }
+.need { margin-top: 2px; font: var(--text-sm); color: var(--muted); }
 
 /* stamp card: "+1 stamp" is the everyday tap, +2/+3 for several items at once */
-.stampBtns { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
-.stampBtns > button { padding: 18px 8px; }
-/* the one stamp reward, full width */
-.one { display: grid; }
+.stampBtns { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: var(--sp-3); }
 
-/* happy hour is on: bill earns are multiplied (the redeem route decides).
-   Tinted like .confirm, not filled: a solid accent block reads as a button. */
-.happy {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 18px;
-  letter-spacing: -0.01em;
-  text-align: center;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 11px 14px;
+@media (hover: hover) and (pointer: fine) {
+  .pick:hover { border-color: var(--line-strong); }
+  :global(.app) .reward:not(:disabled):hover { border-color: var(--line-strong); }
 }
+
+/* "Scan next customer" stays in reach above the phone tab bar (or the home
+   indicator for a cashier); the fade lets content scroll under it */
+.next {
+  position: sticky; z-index: 5;
+  bottom: max(var(--tabbar-h), env(safe-area-inset-bottom, 0px));
+  padding-block: var(--sp-3);
+  background: linear-gradient(to bottom, transparent, var(--bg) var(--sp-3));
+}
+.view > .next { margin-top: var(--sp-1); }
 
 /* a card the owner deactivated: said plainly, no buttons but "next" */
 .voided {
-  margin-top: 8px;
-  border: 1px solid var(--bad);
-  border-radius: 12px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bad) 10%, var(--surface-2));
-  font-size: 15px;
-  line-height: 1.5;
+  display: flex; align-items: flex-start; gap: var(--sp-3); margin-top: var(--sp-3); padding: var(--sp-4);
+  background: var(--bad-soft); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: var(--r-md);
 }
-.voided b { font-family: var(--display); color: var(--bad); }
+.voided > svg { flex: none; margin-top: 1px; color: var(--bad); }
+.voided > p { margin: 0; font: var(--text-base); color: var(--ink); }
+.voided b { font-weight: 600; color: var(--bad); }

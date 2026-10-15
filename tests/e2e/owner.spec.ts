@@ -4,10 +4,10 @@ import { formatPhone } from "../../src/lib/format";
 test("owner /dashboard renders the KPI row", async ({ page }) => {
   await apiLogin(page, fx.owner);
   await page.goto("/dashboard");
-  for (const k of ["Members", "Active · 30d", "Points issued", "Points redeemed", "Repeat rate"])
+  for (const k of ["Customers", "Visited in last 30 days", "Points issued", "Points redeemed", "Repeat rate"])
     await expect(page.locator(".kpi", { hasText: k })).toBeVisible();
   // global setup created 3 cards for this merchant (enroll.spec may add more)
-  const members = await page.locator(".kpi", { hasText: "Members" }).locator(".v").innerText();
+  const members = await page.locator(".kpi").filter({ has: page.locator(".k", { hasText: /^Customers$/ }) }).locator(".v").innerText();
   expect(Number(members)).toBeGreaterThanOrEqual(3);
 });
 
@@ -20,7 +20,7 @@ test("owner /customers search finds a customer by name and by phone", async ({ p
 
   await search.fill(c.name);
   await expect(row).toContainText(c.name);
-  await expect(page.getByText("1 member", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 customer", { exact: true })).toBeVisible();
 
   // stored "+1555…", shown to staff as "(555) …-…" (F7)
   await search.fill(c.phone!);
@@ -120,7 +120,7 @@ test("owner removes a cashier through an inline confirm that names them", async 
   const confirm = member.locator(".confirm");
 
   await member.getByRole("button", { name: "Remove", exact: true }).click();
-  await expect(confirm).toContainText(`Remove ${username}? They will be signed out and can no longer use /scan.`);
+  await expect(confirm).toContainText(`Remove ${username}? They will be signed out and can no longer use the Scan screen.`);
   await confirm.getByRole("button", { name: "Cancel" }).click();
   await expect(confirm).toBeHidden();
   await expect(name).toBeVisible();

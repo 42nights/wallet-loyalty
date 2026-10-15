@@ -1,84 +1,135 @@
-.help { font-size: 13px; color: var(--muted); line-height: 1.5; }
+/* Settings: a section index beside a column of grouped panels that runs to
+   the shell's right edge, like every other tab (spec §6.6). Each panel is a heading over .fsec rows; the primitives are global
+   (.app .x), so overrides here are written :global(.app) .mine. */
 
-.templates { display: flex; flex-direction: column; gap: 10px; }
+.layout { display: grid; gap: var(--sp-5); }
+.content { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
 
-/* one selectable card per redeem template; aria-pressed marks the current one */
-.tpl {
-  display: block;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  color: var(--ink);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px;
-  font-family: var(--mono);
-  transition: border-color .15s ease, background .15s ease, transform .06s ease;
+/* ≤1023: a row of chips that scrolls sideways, edge to edge */
+.index {
+  display: flex; gap: var(--sp-2); overflow-x: auto; scrollbar-width: none;
+  margin: 0 calc(var(--gutter) * -1); padding: 2px var(--gutter);
 }
-.tpl:hover, .tpl:focus-visible { border-color: var(--accent); }
-.tpl:active { transform: scale(0.99); }
-.tpl:disabled { cursor: progress; }
-.tpl[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
-  cursor: default;
+.index::-webkit-scrollbar { display: none; }
+.index a {
+  display: inline-flex; align-items: center; flex: none; height: 36px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface);
+  font: 500 14px/1 var(--font-ui); color: var(--ink-2); text-decoration: none;
+  transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.index a[aria-current] { color: var(--ink); background: var(--surface-3); border-color: var(--line-strong); }
+@media (max-width: 1023px) {
+  /* stays under the sticky top bar (56px, 52px on phones, + its 1px rule), so
+     it still works mid-page */
+  .index {
+    position: sticky; top: calc(57px + env(safe-area-inset-top, 0px)); z-index: 2;
+    padding-block: var(--sp-2); margin-block: calc(var(--sp-2) * -1); background: var(--bg);
+  }
+  /* a section a chip jumps to lands below the bar and the chip row */
+  :global(.app) .content > section { scroll-margin-top: calc(124px + env(safe-area-inset-top, 0px)); }
+}
+@media (max-width: 640px) {
+  .index { top: calc(53px + env(safe-area-inset-top, 0px)); }
+  .index a { height: 40px; }
 }
 
-.tplHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.tplName { font-family: var(--display); font-weight: 700; font-size: 17px; }
-.badge {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .16em;
-  color: var(--accent-ink); background: var(--accent); border-radius: 6px; padding: 3px 7px;
+@media (min-width: 1024px) {
+  .layout { grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-10); }
+  .index {
+    position: sticky; top: 80px; align-self: start; flex-direction: column; gap: 0;
+    margin: 0; padding: 0; overflow: visible;
+  }
+  .index a {
+    height: 36px; padding: 0 var(--sp-4); border: 0; border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    background: none; color: var(--muted); box-shadow: inset 2px 0 0 var(--line);
+  }
+  .index a[aria-current] { color: var(--ink); background: none; box-shadow: inset 2px 0 0 var(--accent); }
+}
+@media (hover: hover) and (pointer: fine) {
+  .index a:not([aria-current]):hover { color: var(--ink); }
 }
 
-.tplItems { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 13px; }
-.tplItem { display: flex; justify-content: space-between; gap: 8px; }
-.cost { color: var(--muted); white-space: nowrap; }
-@media (max-width: 480px) { .tplItems { grid-template-columns: 1fr; } }
+/* a panel: heading, then rows split by hairlines (.fsec + .fsec, global);
+   like every other panel, no rule under the heading */
+:global(.app) .group { gap: 0; }
+:global(.app) .group > :global(.fsec) { padding: var(--sp-5) 0; }
+:global(.app) .group > :global(.fsec):last-child { padding-bottom: 0; }
+:global(.app) .group :global(.fsec-intro) h3 { font: 600 15px/22px var(--font-ui); }
+/* beside its Save while 220px fit, else on its own line under it */
+:global(.app) .group :global(.fsec-foot) > :global(.save-status) { flex: 1 1 220px; min-width: 0; }
+/* empty, the live region stays in the a11y tree but out of the layout */
+:global(.app) .group :global(.save-status):empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
-.example { font-size: 14px; color: var(--muted); }
-.example b { color: var(--ink); font-family: var(--display); font-size: 18px; }
-
-.help b { color: var(--ink); font-weight: 400; }
-
-/* happy hour: Off / 2x / 3x, then day chips and the two times */
-.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.seg button {
-  font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--ink);
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
-  padding: 13px 8px; cursor: pointer; transition: border-color .15s ease, background .15s ease;
-}
-.seg button:hover, .seg button:focus-visible { border-color: var(--accent); }
-.seg button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
-
-/* 4 columns: Mon-Thu over Fri-Sun, never a lone chip on a third row */
-.days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border: none; margin-inline: 0; padding: 0; min-width: 0; }
-.days legend { padding: 0; margin-bottom: 8px; }
-.day {
-  display: flex; align-items: center; gap: 7px; padding: 9px 12px; font-size: 14px; cursor: pointer;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
-}
-.day:has(input:checked) { border-color: var(--accent); }
-.day input, .check input { width: 18px; height: 18px; padding: 0; margin: 0; accent-color: var(--accent); flex: none; }
-
-/* the card wording on its own line, so "3–5 pm" never breaks at the dash */
-.preview { display: block; margin-top: 4px; }
-
-.times { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.times label { display: block; min-width: 0; }
-
-.check { display: flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; }
+.summary { margin: 0; font: var(--text-base); color: var(--ink); }
+.summary b { font-weight: 600; }
 
 .link {
-  display: block;
-  font-size: 13px;
-  word-break: break-all;
-  padding: 12px 14px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
-  color: var(--ink);
-  text-decoration: none;
+  display: block; padding: 10px 12px; overflow-wrap: anywhere;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--ink); text-decoration: none; transition: border-color var(--dur-fast) ease;
 }
-.link:hover { border-color: var(--accent); }
+
+/* one selectable card per redeem template; aria-pressed marks the live one */
+.templates { display: grid; gap: var(--sp-2); }
+.tpl {
+  display: grid; gap: var(--sp-2); width: 100%; padding: var(--sp-3) var(--sp-4);
+  text-align: left; color: var(--ink); cursor: pointer;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-md);
+  transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
+}
+.tpl:not([aria-pressed="true"]):active { transform: scale(.99); }
+.tpl[aria-pressed="true"] {
+  cursor: default; background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+/* the card is already accent-tinted, so the chip needs its own surface to read as one */
+.tpl[aria-pressed="true"] :global(.chip) {
+  background: var(--surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.tplHead { display: flex; align-items: center; gap: var(--sp-2); }
+.tplName { font: 600 15px/22px var(--font-ui); }
+.tplItems { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--sp-6); font: var(--text-sm); color: var(--ink-2); }
+.tplItem { display: flex; justify-content: space-between; gap: var(--sp-2); }
+.cost { color: var(--muted); white-space: nowrap; }
+@media (max-width: 480px) { .tplItems { grid-template-columns: minmax(0, 1fr); } }
+
+/* happy hour: Off / 2× / 3×, then day chips and the two times */
+.seg { align-self: flex-start; }
+/* 4 columns: Mon–Thu over Fri–Sun, never a lone chip on a third row */
+.days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+.days legend { margin-bottom: 6px; padding: 0; }
+.day {
+  display: flex; align-items: center; gap: var(--sp-2); height: 40px; padding: 0 var(--sp-3);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  font: 500 14px/1 var(--font-ui); color: var(--ink-2); cursor: pointer;
+  transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.day:has(:checked) { color: var(--ink); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.day:has(:focus-visible) { outline: 2px solid var(--focus); outline-offset: 1px; }
+.day input { flex: none; width: 16px; height: 16px; }
+.day input:focus-visible { outline: none; }
+.times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+
+/* what the card will print, on its own line so "3–5 pm" never breaks at the dash */
+.preview { padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--surface-2); font: var(--text-sm); color: var(--ink-2); }
+.preview b { display: block; margin-top: 2px; font: 600 15px/22px var(--font-ui); color: var(--ink); }
+
+.toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  min-height: 48px; padding: var(--sp-2) var(--sp-4); border-radius: var(--r-md);
+  background: var(--surface-2); font: 500 15px/1.4 var(--font-ui); color: var(--ink); cursor: pointer;
+}
+
+.locRow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.locRow > input { flex: 1 1 200px; width: auto; min-width: 0; }
+
+:global(.app) .skelTitle { width: 96px; height: 16px; }
+.skelIntro { display: grid; gap: var(--sp-2); align-content: start; }
+.skelIntro > :last-child { width: 70%; }
+:global(.app) .skelField { height: 44px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .link:hover { border-color: var(--line-strong); }
+  .tpl:not([aria-pressed="true"]):hover { border-color: var(--line-strong); }
+  .day:not(:has(:checked)):hover { border-color: var(--line-strong); }
+}
