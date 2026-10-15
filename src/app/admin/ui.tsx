@@ -105,6 +105,7 @@ export function AdminHeader() {
       </Link>
       <nav className="dash-nav">
         <Link href="/admin">Overview</Link>
+        <Link href="/admin/sales">Sales</Link>
         <Link href="/admin/merchants/new">+ New merchant</Link>
         <form action="/api/admin/logout" method="post" className={s.logout}>
           <button type="submit">Log out</button>
