@@ -57,3 +57,17 @@
   background: #fff;
   border-radius: 12px;
 }
+
+/* Apple's badge as supplied, with clear space of a tenth of its height. */
+.badgeBtn {
+  display: block;
+  width: fit-content;
+  margin: 10px auto 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.badgeBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.badge { display: block; height: 48px; width: auto; }
