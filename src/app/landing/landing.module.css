@@ -190,17 +190,18 @@
   font-size: 14px; white-space: nowrap;
 }
 .typeName, .typePhone, .typeBill { display: inline-block; }
-.getCard {
-  display: grid; place-items: center; height: 40px; margin-top: 4px; border-radius: 10px;
+.getCard { display: grid; place-items: center; height: 40px; margin-top: 4px; }
+.getCard > * { grid-area: 1 / 1; }
+.getIdle { opacity: 0; display: block; height: 40px; width: auto; }
+.getBusy {
+  display: grid; place-items: center; align-self: stretch; justify-self: stretch; border-radius: 10px;
   background: var(--accent); color: var(--accent-ink);
   font-family: var(--display); font-weight: 700; font-size: 14px;
 }
-.getCard > span { grid-area: 1 / 1; }
-.getIdle { opacity: 0; }
 .safari { display: flex; align-items: center; gap: 10px; height: 54px; margin-top: auto; padding: 0 4px 8px; font-size: 12px; color: var(--muted); }
 .address { flex: 1; height: 34px; display: grid; place-items: center; border-radius: 12px; background: var(--surface-2); color: var(--ink); font-size: 12px; }
 .reload { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; }
-/* name and number typed in, then "Get my card" is tapped */
+/* name and number typed in, then Apple's badge is tapped */
 .stack[data-live] > [data-on] .typeName { animation: type 480ms steps(10, end) 200ms both; }
 .stack[data-live] > [data-on] .typePhone { animation: type 560ms steps(14, end) 760ms both; }
 .stack[data-live] > [data-on] .getCard { animation: press 160ms var(--ease-out) 1400ms; }
