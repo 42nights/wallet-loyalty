@@ -13,7 +13,7 @@ async function submitEnroll(page: Page, name: string) {
   const enrolled = page.waitForResponse(
     (r) => r.url().endsWith("/api/enroll") && r.request().method() === "POST"
   );
-  await page.getByRole("button", { name: "Get my card" }).click();
+  await page.getByRole("button", { name: /Get my card|Add to Apple Wallet/ }).click();
   return enrolled;
 }
 
@@ -38,7 +38,7 @@ test("iPhone opens the card in Wallet and shows the ready screen", async ({ page
   await submitEnroll(page, "Enroll iPhone");
   expect((await download).suggestedFilename()).toMatch(/^loyalty-[\w-]+\.pkpass$/);
   await expect(page.getByText("Your card is ready")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open my card again" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add to Apple Wallet" })).toBeVisible();
 });
 
 test("other devices get a QR to open the card on an iPhone", async ({ page, isMobile }) => {
@@ -54,7 +54,7 @@ test("empty form shows inline errors and sends nothing", async ({ page }) => {
   page.on("request", (r) => {
     if (r.url().endsWith("/api/enroll") && r.method() === "POST") posted = true;
   });
-  await page.getByRole("button", { name: "Get my card" }).click();
+  await page.getByRole("button", { name: /Get my card|Add to Apple Wallet/ }).click();
   await expect(page.getByText("Enter your name.")).toBeVisible();
   await expect(page.getByText("Enter your phone number.")).toBeVisible();
   expect(posted).toBe(false);

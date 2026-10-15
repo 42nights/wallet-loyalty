@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { useState, useSyncExternalStore, type FormEvent, type InputHTMLAttributes } from "react";
 import QRCode from "qrcode";
 import { NAME_MAX, validateEnroll, type FieldErrors } from "@/app/api/enroll/validate";
 import s from "./EnrollForm.module.css";
@@ -20,6 +20,12 @@ function canAddToWallet(ua: string): boolean {
 function inAppBrowser(ua: string): boolean {
   return /FBAN|FBAV|Instagram|Line\/|TikTok|musical_ly|Snapchat|Twitter/i.test(ua);
 }
+
+const noSubscribe = () => () => {};
+
+// Apple's own artwork, unaltered (Add to Apple Wallet guidelines). Only shown
+// where tapping it really opens Wallet.
+const walletBadge = <img className={s.badge} src="/add-to-apple-wallet.svg" width={152} height={48} alt="Add to Apple Wallet" />;
 
 // qr is set off Apple devices; inApp = an iPhone stuck in an app's web view
 type Done = { cardUrl: string; qr: string | null; inApp: boolean };
@@ -53,6 +59,7 @@ export default function EnrollForm({
   // "info" = already enrolled (not the customer's fault), "bad" = a real failure.
   const [notice, setNotice] = useState<{ text: string; tone: "info" | "bad" } | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  const wallet = useSyncExternalStore(noSubscribe, () => canAddToWallet(navigator.userAgent), () => false);
 
   function showErrors(next: FieldErrors) {
     setErrors(next);
@@ -127,8 +134,8 @@ export default function EnrollForm({
             Tap <b>Add</b> in the Wallet sheet to save your {merchantName} card.
             Your {unit} update on it automatically.
           </p>
-          <a className={`btn btn-primary ${s.linkBtn}`} href={done.cardUrl}>
-            Open my card again
+          <a className={s.badgeBtn} href={done.cardUrl}>
+            {walletBadge}
           </a>
           <p className={s.hint}>
             No Wallet sheet? Open this page in Safari. The link works for 1 hour; after that,
@@ -294,20 +301,15 @@ export default function EnrollForm({
             {notice.text}
           </div>
         )}
-        {/*
-          APPLE WALLET BADGE SLOT (apple-wallet#8). Apple: "Be sure to use the
-          badges provided by Apple. Do not create your own versions." So this
-          stays a neutral text button until the real badge is in place.
-          Human step for Ayaan: download the official "Add to Apple Wallet" SVG
-          from https://developer.apple.com/wallet/add-to-apple-wallet-guidelines/
-          after accepting the Apple Wallet Marketing Artwork License Agreement,
-          save it under public/, and render it inside this button in place of
-          the text, with clear space of at least 0.1x the badge height on every
-          side. Do not redraw, recolour or restyle it.
-        */}
-        <button type="submit" className="btn btn-primary" disabled={busy}>
-          {busy ? "Creating your card…" : "Get my card"}
-        </button>
+        {wallet && !busy ? (
+          <button type="submit" className={s.badgeBtn}>
+            {walletBadge}
+          </button>
+        ) : (
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? "Creating your card…" : "Get my card"}
+          </button>
+        )}
         <div className={s.hint}>
           On iPhone your card opens in Wallet. On other devices you will get a code to scan
           with your iPhone.
