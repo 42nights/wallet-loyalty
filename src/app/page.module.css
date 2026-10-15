@@ -7,6 +7,8 @@
      in light mode (3.6:1); this mix is 6.7:1 light, 9.4:1 dark. */
   --copy: color-mix(in srgb, var(--ink) 74%, var(--bg));
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   /* Apple-style spring (response 0.5s, damping 0.8 = bounce 0.2), sampled from
      the spring equation into linear(): 1.5% overshoot at 417ms, settles by
      ~680ms. Use it with a 680ms duration. */
@@ -62,31 +64,20 @@
 .heroArt { position: relative; display: flex; justify-content: center; padding: 8px 0 30px; overflow-x: clip; }
 @media (min-width: 861px) { .heroArt { min-height: 600px; align-items: center; overflow-x: visible; } }
 .heroPhone { position: relative; z-index: 1; }
-.cardOffset { padding-top: 70px; } /* keeps the card clear of the static banner */
-/* Same box as the phone screen, so the banner inside keeps its own position;
-   it exists so the banner can be dropped in from outside the shared component. */
-.bannerDrop { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 
 /* The old way, lying on top of the new: a paper punch card over the phone's
    empty lower screen, clear of the QR code. `rotate` (not transform) holds the
-   resting tilt, so the load and scroll animations below compose with it. */
-.punch {
-  position: absolute; z-index: 2;
-  bottom: 4px; left: 2px; width: 196px;
-  padding: 14px 16px 16px; border-radius: 10px;
-  background: #efe4cc; color: #3a2a18;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 18px 40px -22px rgba(0, 0, 0, .55);
-  rotate: -9deg;
-}
-@media (min-width: 861px) { .punch { bottom: 46px; left: calc(50% - 320px); width: 244px; } }
-.punchHead b { display: block; font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
-.punchHead span { display: block; font-size: 11px; margin-top: 3px; opacity: .75; text-wrap: balance; }
-.holes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin-top: 16px; }
-.holes span { aspect-ratio: 1; border-radius: 50%; border: 1.5px dashed rgba(58, 42, 24, .4); }
-.holes .stamped { border: 2px solid #c4521c; background: radial-gradient(circle, #c4521c 0 38%, transparent 40%); }
-.holes .stamped:nth-child(2n) { transform: rotate(14deg) scale(.96); }
+   resting tilt, so the load and scroll animations below compose with it. It
+   stays on top of the travelling phone too, so the phone slides out from
+   under it and the paper is left behind in the hero. */
+.punch { position: absolute; z-index: 2; bottom: 4px; left: 2px; rotate: -9deg; }
+@media (min-width: 861px) { .heroArt .punch { bottom: 46px; left: calc(50% - 320px); width: 244px; } }
 
-/* ---- sections ---- */
+/* ---- sections ----
+   Each story section is its copy plus a lane holding that section's phone.
+   Below 1024px the phone sits after the copy (the closing: above it). From
+   1024px the lane is a column beside the copy, alternating sides, and it is
+   where the travelling phone lands, so the copy is never under it. */
 .section { padding: 64px 0; border-top: 1px solid var(--line); }
 @media (min-width: 861px) { .section { padding: 96px 0; } }
 .section h2 {
@@ -95,10 +86,32 @@
   margin: 0 0 16px; max-width: 18ch;
 }
 .sectionLede { color: var(--copy); font-size: 17px; line-height: 1.6; max-width: 60ch; margin: 0 0 32px; text-wrap: pretty; }
+.lane { position: relative; display: flex; justify-content: center; margin-top: 48px; }
+@media (max-width: 699px) { .lane > [data-slot] { zoom: .8; } }
+@media (min-width: 1024px) {
+  /* The taller gap between story sections is where the travelling phone
+     crosses to the other side, at 0.42 scale, clear of the copy. */
+  .scrolly { --gap: clamp(48px, 6vw, 96px); display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: var(--gap); align-items: start; padding-block: 146px; }
+  .left { grid-template-columns: 300px minmax(0, 1fr); }
+  .left > :first-child { grid-column: 2; grid-row: 1; }
+  .left > .lane { grid-column: 1; grid-row: 1; }
+  /* Sticky is pinning, not motion: with reduced motion or no JS the section's
+     own phone stays beside the copy while you read. */
+  .scrolly > .lane { margin: 0; position: sticky; top: max(24px, calc(50vh - 310px)); }
+}
 
 /* how it works: a real sequence, so it is numbered */
 .steps { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 32px; counter-reset: step; }
 @media (min-width: 861px) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; } }
+/* Beside the phone each step gets the scroll its scenes play over (Story.tsx
+   spreads a step's scenes across it; step 1 has four). Margins, not heights,
+   so each step's box ends where its words do. */
+@media (min-width: 1024px) {
+  .steps { grid-template-columns: none; gap: 0; }
+  .steps li:nth-child(1) { margin-bottom: 52vh; }
+  .steps li:nth-child(2) { margin-bottom: 16vh; }
+  .steps li:nth-child(3) { margin-bottom: 64vh; }
+}
 .steps li { counter-increment: step; border-top: 2px solid var(--ink); padding-top: 16px; }
 .steps li::before {
   content: counter(step);
@@ -111,16 +124,20 @@
 /* templates: the same four-button grid the cashier sees on /scan */
 .templates { display: grid; gap: 16px; }
 @media (min-width: 861px) { .templates { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* Beside the phone: room under the cards for the Rewards scenes to play
+   before the phone moves on (Story.tsx). */
+@media (min-width: 1024px) { .templates { grid-template-columns: none; margin-bottom: 20vh; } }
 .template { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 20px; }
 .template h3 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 0 0 14px; }
 .keys { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .keys li { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px; }
 .keys span { display: block; font-family: var(--display); font-weight: 700; font-size: 15px; }
 .keys small { display: block; color: var(--muted); font-family: var(--mono); font-size: 12px; margin-top: 4px; }
+@media (min-width: 1024px) { .keys { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
 /* owners */
 .owners { display: grid; gap: 40px; }
-@media (min-width: 861px) { .owners { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; } }
+@media (min-width: 861px) and (max-width: 1023px) { .owners { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; } }
 .features { margin: 0; }
 .features > div { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--line); }
 @media (min-width: 560px) { .features > div { grid-template-columns: 128px minmax(0, 1fr); gap: 16px; } }
@@ -131,16 +148,17 @@
 .soon ul { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.6; color: var(--copy); }
 
 .dash { margin: 0; display: grid; gap: 12px; }
-/* The sample panels reveal on scroll below instead of on page load. */
+/* Sample panels are simply there: no rise, no line drawing itself. */
 .dash :global(.panel) { animation: none; }
+.dash :global(.draw) { animation: none; stroke-dashoffset: 0; }
 .dashKpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .dashKpis b { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.03em; line-height: 1; }
 .panelNote { color: var(--muted); font-size: 12px; }
 
 /* ---- why: paper vs app vs Wallet ----
    A mark and a few words per cell. The Wallet column is one tinted, outlined
-   band, but every row paints its own slice of it, so the band fades in row by
-   row with the content instead of showing up as an empty box first. Desktop
+   band; every row paints its own slice of it, so the phone layout below can
+   restyle rows as grids without breaking the band. Desktop
    is a plain table; phones keep the three columns and lift each row's label
    above them, so the marks still line up for comparing. */
 .compare {
@@ -150,7 +168,7 @@
 }
 .compare thead td { width: 28%; }
 .compare th, .compare td { text-align: left; vertical-align: top; padding: 16px; }
-/* rules on the cells (not collapsed onto the table) so each fades in with its row */
+/* rules on the cells (not collapsed onto the table), so the band covers them */
 .compare tbody th, .compare tbody td { border-top: 1px solid var(--line); }
 .compare thead th { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: -.01em; padding-top: 20px; }
 .compare thead .us { color: var(--accent); }
@@ -213,8 +231,34 @@
 .faq summary::after { content: "+"; position: absolute; right: 2px; top: 16px; font-family: var(--mono); font-size: 20px; color: var(--accent); }
 .faq details[open] summary::after { content: "−"; }
 .faq p { color: var(--copy); font-size: 16px; line-height: 1.65; margin: 0 0 20px; max-width: 64ch; }
+/* The travelling phone's parking spot: half size, right of the questions.
+   The questions stop short of the phone lanes, so the Why phone never sits
+   over them while it moves to its spot. */
+.park { display: none; }
+@media (min-width: 1024px) {
+  .faqSection { position: relative; }
+  .faq { max-width: min(760px, 100% - 340px); }
+  .park { display: block; position: absolute; right: 0; top: 96px; width: 150px; height: 310px; }
+}
 
-.closing .ctas { margin-bottom: 0; }
+/* the finale: the phone back in the middle, reward ready, the CTAs under it */
+.closing { text-align: center; }
+.closing h2, .closing .sectionLede { margin-inline: auto; }
+.closing .lane { margin: 0 0 40px; }
+.closing .ctas { justify-content: center; margin-bottom: 0; }
+@media (min-width: 1024px) { .closing .lane > [data-slot] { zoom: .8; } }
+
+/* Why: the paper card the Wallet card replaces, tucked under the phone. The
+   travelling phone carries its own copy (landing/Story.tsx), so this one is
+   only for smaller screens, reduced motion and no JS. */
+.leftBehind { position: absolute; z-index: 0; left: calc(50% - 170px); top: 300px; rotate: -9deg; }
+.whyLane > [data-slot] { position: relative; z-index: 1; }
+:global(html[data-travel]) .leftBehind { visibility: hidden; }
+@media (min-width: 1024px) {
+  /* out from under the phone, but never into the table: the tilted corner
+     reaches ~10px past the card's box */
+  .leftBehind { left: calc(50% - 150px - min(56px, var(--gap) - 28px)); top: 360px; }
+}
 
 /* footer */
 .footer {
@@ -227,35 +271,25 @@
 .footer p { flex-basis: 100%; margin: 0; font-size: 12px; }
 
 /* ---- motion ----
-   Everything above is the resting state, and it is what reduced motion and
-   no-JS visitors see. All motion is transform/opacity only.
+   Text and sections never animate. Only the phones and the paper cards move,
+   on transform/opacity, and everything above is the resting state that
+   reduced motion and no-JS visitors see. The phone screens' own motion lives
+   in landing/landing.module.css; the scroll-driven travel, and the Why paper
+   card falling away on desktop, in landing/Story.tsx.
 
    Hero, once on load (~1.45s): the paper card slides off the phone with
-   friction (ease-out, no overshoot), the Wallet card rises into the screen on
-   the spring, then the lock-screen notification drops in on the same spring.
-   The screen's own overflow clips both, so they arrive from its edges.
-
-   Below 861px the art sits under the text, often below the fold, so the same
-   sequence waits 1.44s longer. That wait is only the no-JS fallback:
-   landing/Reveal.tsx pauses whatever has not started and skips the rest of
-   the wait once the top of the phone is on screen. */
+   friction (ease-out, no overshoot) while the Wallet card rises into the
+   screen and its notification drops in (landing.module.css). Below 861px the
+   art sits under the text, so the sequence waits 1.44s longer; that wait is
+   the no-JS fallback, and Story.tsx starts it when the phone is on screen. */
 @media (prefers-reduced-motion: no-preference) {
   .punch { animation: punchIn 700ms var(--ease-out) 60ms both; }
-  .cardOffset { animation: cardIn 680ms var(--spring) 100ms both; }
-  .bannerDrop { animation: bannerDrop 680ms var(--spring) 760ms both; }
-
-  /* Scroll reveal, driven by landing/Reveal.tsx (fires once per element). */
-  .page [data-reveal="out"] { opacity: 0; transform: translateY(16px); }
-  .page [data-reveal="in"] { transition: opacity 600ms var(--ease-out), transform 600ms var(--ease-out); }
-  /* the sample chart line draws itself when its panel arrives, not off-screen */
-  .dash [data-reveal="out"] :global(.draw) { animation: none; }
-}
-@media print {
-  .page [data-reveal="out"] { opacity: 1; transform: none; }
+  /* Phones under 1024px: when the Why phone wakes, the paper card slips off it. */
+  .whyLane[data-play] .leftBehind { animation: fallAway 1100ms var(--ease-in-out) 500ms both; }
 }
 
-/* Scroll-linked, where supported: as the hero art scrolls away, the paper card
-   is left behind (lags, tilts, fades). Elsewhere it simply stays put. */
+/* Scroll-linked, where supported: as the art scrolls away, the paper card is
+   left behind (lags, tilts, fades). Elsewhere it simply stays put. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
     .heroArt { view-timeline: --art block; }
@@ -271,11 +305,8 @@
    there; the second value is the scroll-linked drift, which has none. */
 @media (prefers-reduced-motion: no-preference) and (max-width: 860px) {
   .punch { animation-delay: 1500ms, 0s; }
-  .cardOffset { animation-delay: 1540ms; }
-  .bannerDrop { animation-delay: 2200ms; }
 }
 
 @keyframes punchIn { from { translate: 64px -104px; rotate: -2deg; } }
-@keyframes cardIn { from { transform: translateY(480px) scale(.96); } }
-@keyframes bannerDrop { from { transform: translateY(-120px); } }
-@keyframes punchDrift { to { transform: translate(-20px, 80px) rotate(-7deg); opacity: 0; } }
+@keyframes punchDrift { 50% { opacity: 1; } to { transform: translate(-20px, 80px) rotate(-7deg); opacity: 0; } }
+@keyframes fallAway { to { transform: translate(-24px, 220px) rotate(-26deg); opacity: 0; } }
