@@ -1,11 +1,13 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // Light/dark toggle. Persists via a cookie (project rule: no localStorage) so the
 // server layout can read it and render the right theme with no flash. Flips the
 // <html data-theme> attribute immediately — no reload needed.
 export default function ThemeToggle({ initial }: { initial: "light" | "dark" }) {
   const [theme, setTheme] = useState<"light" | "dark">(initial);
+  // The landing page may switch phones to light before paint (page.tsx).
+  useEffect(() => setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"), []);
   function toggle() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);

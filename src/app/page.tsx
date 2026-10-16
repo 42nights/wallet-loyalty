@@ -6,6 +6,7 @@ import { Donut, SEGMENT_COLORS, TrendChart } from "./(merchant)/dashboard/charts
 import ThemeToggle from "./(merchant)/dashboard/ThemeToggle";
 import { SAMPLES, SAMPLE_SERIAL, qrPath } from "./demo/samples";
 import {
+  HeroCards,
   HowScreens,
   LockScreen,
   OwnerScreen,
@@ -17,6 +18,7 @@ import {
   runs,
   type Story as StoryData,
 } from "./landing/screens";
+import Dock from "./landing/Dock";
 import Story from "./landing/Story";
 import s from "./page.module.css";
 
@@ -113,7 +115,8 @@ export const metadata: Metadata = {
 };
 
 export default async function Landing() {
-  const theme = (await cookies()).get("theme")?.value === "light" ? "light" : "dark";
+  const saved = (await cookies()).get("theme")?.value;
+  const theme = saved === "light" ? "light" : "dark";
   const cafe = SAMPLES[0];
   const updated = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   // One phone tells the product story down the page (landing/Story.tsx). Each
@@ -136,7 +139,7 @@ export default async function Landing() {
   // nothing to book (and we never make one up), so it points at the demo's
   // contact note instead; src/instrumentation.ts warns about that in production.
   const ctas = (
-    <div className={s.ctas}>
+    <div className={s.ctas} data-ctas>
       <Link href="/demo" className={`btn btn-primary ${s.cta}`}>
         See the live demo
       </Link>
@@ -154,6 +157,16 @@ export default async function Landing() {
 
   return (
     <div className={s.page}>
+      {/* Phones open in the light theme unless the visitor has picked one with
+          the toggle: the dark page read as heavy on a small screen. Inline, so
+          it runs before the page paints. */}
+      {!saved && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `matchMedia("(max-width: 699px)").matches && (document.documentElement.dataset.theme = "light")`,
+          }}
+        />
+      )}
       <header className={s.nav}>
         <Link href="/" className={s.brand}>
           <span className={s.brandMark} aria-hidden="true" />
@@ -174,10 +187,16 @@ export default async function Landing() {
         <section className={s.hero}>
           <div className={s.heroText}>
             <h1>Your loyalty card, in their Apple Wallet.</h1>
-            <p className={s.lede}>
+            <p className={`${s.lede} ${s.wide}`}>
               Customers add your branded card by scanning a QR code at the counter. There is no app to download. Your
               staff scan the card when they pay, and the points on it update after every visit.
             </p>
+            <p className={`${s.lede} ${s.narrow}`}>
+              Customers scan a QR code at your counter and add your card to Apple Wallet. No app to download.
+            </p>
+            <div className={`${s.heroCards} ${s.narrow}`} aria-hidden="true">
+              <HeroCards story={story} />
+            </div>
             {ctas}
             <p className={s.small}>
               For restaurants, cafés and shops. Already set up? <Link href="/scan">Staff login</Link>
@@ -194,7 +213,7 @@ export default async function Landing() {
           </div>
         </section>
 
-        <section id="how" className={`${s.section} ${s.scrolly} ${s.left} ${s.pinned}`}>
+        <section id="how" className={`${s.section} ${s.scrolly} ${s.left}`}>
           <div>
             <h2>Three steps, no app</h2>
             <ol className={s.steps}>
@@ -231,7 +250,10 @@ export default async function Landing() {
         <section id="templates" className={`${s.section} ${s.scrolly}`}>
           <div>
             <h2 data-beats="points stamps stamp">Rewards that fit what you sell</h2>
-            <p className={s.sectionLede}>
+            <p className={`${s.sectionLede} ${s.narrow}`}>
+              Four reward buttons for your kind of business, tapped at the counter. Or run a classic stamp card instead.
+            </p>
+            <p className={`${s.sectionLede} ${s.wide}`}>
               Pick the reward set for your kind of business in Settings. These are the four buttons your staff tap at the counter.
               Customers earn points on every dollar they spend, at a rate you choose. Prefer a classic stamp card? Your card
               can count stamps instead: staff add 1 to 3 stamps per tap, no bill to type, and a full card earns the
@@ -341,7 +363,7 @@ export default async function Landing() {
                   ]}
                 />
               </div>
-              <div className="panel">
+              <div className={`panel ${s.wide}`}>
                 <div className="panel-h">
                   <span className="panel-t">Segments</span>
                 </div>
@@ -360,7 +382,7 @@ export default async function Landing() {
         <section id="why" className={`${s.section} ${s.scrolly}`}>
           <div>
             <h2 data-beats="why">Why a Wallet card</h2>
-            <p className={s.sectionLede}>
+            <p className={`${s.sectionLede} ${s.wide}`}>
               Paper cards get lost and copied. A custom app is expensive, and most customers will not install it for a free
               coffee. A Wallet card sits in between.
             </p>
@@ -447,6 +469,7 @@ export default async function Landing() {
         <Link href="/demo">Demo</Link>
         <p>Apple, Apple Wallet and iPhone are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
       </footer>
+      <Dock />
       <Story />
     </div>
   );
