@@ -29,7 +29,7 @@ const SORTS = {
 type SortKey = keyof typeof SORTS;
 // Sources the spec names, plus each import preset's.
 const SOURCES = [...new Set([...Object.values(PRESETS).map((p) => p.source), "walk_in", "referral", "partner", "inbound", "manual"])];
-const FILTER_KEYS = ["q", "stage", "assignee", "sourced_by", "source", "segment", "cluster", "persona", "city", "state", "has_phone", "franchise", "dnc"];
+const FILTER_KEYS = ["q", "stage", "assignee", "sourced_by", "source", "segment", "cluster", "persona", "city", "state", "has_phone", "apollo", "franchise", "dnc"];
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!(await isAdmin())) redirect("/admin/login");
@@ -139,6 +139,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             </label>
             <div className={s.checks}>
               <label className={a.check}><input type="checkbox" name="has_phone" value="1" defaultChecked={one("has_phone") === "1"} /> Has a phone</label>
+              <label className={a.check}><input type="checkbox" name="apollo" value="1" defaultChecked={one("apollo") === "1"} /> Apollo verified</label>
               <label className={a.check}><input type="checkbox" name="franchise" value="1" defaultChecked={one("franchise") === "1"} /> Franchise</label>
               <label className={a.check}><input type="checkbox" name="dnc" value="1" defaultChecked={one("dnc") === "1"} /> Show do-not-contact</label>
             </div>

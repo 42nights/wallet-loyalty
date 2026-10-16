@@ -90,7 +90,7 @@ export default function Details({ lead, people }: { lead: Lead; people: Person[]
       control = (
         <select {...common}>
           {!REQUIRED.has(k) && <option value="">—</option>}
-          {rule.map((x: string) => <option key={x} value={x}>{k === "persona" ? PERSONA_LABEL[x] : x === "cafe" ? "Café" : human(x)}</option>)}
+          {rule.map((x: string) => <option key={x} value={x}>{k === "persona" ? PERSONA_LABEL[x] : x === "cafe" ? "Café" : x === "people_search" ? "Apollo verified" : human(x)}</option>)}
         </select>
       );
     } else if (k === "sourced_by_id") {

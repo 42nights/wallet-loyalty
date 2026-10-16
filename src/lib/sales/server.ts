@@ -45,6 +45,8 @@ export function leadsQuery(sp: URLSearchParams, select: string, count = false) {
   const state = one("state");
   if (state && /^[a-z]{2}$/i.test(state)) q = q.eq("state", state.toUpperCase());
   if (one("has_phone") === "1") q = q.not("phone", "is", null);
+  // Apollo numbers are filed as people_search (owner's own line, hand-dial only).
+  if (one("apollo") === "1") q = q.eq("phone_source", "people_search");
   if (one("franchise") === "1") q = q.not("franchise_brand", "is", null);
   if (one("dnc") !== "1") q = q.eq("do_not_contact", false);
   const search = searchText(one("q") ?? "");

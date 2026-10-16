@@ -15,7 +15,7 @@ const CREATE_LOCKED = [
 ] as const;
 
 // GET /api/admin/sales/leads?stage&assignee&sourced_by&source&segment&cluster
-//     &persona&city&state&has_phone=1&franchise=1&dnc=1&q&limit&offset → {total, leads}
+//     &persona&city&state&has_phone=1&apollo=1&franchise=1&dnc=1&q&limit&offset → {total, leads}
 // Newest first; "load more" pages with offset (same pattern as the merchant
 // customer list).
 export async function GET(req: NextRequest) {
