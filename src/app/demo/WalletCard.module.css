@@ -10,11 +10,14 @@
   background: #17150f;
   box-shadow: 0 0 0 1px var(--line), var(--shadow);
   flex: none;
+  /* The screen fills it as a grid item, not with height: 100%: Safari
+     sizes that wrongly in a box sized by aspect-ratio, so the screen hung
+     30px out of the bottom of the frame. */
+  display: grid;
 }
 
 .screen {
   position: relative;
-  height: 100%;
   border-radius: 37px;
   overflow: hidden;
   background: #050505;
