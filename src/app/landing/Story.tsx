@@ -21,7 +21,8 @@ import s from "./landing.module.css";
 //
 // Smaller screens: no travel (it would cover the copy). Each section's phone
 // wakes and plays that section's beats on timers while it is in view, pausing
-// when it leaves and resuming where it was when it returns.
+// when it leaves and resuming where it was when it returns. How it works is
+// the exception: its phone pins above the steps and plays the one being read.
 //
 // Reduced motion: nothing runs; every phone shows its resting screen.
 
@@ -368,10 +369,44 @@ function heroWhenSeen() {
   return () => io.disconnect();
 }
 
+// A pinned lane (How, page.module.css) sticks above its steps, so the phone
+// plays the step being read: the last one whose top has passed 85% of the
+// screen. Until the first one has, it shows its resting screen, the first
+// step's. Scrolling back to a step plays it again.
+function pinned(lane: HTMLElement) {
+  const stack = lane.querySelector<HTMLElement>("[data-stack]")!;
+  const chapters = [...lane.closest("section")!.querySelectorAll("[data-beats]")];
+  const seen = new Set<Element>();
+  let on: Element | undefined;
+  let stop = () => {};
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) seen.add(e.target);
+        else seen.delete(e.target);
+      }
+      const now = chapters.findLast((c) => seen.has(c));
+      if (now === on) return;
+      on = now;
+      stop();
+      if (!now) return;
+      stack.dataset.live = "";
+      stop = play([stack], beatsIn(now), 0, () => {});
+    },
+    { rootMargin: "0px 0px -15% 0px" },
+  );
+  for (const c of chapters) io.observe(c);
+  return () => {
+    io.disconnect();
+    stop();
+  };
+}
+
 function inline() {
   const stops = new Map<Element, () => void>();
   const at = new Map<Element, number>();
   const lanes = [...document.querySelectorAll<HTMLElement>("main [data-lane]")];
+  const pins = lanes.filter((l) => getComputedStyle(l).position === "sticky");
   const io = new IntersectionObserver(
     (entries) => {
       for (const e of entries) {
@@ -391,13 +426,16 @@ function inline() {
   );
   // Screens stay dark until their phone is seen, then wake on the first beat.
   for (const lane of lanes) {
+    if (pins.includes(lane)) continue;
     lane.querySelector<HTMLElement>("[data-stack]")!.dataset.live = "";
     io.observe(lane);
   }
+  const unpin = pins.map(pinned);
   const unhero = heroWhenSeen();
   return () => {
     io.disconnect();
     for (const f of stops.values()) f();
+    for (const f of unpin) f();
     unhero();
     for (const lane of lanes) {
       delete lane.dataset.play;

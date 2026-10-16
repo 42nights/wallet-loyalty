@@ -64,6 +64,14 @@
 .heroArt { position: relative; display: flex; justify-content: center; padding: 8px 0 30px; overflow-x: clip; }
 @media (min-width: 861px) { .heroArt { min-height: 600px; align-items: center; overflow-x: visible; } }
 .heroPhone { position: relative; z-index: 1; }
+/* Phone: tighter, so the phone's top already shows under the buttons on the
+   first screen, and the buttons share one row where they fit. */
+@media (max-width: 860px) {
+  .hero { gap: 16px; padding: 20px 0 48px; }
+  .heroText h1 { margin-bottom: 18px; }
+  .ctas { margin: 24px 0 14px; }
+  .ctas .cta { flex: 1 0 auto; padding-inline: 16px; text-align: center; }
+}
 
 /* The old way, lying on top of the new: a paper punch card over the phone's
    empty lower screen, clear of the QR code. `rotate` (not transform) holds the
@@ -82,12 +90,37 @@
 @media (min-width: 861px) { .section { padding: 96px 0; } }
 .section h2 {
   font-family: var(--display); font-weight: 800;
-  font-size: clamp(30px, 4.4vw, 48px); line-height: 1.02; letter-spacing: -.035em;
+  font-size: clamp(34px, 4.4vw, 48px); line-height: 1.02; letter-spacing: -.035em;
   margin: 0 0 16px; max-width: 18ch;
 }
 .sectionLede { color: var(--copy); font-size: 17px; line-height: 1.6; max-width: 60ch; margin: 0 0 32px; text-wrap: pretty; }
 .lane { position: relative; display: flex; justify-content: center; margin-top: 48px; }
 @media (max-width: 699px) { .lane > [data-slot] { zoom: .8; } }
+/* Under 1024px the phones sit in the page, so each gets a soft accent glow
+   behind it to lift it off the background. */
+@media (max-width: 1023px) {
+  .heroArt::before, .lane::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
+  }
+  .lane > [data-slot] { position: relative; z-index: 1; }
+}
+/* How it works under 1024px: the phone pins to the top of the screen and the
+   steps scroll up under it as cards, each playing on the phone while it is
+   read (Story.tsx). The fade at the lane's foot is where they slide under. */
+@media (max-width: 1023px) {
+  .pinned { display: grid; }
+  .pinned > :first-child { display: contents; }
+  .pinned > .lane {
+    grid-row: 2; position: sticky; top: 0; z-index: 2; margin: 0; padding: 16px 0 32px;
+    background: linear-gradient(var(--bg) calc(100% - 32px), transparent);
+  }
+  .pinned .steps { grid-row: 3; grid-template-columns: none; gap: 24vh; margin: 0; }
+  .pinned .steps li { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 18px 20px; }
+  .pinned .steps li::before { font-size: 44px; }
+}
+@media (max-width: 699px) { .pinned > .lane > [data-slot] { zoom: .6; } }
+@media (max-width: 699px) and (max-height: 640px) { .pinned > .lane > [data-slot] { zoom: .5; } }
 @media (min-width: 1024px) {
   /* The taller gap between story sections is where the travelling phone
      crosses to the other side, at 0.42 scale, clear of the copy. */
@@ -134,6 +167,16 @@
 .keys span { display: block; font-family: var(--display); font-weight: 700; font-size: 15px; }
 .keys small { display: block; color: var(--muted); font-family: var(--mono); font-size: 12px; margin-top: 4px; }
 @media (min-width: 1024px) { .keys { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Phone: the three sets swipe sideways, the next one peeking in. */
+@media (max-width: 699px) {
+  .templates {
+    grid-auto-flow: column; grid-auto-columns: 86%; overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; scroll-padding-inline: 16px; scrollbar-width: none;
+    margin-inline: -16px; padding-inline: 16px;
+  }
+  .templates::-webkit-scrollbar { display: none; }
+  .template { scroll-snap-align: start; }
+}
 
 /* owners */
 .owners { display: grid; gap: 40px; }
@@ -154,6 +197,9 @@
 .dashKpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .dashKpis b { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 32px); letter-spacing: -.03em; line-height: 1; }
 .panelNote { color: var(--muted); font-size: 12px; }
+/* Phone: the sample dashboard above already shows the owner view full width,
+   so the phone of the same screen is left out. */
+@media (max-width: 699px) { .owners + .lane { display: none; } }
 
 /* ---- why: paper vs app vs Wallet ----
    A mark and a few words per cell. The Wallet column is one tinted, outlined

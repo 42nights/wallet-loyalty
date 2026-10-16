@@ -194,7 +194,7 @@ export default async function Landing() {
           </div>
         </section>
 
-        <section id="how" className={`${s.section} ${s.scrolly} ${s.left}`}>
+        <section id="how" className={`${s.section} ${s.scrolly} ${s.left} ${s.pinned}`}>
           <div>
             <h2>Three steps, no app</h2>
             <ol className={s.steps}>
