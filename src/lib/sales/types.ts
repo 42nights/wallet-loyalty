@@ -7,7 +7,7 @@
 // admin_session cookie) and answers errors as {error: string}.
 //
 // GET    /api/admin/sales/leads?stage&assignee&sourced_by&source&segment&cluster
-//          &persona&city&state&has_phone=1&franchise=1&dnc=1&q&limit(≤200, 50)&offset
+//          &persona&city&state&has_phone=1&apollo=1&franchise=1&dnc=1&q&limit(≤200, 50)&offset
 //          → {total, leads: LeadListRow[]}. Do-not-contact leads are hidden
 //          unless dnc=1. assignee/sourced_by take a person id or "none"; city
 //          is the whole value in any case; q also searches city.
