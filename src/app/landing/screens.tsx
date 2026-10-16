@@ -111,6 +111,21 @@ export function LockScreen({ story, rest }: { story: Story; rest?: boolean }) {
   );
 }
 
+// ---- phones: the hero's cards without the phone around them ----
+// A stamp card in front of a points card, two shops, so both ways to earn and
+// the per-shop branding show at a glance.
+export function HeroCards({ story }: { story: Story }) {
+  const { cafe, diner, qr, updated } = story;
+  return (
+    <div className={s.fan}>
+      <div className={s.fanBack}>
+        <WalletCard name={diner.name} colors={diner.colors} points={420} updated={updated} qr={qr} />
+      </div>
+      <div className={s.fanFront}>{stampCard(cafe, qr, 7)}</div>
+    </div>
+  );
+}
+
 // ---- how it works ----
 export function HowScreens({ story }: { story: Story }) {
   const { cafe, qr, updated } = story;

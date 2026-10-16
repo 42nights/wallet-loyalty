@@ -409,3 +409,18 @@
 @media (prefers-reduced-motion: reduce) {
   .stack *, .stack *::before, .stack *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- phones: the hero's cards (HeroCards), fanned, no phone ----
+   WalletCard's own margin is for a phone screen, so it is zeroed here. On
+   load the two cards fan out from a stack. */
+.fan { position: relative; max-width: 320px; margin: 0 auto; padding: 44px 0 14px; }
+.fan > div { width: 72%; border-radius: 14px; box-shadow: 0 28px 48px -24px rgb(0 0 0 / .6); }
+.fan > div > * { margin: 0; }
+.fanBack { position: absolute; left: 6px; top: 8px; rotate: -8deg; }
+.fanFront { position: relative; margin-left: auto; rotate: 5deg; }
+@media (prefers-reduced-motion: no-preference) {
+  .fanBack { animation: fanBack 680ms var(--spring) 140ms both; }
+  .fanFront { animation: fanFront 680ms var(--spring) both; }
+}
+@keyframes fanBack { from { rotate: 0deg; translate: 40px 36px; } }
+@keyframes fanFront { from { rotate: 0deg; translate: 0 28px; opacity: 0; } }
